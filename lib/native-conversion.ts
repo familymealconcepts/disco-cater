@@ -24,7 +24,7 @@ import { evaluateMarketplaceReadiness } from './marketplace-visibility'
 import { readWalledFieldsForRestaurants, type FmWalledFieldsResult, readUserAssignment } from './fm-master-admin-read'
 import { fmLeadGenRates } from './fm-lead-gen'
 import { verifyAccountReusable } from './stripe-connect'
-import { syncRestaurantOrders } from './fm-orders-sync'
+import { syncRestaurantOrders, repairBareOrderDetail } from './fm-orders-sync'
 import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
@@ -81,11 +81,52 @@ async function hasUsableLogin(
 // long-lived restaurant's full history is captured; the sync stops early on the last
 // page. Items skipped (order-level only) to keep it fast. Gated into convertToNative.
 export async function backfillFmOrderHistory(ref: string): Promise<{
-  ok: boolean; fetched: number; inserted: number; updated: number; skipped: number; error?: string
+  ok: boolean; fetched: number; inserted: number; updated: number; skipped: number
+  bareRepaired?: number; bareRemaining?: number; error?: string
 }> {
   try {
     const r = await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 })
-    return { ok: !r.error, fetched: r.fetched, inserted: r.inserted, updated: r.updated, skipped: r.skipped, error: r.error }
+
+    // ── CONVERSION USED TO LEAVE ITS OWN BARE ORDERS BEHIND ──────────────────
+    // `withItems: false` is deliberate and stays: fetching per-order detail
+    // inline would add one FM round-trip per order, and Colonial Ranch Market
+    // alone has 4,660 — that is a conversion measured in hours, not minutes. So
+    // the backfill writes the PROVISIONAL FM_LIST sale transaction (subtotal and
+    // total, no per-component breakdown, no items) and leaves the detail to the
+    // hourly sweep.
+    //
+    // That was fine for one conversion at a time and false for a bulk run. On
+    // 2026-09-29 a 20-restaurant batch put 283 bare orders on native restaurants
+    // in a single afternoon — 102 at Colonial Ranch, 52 at Local Smoke BBQ Red
+    // Bank — and the check-bare-orders alert went from 15 to 288. The sweep does
+    // drain them (the previous day's batch left exactly one behind), but it is
+    // bounded to 20 per restaurant across 60 restaurants per hourly run, so a
+    // bulk conversion injects them far faster than they clear. In the meantime a
+    // real order at a real trading restaurant shows no items: #66714341 at Bagel
+    // Point - Brooklyn, $919.93, had nothing for the kitchen to read.
+    //
+    // Repairing here makes a conversion clean up after ITSELF rather than
+    // handing a backlog to a rate-limited cron. It is bounded (cap 500 — the
+    // largest real post-conversion bare count observed was 102), upcoming orders
+    // are repaired first and uncapped inside repairBareOrderDetail, and failure
+    // is non-fatal: the sweep remains the safety net it always was.
+    let bareRepaired = 0
+    let bareRemaining = 0
+    try {
+      const fix = await repairBareOrderDetail(ref, 500)
+      bareRepaired = fix.repaired
+      bareRemaining = Math.max(0, fix.bareBefore - fix.repaired)
+      if (fix.bareBefore > 0) {
+        console.log(`[backfillFmOrderHistory] ${ref}: repaired ${fix.repaired}/${fix.bareBefore} bare order(s) left by the backfill`)
+      }
+    } catch (e) {
+      console.error(`[backfillFmOrderHistory] ${ref}: bare-order repair failed (the hourly sweep will still pick these up):`, e instanceof Error ? e.message : e)
+    }
+
+    return {
+      ok: !r.error, fetched: r.fetched, inserted: r.inserted, updated: r.updated, skipped: r.skipped,
+      bareRepaired, bareRemaining, error: r.error,
+    }
   } catch (e) {
     return { ok: false, fetched: 0, inserted: 0, updated: 0, skipped: 0, error: e instanceof Error ? e.message : String(e) }
   }

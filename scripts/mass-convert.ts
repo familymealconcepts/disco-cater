@@ -89,9 +89,29 @@ async function main() {
   const imported = importLegacyMap(LEGACY_JSON, PROGRESS)
   if (imported) console.log(`carried ${imported} record(s) over from ${LEGACY_JSON}`)
   const done: Record<string, unknown> = readProgress(PROGRESS)
-  const todo = queue.filter(q => !done[q.ref])
+  // ── --retry-failed ─────────────────────────────────────────────────────────
+  // The skip-what-is-recorded filter is what makes a run restartable, but it
+  // also makes a FAILED restaurant permanently unreachable: its failure IS a
+  // record, so the retry queue comes back empty. The 2026-09-28 batch left 23
+  // restaurants in exactly that state — 22 of them failed on one transient
+  // `fetch failed` when the machine slept, and no later run would touch them.
+  // With this flag a ref whose LAST record did not convert re-enters the queue;
+  // one that converted still never does.
+  const retryFailed = process.argv.includes('--retry-failed')
+  const todo = queue.filter(q => {
+    const rec = done[q.ref] as { converted?: boolean } | undefined
+    if (!rec) return true
+    return retryFailed && rec.converted !== true
+  })
   console.log(`queue ${queue.length} | already recorded ${Object.keys(done).length} | this run ${Math.min(limit, todo.length)}`)
   const unresolvedStripe: string[] = []
+
+  // Tripwire budget — see the check after each restaurant is recorded.
+  const MAX_FAILURES = 5
+  const MAX_SAME_ERROR = 3
+  let failures = 0
+  let consecutive = 0
+  let lastReason: string | null = null
 
   let n = 0
   for (const q of todo) {
@@ -162,6 +182,38 @@ async function main() {
     rec.seconds = Number(((Date.now() - t0) / 1000).toFixed(1))
     done[q.ref] = rec
     appendProgress(PROGRESS, { ...rec, ref: q.ref })
+
+    // ── IN-PROCESS FAILURE TRIPWIRE ─────────────────────────────────────────
+    // The previous run's tripwire was an external watcher, so when the ssh
+    // connection died the watcher died with it and the run kept going unattended
+    // — 20 consecutive `fetch failed` failures accumulated against a database
+    // that was simply unreachable, and every one of those restaurants was
+    // recorded as failed for a reason that had nothing to do with it. A tripwire
+    // that lives in the run itself cannot be separated from the run.
+    //
+    // Two independent conditions, either of which stops it: a total failure
+    // budget, and a same-error streak. The streak is the one that catches an
+    // environment that has gone away, because that failure is identical every
+    // time.
+    if (rec.converted === true) {
+      consecutive = 0
+      lastReason = null
+    } else {
+      failures++
+      const reason = String(rec.reason ?? '').slice(0, 80)
+      consecutive = reason === lastReason ? consecutive + 1 : 1
+      lastReason = reason
+      if (failures >= MAX_FAILURES || consecutive >= MAX_SAME_ERROR) {
+        const why = failures >= MAX_FAILURES
+          ? `${failures} failures reached the budget of ${MAX_FAILURES}`
+          : `the same error repeated ${consecutive}x consecutively: ${reason}`
+        console.error(`\n\u2715 TRIPWIRE: ${why}`)
+        console.error('  Stopping rather than continuing. Nothing after this point was attempted.')
+        appendProgress(PROGRESS, { ref: '__tripwire__', stoppedAfter: n, failures, consecutive, reason, at: new Date().toISOString() })
+        console.error(`\nattempted ${n} | converted ${n - failures} | failed ${failures}`)
+        process.exit(2)
+      }
+    }
     console.log(
       String(n).padStart(3) + '.',
       String(q.name).slice(0, 30).padEnd(32),
