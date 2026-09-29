@@ -442,6 +442,8 @@ export interface ConversionResult {
   promoCodes?: PromoCodesCarryOverResult
   profileFields?: ProfileFieldsCarryOverResult
   taxRates?: TaxRatesCarryOverResult
+  /** Carried INDEPENDENTLY of taxRates — see carryOverLeadGen's header. */
+  leadGen?: LeadGenCarryOverResult
   // Structural, not optional-to-skip: the runbook's Tier-1 checklist calls for
   // a before/after order-count-and-revenue comparison, and it was missed on
   // the first real batch (Atlanta Bread) because nothing forced it to be
@@ -1140,6 +1142,65 @@ export async function carryOverClosedDays(ref: string, walled?: FmWalledFieldsRe
 // conversion time, the same way the other two carry-overs do — using the same
 // shape mirrorTaxRates already writes (JSON passthrough, no separate flag
 // column; the settings gate already reads this value directly).
+export interface LeadGenCarryOverResult {
+  carried: boolean
+  reason: string
+  one?: number | null
+  two?: number | null
+}
+
+/**
+ * Carry FamilyMeal's lead-gen rates across. INDEPENDENT OF THE TAX CARRY-OVER.
+ *
+ * This used to live INSIDE carryOverTaxRates, below two early returns — one for
+ * "no master-password read available", one for "FM's tax object has no numeric
+ * percent". Either of those returned before the lead-gen block was reached, so a
+ * failed TAX read silently left the restaurant on Disco's 15/5 new-restaurant
+ * defaults while FamilyMeal charged something else entirely.
+ *
+ * The 2026-09-24 batch proved the coupling exactly: of 54 conversions, 8 had a
+ * lead-gen disagreement with FM and all 8 were the same 8 that logged a tax
+ * warning — none outside that set. Two of them, Crispy Karma and The Onion Tree
+ * - Sea Cliff, hold an explicit 0/0 in FM, so Disco was set to take 15% and 5%
+ * on restaurants FamilyMeal charges nothing.
+ *
+ * Tax and lead gen are unrelated facts that happen to be read from the same
+ * admin session, so they are now carried separately and one cannot suppress the
+ * other. Failure here is still non-fatal — the rates are left exactly as-is
+ * rather than guessed — but it is now REPORTED instead of invisible.
+ *
+ * WHY IT IS CARRIED AT ALL. Conversion copies FamilyMeal's data; it does not set
+ * defaults. lead_gen_one_pct / lead_gen_two_pct carry DEFAULT 15 / DEFAULT 5, so
+ * without this every converted restaurant silently inherited Disco's
+ * NEW-restaurant rates — 186 of 188 ended up differing from FM, every one of
+ * them charging more.
+ *
+ * WHY A NULL RATE IS STILL CARRIED. A null in FM is not "no value": FM's own
+ * charge-time code resolves null to zero (Objects.requireNonNullElse(..., 0) in
+ * applyDiscoLeadGenFees), so zero IS FM's rate and carrying it is carrying FM.
+ * Only a restaurant FamilyMeal has never heard of (fmHasRecord false) keeps
+ * Disco's new-restaurant defaults.
+ */
+export async function carryOverLeadGen(ref: string): Promise<LeadGenCarryOverResult> {
+  try {
+    const lg = await fmLeadGenRates(ref)
+    if (!lg.fmHasRecord) {
+      return { carried: false, reason: 'FamilyMeal has no record for this restaurant — Disco defaults are correct, nothing to carry.' }
+    }
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct, updated_at)
+      VALUES (${ref}, ${lg.one}, ${lg.two}, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET
+        lead_gen_one_pct = COALESCE(${lg.one}, disco_restaurant_overrides.lead_gen_one_pct),
+        lead_gen_two_pct = COALESCE(${lg.two}, disco_restaurant_overrides.lead_gen_two_pct),
+        updated_at = NOW()
+    `
+    return { carried: true, reason: `Carried FamilyMeal's lead-gen rates (${lg.one ?? 'null'}/${lg.two ?? 'null'}).`, one: lg.one, two: lg.two }
+  } catch (e) {
+    return { carried: false, reason: `Lead-gen carry-over failed (rates left as-is): ${e instanceof Error ? e.message : e}` }
+  }
+}
+
 export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResult): Promise<TaxRatesCarryOverResult> {
   if (!walled?.ok || !walled.taxRate) {
     return { carried: false, reason: walled?.reason || 'No master-password read available for tax rates.' }
@@ -1171,32 +1232,6 @@ export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResu
     ON CONFLICT (restaurant_reference) DO UPDATE SET tax_rates = ${JSON.stringify(walled.taxRate)}::jsonb, updated_at = NOW()
   `
 
-  // ── CARRY FM'S LEAD-GEN RATES, alongside its tax rates ────────────────────
-  // Conversion copies FamilyMeal's data; it does not set defaults. These columns
-  // carry DEFAULT 15 / DEFAULT 5, so without this every converted restaurant
-  // inherited Disco's NEW-restaurant rates. 186 of 188 ended up differing from
-  // FM, every one of them charging more.
-  //
-  // Written whenever FamilyMeal has a record of the restaurant. A null rate
-  // there is not "no value": FM's own charge-time code resolves null to zero
-  // (Objects.requireNonNullElse(..., 0) in applyDiscoLeadGenFees), so zero IS
-  // FM's rate and carrying it is carrying FM. Only a restaurant FamilyMeal has
-  // never heard of keeps Disco's new-restaurant defaults.
-  try {
-    const lg = await fmLeadGenRates(ref)
-    if (lg.fmHasRecord) {
-      await sql`
-        INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct, updated_at)
-        VALUES (${ref}, ${lg.one}, ${lg.two}, NOW())
-        ON CONFLICT (restaurant_reference) DO UPDATE SET
-          lead_gen_one_pct = COALESCE(${lg.one}, disco_restaurant_overrides.lead_gen_one_pct),
-          lead_gen_two_pct = COALESCE(${lg.two}, disco_restaurant_overrides.lead_gen_two_pct),
-          updated_at = NOW()
-      `
-    }
-  } catch (e) {
-    console.error('[convertToNative] lead-gen carry failed (non-fatal, rates left as-is):', ref, e instanceof Error ? e.message : e)
-  }
   // The EFFECTIVE rate, not the state percent. Reporting "(state 0%)" for
   // Tenkatori Sawtelle's real 9.75% is how this stayed invisible.
   return { carried: true, reason: `Carried over real tax rates (effective ${effectiveTaxPercent(walled.taxRate)}% — state + local + other) via master-password admin session.` }
@@ -1574,6 +1609,17 @@ export async function convertToNative(
     console.error(`[convertToNative] ${reason}`)
     taxRates = { carried: false, reason }
   }
+  // Runs whatever the tax step did — see carryOverLeadGen's header.
+  let leadGen: LeadGenCarryOverResult
+  try {
+    leadGen = await carryOverLeadGen(readiness.restaurantReference)
+  } catch (e) {
+    leadGen = { carried: false, reason: `Lead-gen carry-over step threw: ${e instanceof Error ? e.message : e}` }
+  }
+  if (!leadGen.carried) {
+    console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} lead-gen NOT carried from FamilyMeal: ${leadGen.reason}`)
+  }
+
   if (!taxRates.carried) {
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real tax rates carried over: ${taxRates.reason}`)
   }
@@ -1669,7 +1715,7 @@ export async function convertToNative(
 
   return {
     converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive },
-    invite, authorizedUserInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates,
+    invite, authorizedUserInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates, leadGen,
     orderStats: { before: orderStatsBefore, after: orderStatsAfter },
     multiUnitLink,
   }
