@@ -48,7 +48,8 @@ export async function GET() {
                c.name AS "businessName",
                c.slug AS "businessNameWithoutSpaces",
                CASE WHEN a.email LIKE 'stripe-import+%' THEN NULL ELSE a.email END AS "adminEmail",
-               NULLIF(TRIM(CONCAT(a.first_name, ' ', a.last_name)), '') AS "adminName",
+               CASE WHEN a.email LIKE 'stripe-import+%' THEN NULL
+                    ELSE NULLIF(TRIM(CONCAT(a.first_name, ' ', a.last_name)), '') END AS "adminName",
                COALESCE(a.created_at, c.cached_at) AS "createdAtRaw",
                (${sql.unsafe(stripeReadySql('o'))}) AS "stripeConnected",
                COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",

@@ -86,7 +86,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // lat/lng/cuisine/description/image load separately from the restaurant-cache GET.
   if (await isCurrentlyNative(ref)) {
     try {
-      const acc = (await sql`SELECT first_name, last_name, email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      // NEVER SURFACE THE STRIPE-IMPORT SENTINEL AS THE ADMIN CONTACT.
+      // importRestaurantStripeAccount creates a login-disabled holder row
+      // (stripe-import+{ref}@familymeal.com) purely to carry a Stripe account id.
+      // It is not a person, and `LIMIT 1` with no ordering was picking it: 148
+      // restaurants have ONLY a sentinel, so this dialog showed them
+      // "stripe-import+caec6029-…@familymeal.com" as the admin's email address.
+      // Ordered so a real account always wins when one exists, and the row is
+      // left in place — it still holds the Stripe connection.
+      const acc = (await sql`
+        SELECT first_name, last_name, email FROM disco_restaurant_accounts
+        WHERE restaurant_reference = ${ref}
+          AND email NOT LIKE 'stripe-import+%'
+          AND archived_at IS NULL
+        ORDER BY id ASC
+        LIMIT 1
+      `) as Array<Record<string, unknown>>
       const cache = (await sql`SELECT name, slug, address, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
