@@ -35,20 +35,33 @@ export const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   return out
 })()
 
+// Whole-hour options only — for pickers whose consumer cannot act on minutes.
+export const HOUR_OPTIONS: { value: string; label: string }[] =
+  TIME_OPTIONS.filter(o => o.value.endsWith(':00'))
+
 // Time picker as a 15-minute-interval dropdown (value + onChange use "HH:mm").
 // An off-grid current value (e.g. a legacy "11:20") stays selectable so loading
 // never blanks or silently changes it.
-export function TimeSelect({ value, onChange, style }: {
+//
+// hourOnly restricts the list to whole hours. Scheduled reports use it because
+// the cron that sends them runs hourly: a stored 08:56 can only ever fire at
+// 08:00, and one live report is saved exactly that way. Offering a minute the
+// system will discard is an interface that lies, so it stops being offered.
+// An existing off-grid value is still shown (rounded down, with a note in the
+// form) rather than silently blanked.
+export function TimeSelect({ value, onChange, style, hourOnly }: {
   value: string
   onChange: (v: string) => void
   style?: React.CSSProperties
+  hourOnly?: boolean
 }) {
   const v = normalizeTime(value)
-  const opts = !v || TIME_OPTIONS.some(o => o.value === v)
-    ? TIME_OPTIONS
+  const BASE = hourOnly ? HOUR_OPTIONS : TIME_OPTIONS
+  const opts = !v || BASE.some(o => o.value === v)
+    ? BASE
     // An off-grid legacy value keeps its slot, but is LABELLED in 12-hour form
     // like every other option rather than shown raw as "11:20".
-    : [{ value: v, label: formatTime12(v) }, ...TIME_OPTIONS]
+    : [{ value: v, label: formatTime12(v) }, ...BASE]
   return (
     <select value={v} onChange={e => onChange(e.target.value)} style={style}>
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

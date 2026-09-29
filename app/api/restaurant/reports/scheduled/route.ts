@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
+import { normalizeSchedule } from '../../../../../lib/reports/schedule-normalize'
 import { sanitizeReportFilter } from '../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
 
 export async function GET(req: NextRequest) {
   // Disco-native: the user's scheduled reports from Neon (was FM → 401).
@@ -30,7 +32,9 @@ export async function GET(req: NextRequest) {
     if (!scope) return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size })
     const total = ((await sql`SELECT count(*)::int AS n FROM disco_scheduled_reports WHERE restaurant_reference = ${scope}::uuid`) as { n: number }[])[0]?.n ?? 0
     const rows = (await sql`
-      SELECT reference, name, frequency, time, timezone
+      SELECT reference, name, frequency, time, timezone, file_type,
+             weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
+             columns, recipients, filter, active
       FROM disco_scheduled_reports WHERE restaurant_reference = ${scope}::uuid
       ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
@@ -77,15 +81,18 @@ export async function POST(req: NextRequest) {
     const owners = Array.isArray(body?.ownerReferences) && body.ownerReferences.length ? body.ownerReferences.map(String) : [scope]
     const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     await runDiscoOrderMigrations()
+    const sched = normalizeSchedule(body)
     const rows = (await sql`
       INSERT INTO disco_scheduled_reports (
         restaurant_reference, name, frequency, time, timezone, file_type,
+        weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
         columns, recipients, owner_references, filter, created_by
       ) VALUES (
         ${scope}::uuid, ${name},
-        ${body?.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY'},
-        ${String(body?.time || '09:00')}, ${String(body?.timezone || 'America/New_York')},
+        ${sched.frequency}, ${sched.time}, ${sched.timezone},
         ${body?.fileType === 'PDF' ? 'PDF' : 'CSV'},
+        ${sched.weekday}, ${sched.dayOfMonth}, ${sched.rangeType}, ${sched.rangeDays},
+        ${sched.autoTidy}, ${sched.fanOut},
         ${JSON.stringify(body?.columns ?? [])}::jsonb, ${JSON.stringify(body?.recipients ?? [])}::jsonb,
         ${JSON.stringify(owners)}::jsonb, ${JSON.stringify(filter)}::jsonb, ${ctx.email}
       ) RETURNING reference

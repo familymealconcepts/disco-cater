@@ -8,6 +8,8 @@ import {
   ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
   subsidyShouldShow, reconcileRow, type OrderReportRow,
 } from './order-report-rows'
+import { resolvePeriod, type PeriodSpec, type Frequency } from './report-period'
+import { getColumnPresence, NEVER_HIDE } from './column-presence'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
 
@@ -49,9 +51,21 @@ export interface ReportFilter {
 }
 export interface ScheduledReportConfig {
   name: string
-  frequency: 'WEEKLY' | 'MONTHLY'
-  time: string          // 'HH:MM'
+  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  time: string          // 'HH:MM' — the cron is hourly, so only HH is honoured
   timezone: string
+  /** WEEKLY: 0=Sun..6=Sat. Null means Monday, matching every pre-existing report. */
+  weekday?: number | null
+  /** MONTHLY: 1..28 or 'LAST'. Null means the 1st. */
+  dayOfMonth?: string | number | null
+  rangeType?: string | null
+  rangeDays?: number | null
+  /**
+   * Re-evaluate the empty-column set on every send, instead of keeping the
+   * columns the restaurant chose. OFF by default: a report whose shape changes
+   * on its own is the flicker this feature was asked to avoid.
+   */
+  autoTidy?: boolean
   columns: string[]
   // The report's own restaurant — the base scope for the disco_orders query.
   // (`ownerReferences` is FM-parity owner metadata — the creating USER's ref —
@@ -65,13 +79,24 @@ type OrderRow = Record<string, unknown>
 const csvCell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
 const money = (v: unknown) => (v == null ? '' : Number(v).toFixed(2))
 
-// The [from, to] the report covers, ending now: weekly = last 7 days, monthly =
-// last calendar month-ish (30 days). Returned as ISO dates.
-export function reportPeriod(frequency: string, now: Date): { from: string; to: string } {
-  const to = now.toISOString().slice(0, 10)
-  const days = frequency === 'MONTHLY' ? 31 : 7
-  const from = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10)
-  return { from, to }
+/**
+ * The [from, to] a report covers. Delegates to lib/reports/report-period.ts,
+ * which computes it in the report's OWN timezone, ends it at yesterday, and
+ * makes "monthly" the previous calendar month. See that file for the three
+ * defects this replaced — all of which affected every report sent to date.
+ *
+ * The old signature (frequency, now) is kept working for any caller that has
+ * not been passed a full spec yet; it resolves to PREVIOUS_PERIOD in the
+ * default timezone, which is what those callers already meant.
+ */
+export function reportPeriod(
+  frequencyOrSpec: string | PeriodSpec,
+  now: Date,
+): { from: string; to: string } {
+  const spec: PeriodSpec = typeof frequencyOrSpec === 'string'
+    ? { frequency: (frequencyOrSpec as Frequency) || 'WEEKLY', timezone: 'America/New_York', rangeType: 'PREVIOUS_PERIOD' }
+    : frequencyOrSpec
+  return resolvePeriod(spec, now)
 }
 
 // Money keys come from the SHARED column set, so a column added there formats as
@@ -126,6 +151,28 @@ async function fetchReportRows(
   }
   // Only ever offer Location when the report genuinely spans several.
   if (new Set(rows.map(r => r.location)).size <= 1) useCols = useCols.filter(k => k !== 'location')
+
+  // ── OPTIONAL AUTO-TIDY ────────────────────────────────────────────────────
+  // OFF by default. When a restaurant has explicitly asked for it, drop the
+  // columns proven empty over a 12-MONTH look-back — deliberately not over the
+  // report's own period, which is what would make a column flicker in and out
+  // between a month with one third-party order and a month without.
+  //
+  // getColumnPresence keeps NULL separate from 0, so a field FamilyMeal never
+  // sent (Stripe fee, chiefly) reads as unjudgeable and is kept. NEVER_HIDE and
+  // the minimum-evidence bar do the rest.
+  if (cfg.autoTidy) {
+    try {
+      const presence = await getColumnPresence(scopeRefs)
+      if (presence.judged) {
+        const drop = new Set(presence.empty.filter(k => !NEVER_HIDE.has(k) && k !== ALWAYS_INCLUDED))
+        if (drop.size) useCols = useCols.filter(k => !drop.has(k))
+      }
+    } catch (e) {
+      // Never fail a send over a cosmetic decision — keep every column.
+      console.error('[buildReport] auto-tidy presence lookup failed; sending the full column set:', e instanceof Error ? e.message : e)
+    }
+  }
 
   return { rows, useCols, totals: totalsRow(rows) }
 }
@@ -280,30 +327,7 @@ export async function buildReport(
   return { body: csv || 'No data for this period.', contentType: 'text/csv', ext: 'csv', rowCount }
 }
 
-// Local wall-clock parts (weekday 0=Sun..6=Sat, day-of-month, hour) in a timezone.
-function localParts(now: Date, timezone: string): { weekday: number; day: number; hour: number } {
-  const tz = timezone || 'America/New_York'
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', day: 'numeric', hour: 'numeric', hour12: false }).formatToParts(now)
-  const get = (t: string) => parts.find(p => p.type === t)?.value || ''
-  const WD: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
-  return { weekday: WD[get('weekday')] ?? 0, day: Number(get('day')) || 1, hour: (Number(get('hour')) % 24) || 0 }
-}
-
-// Is the report due at `now`? Fires WEEKLY on Mondays / MONTHLY on the 1st, at the
-// configured hour in its timezone. `lastRunAt` guards against a same-day re-fire
-// (the cron runs hourly). No explicit day in the payload → Monday / 1st.
-export function isReportDue(
-  report: { frequency: string; time: string; timezone: string; last_run_at: string | Date | null },
-  now: Date,
-): boolean {
-  const targetHour = Number(String(report.time || '09:00').split(':')[0]) || 0
-  const { weekday, day, hour } = localParts(now, report.timezone)
-  if (hour !== targetHour) return false
-  const dayMatch = report.frequency === 'MONTHLY' ? day === 1 : weekday === 1
-  if (!dayMatch) return false
-  if (report.last_run_at) {
-    const since = now.getTime() - new Date(report.last_run_at).getTime()
-    if (since < 20 * 3600 * 1000) return false // already ran this occurrence
-  }
-  return true
-}
+// Scheduling now lives in report-period.ts alongside the window maths, because
+// the two have to agree about what "the restaurant's Monday" means. Re-exported
+// so existing importers (the cron, the tests) are unchanged.
+export { isReportDue } from './report-period'

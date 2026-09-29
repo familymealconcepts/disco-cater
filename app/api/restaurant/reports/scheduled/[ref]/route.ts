@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../lib/restaurant-auth-context'
+import { normalizeSchedule } from '../../../../../../lib/reports/schedule-normalize'
 import { sanitizeReportFilter } from '../../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
@@ -21,6 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     if (!scope) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const rows = (await sql`
       SELECT reference, name, frequency, time, timezone, file_type AS "fileType",
+             weekday, day_of_month AS "dayOfMonth", range_type AS "rangeType",
+             range_days AS "rangeDays", auto_tidy AS "autoTidy", fan_out AS "fanOut",
              columns, recipients, owner_references AS "ownerReferences", filter
       FROM disco_scheduled_reports WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid LIMIT 1
     `) as Record<string, unknown>[]
@@ -55,13 +58,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     const scope = await resolveDiscoScopeRef(ctx)
     if (!scope) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
+    const sched = normalizeSchedule(body)
     const rows = (await sql`
       UPDATE disco_scheduled_reports SET
         name = COALESCE(NULLIF(${String(body?.name || '')}, ''), name),
-        frequency = ${body?.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY'},
-        time = ${String(body?.time || '09:00')},
-        timezone = ${String(body?.timezone || 'America/New_York')},
+        frequency = ${sched.frequency},
+        time = ${sched.time},
+        timezone = ${sched.timezone},
         file_type = ${body?.fileType === 'PDF' ? 'PDF' : 'CSV'},
+        weekday = ${sched.weekday},
+        day_of_month = ${sched.dayOfMonth},
+        range_type = ${sched.rangeType},
+        range_days = ${sched.rangeDays},
+        auto_tidy = ${sched.autoTidy},
+        fan_out = ${sched.fanOut},
         columns = ${JSON.stringify(body?.columns ?? [])}::jsonb,
         recipients = ${JSON.stringify(body?.recipients ?? [])}::jsonb,
         owner_references = ${JSON.stringify(body?.ownerReferences ?? [])}::jsonb,

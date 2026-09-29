@@ -21,6 +21,13 @@ interface ScheduledReport {
   frequency: string
   time: string
   timezone: string
+  weekday?: number | null
+  day_of_month?: string | null
+  range_type?: string | null
+  range_days?: number | null
+  auto_tidy?: boolean
+  fan_out?: boolean
+  [k: string]: unknown
 }
 
 interface ReportRun {
@@ -38,9 +45,15 @@ interface ReportColumn { category: string; key: string; displayLabel: string }
 interface ReportPayload {
   reference?: string
   name?: string
-  frequency: 'WEEKLY' | 'MONTHLY'
+  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY'
   time: string
   timezone: string
+  weekday: number
+  dayOfMonth: string
+  rangeType: string
+  rangeDays: number
+  autoTidy: boolean
+  fanOut: boolean
   fileType: 'CSV' | 'PDF'
   columns: string[]
   recipients: string[]
@@ -52,6 +65,56 @@ interface ReportPayload {
     deliveryTypes: string[]
     locationReferenceIds: string[]
   }
+}
+
+const WEEKDAYS = [
+  { value: 1, label: 'Monday' }, { value: 2, label: 'Tuesday' }, { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' }, { value: 5, label: 'Friday' }, { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
+]
+
+// Capped at 28 so a monthly report can never skip a February.
+const MONTH_DAYS = [
+  ...Array.from({ length: 28 }, (_, i) => ({ value: String(i + 1), label: `Day ${i + 1}` })),
+  { value: 'LAST', label: 'Last day of month' },
+]
+
+const RANGE_OPTIONS = [
+  { value: 'PREVIOUS_PERIOD', label: 'Previous complete period (recommended)' },
+  { value: 'LAST_7_DAYS', label: 'Last 7 days' },
+  { value: 'LAST_14_DAYS', label: 'Last 14 days' },
+  { value: 'LAST_30_DAYS', label: 'Last 30 days' },
+  { value: 'LAST_90_DAYS', label: 'Last 90 days' },
+  { value: 'MONTH_TO_DATE', label: 'Month to date' },
+  { value: 'QUARTER_TO_DATE', label: 'Quarter to date' },
+  { value: 'YEAR_TO_DATE', label: 'Year to date' },
+  { value: 'ROLLING_N_DAYS', label: 'Rolling N days…' },
+]
+
+// What "Previous complete period" resolves to, shown inline so the choice is
+// never ambiguous. Every window ends YESTERDAY — a scheduled report never
+// reports on a day still in progress.
+function describePrevious(freq: string): string {
+  if (freq === 'DAILY') return 'Yesterday'
+  if (freq === 'MONTHLY') return 'The previous calendar month'
+  return 'The previous complete week (Mon–Sun)'
+}
+
+// Row-level summaries for the list table.
+function describeFrequency(r: Record<string, unknown>): string {
+  const f = String(r.frequency || 'WEEKLY').toUpperCase()
+  if (f === 'DAILY') return 'Daily'
+  if (f === 'MONTHLY') {
+    const d = String(r.day_of_month ?? r.dayOfMonth ?? '1')
+    return d.toUpperCase() === 'LAST' ? 'Monthly (last day)' : `Monthly (day ${d})`
+  }
+  const w = r.weekday == null ? 1 : Number(r.weekday)
+  return `Weekly (${WEEKDAYS.find(d => d.value === w)?.label ?? 'Monday'})`
+}
+function rangeLabelOf(r: Record<string, unknown>): string {
+  const rt = String(r.range_type ?? r.rangeType ?? 'PREVIOUS_PERIOD')
+  if (rt === 'ROLLING_N_DAYS') return `Last ${Number(r.range_days ?? r.rangeDays ?? 30)} days`
+  return RANGE_OPTIONS.find(o => o.value === rt)?.label.replace(' (recommended)', '') ?? 'Previous complete period'
 }
 
 const TIMEZONES = [
@@ -147,6 +210,12 @@ function emptyReport(): ReportPayload {
   return {
     name: '',
     frequency: 'WEEKLY',
+    weekday: 1,
+    dayOfMonth: '1',
+    rangeType: 'PREVIOUS_PERIOD',
+    rangeDays: 30,
+    autoTidy: false,
+    fanOut: false,
     time: `${hh}:${mm}`,
     timezone: 'America/New_York',
     fileType: 'CSV',
@@ -214,6 +283,7 @@ function ScheduledTab({ onEdit, onCreate }: { onEdit: (r: ReportPayload) => void
             <tr>
               <th style={colHead}>Name</th>
               <th style={colHead}>Frequency</th>
+              <th style={colHead}>Range</th>
               <th style={colHead}>Time</th>
               <th style={colHead}>Timezone</th>
               <th style={{ ...colHead, textAlign: 'right', width: 210 }}>Actions</th>
@@ -225,7 +295,8 @@ function ScheduledTab({ onEdit, onCreate }: { onEdit: (r: ReportPayload) => void
             {!loading && reports.map(r => (
               <tr key={r.reference}>
                 <td style={cell}>{r.name}</td>
-                <td style={cell}>{r.frequency}</td>
+                <td style={cell}>{describeFrequency(r)}</td>
+                <td style={{ ...cell, color: '#666' }}>{rangeLabelOf(r)}</td>
                 <td style={cell}>{fmtTime12(r.time)}</td>
                 <td style={{ ...cell, color: '#666' }}>{r.timezone}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
@@ -248,7 +319,13 @@ function normalizeIncoming(r: Record<string, unknown>): ReportPayload {
   return {
     reference: (r.reference as string) || undefined,
     name: (r.name as string) || '',
-    frequency: ((r.frequency as 'WEEKLY' | 'MONTHLY') || 'WEEKLY'),
+    frequency: ((r.frequency as 'DAILY' | 'WEEKLY' | 'MONTHLY') || 'WEEKLY'),
+    weekday: r.weekday == null ? 1 : Number(r.weekday),
+    dayOfMonth: String(r.dayOfMonth ?? r.day_of_month ?? '1'),
+    rangeType: String(r.rangeType ?? r.range_type ?? 'PREVIOUS_PERIOD'),
+    rangeDays: Number(r.rangeDays ?? r.range_days ?? 30) || 30,
+    autoTidy: (r.autoTidy ?? r.auto_tidy) === true,
+    fanOut: (r.fanOut ?? r.fan_out) === true,
     time: (r.time as string) || '09:00',
     timezone: (r.timezone as string) || 'America/New_York',
     fileType: ((r.fileType as 'CSV' | 'PDF') || 'CSV'),
@@ -500,6 +577,47 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
     if (!form.reference && (res.status === 400 || res.status === 403 || res.status === 409)) loadRestaurantRef()
   }
 
+  // ── BASIC PRESET ──────────────────────────────────────────────────────────
+  // Asks the server which columns actually carry data over a 12-month look-back
+  // and selects those. It only ever SETS the checkboxes — the restaurant sees
+  // the result and can change it, and what is saved is a plain column list, so
+  // the report's shape never moves on its own afterwards.
+  const [presetBusy, setPresetBusy] = useState(false)
+  const [presetNote, setPresetNote] = useState('')
+  async function applyBasicPreset() {
+    setPresetBusy(true)
+    setPresetNote('')
+    try {
+      const res = await fetch('/api/restaurant/reports/column-presence', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ filter: { locationReferenceIds: form.filter.locationReferenceIds } }),
+      })
+      if (!res.ok) { setPresetNote('Could not check your data just now — every column is still selected.'); return }
+      const d = await res.json()
+      setForm(f => ({ ...f, columns: d.suggested as string[] }))
+      if (!d.judged) {
+        setPresetNote(`Only ${d.orders} order${d.orders === 1 ? '' : 's'} in the last ${d.lookbackMonths} months — too few to tell which columns you use, so all of them are selected. Try again once you have at least ${d.minOrders}.`)
+      } else {
+        const dropped = (d.dropped as { label: string }[]).map(x => x.label)
+        const unknown = (d.unknown as { label: string }[]).map(x => x.label)
+        const parts: string[] = []
+        parts.push(dropped.length
+          ? `Left out ${dropped.length} column${dropped.length === 1 ? '' : 's'} with no data in the last ${d.lookbackMonths} months: ${dropped.join(', ')}.`
+          : `Every column has data in the last ${d.lookbackMonths} months, so nothing was left out.`)
+        if (unknown.length) {
+          parts.push(`Kept ${unknown.join(', ')} — some of that data is missing rather than zero, so we cannot tell whether you use it.`)
+        }
+        parts.push(`Based on ${d.orders} orders, ${d.from} to ${d.to}. You can change any of these.`)
+        setPresetNote(parts.join(' '))
+      }
+    } catch {
+      setPresetNote('Could not check your data just now — every column is still selected.')
+    } finally {
+      setPresetBusy(false)
+    }
+  }
+
   const grouped = groupByCategory(columns)
 
   return (
@@ -514,16 +632,35 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
           <input style={inputSt} value={form.name || ''} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         </Field>
 
-        {/* Frequency + Time + Timezone row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+        {/* Frequency + the day it fires + Time + Timezone */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 4 }}>
           <Field label="Frequency*">
-            <select style={inputSt} value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value as 'WEEKLY' | 'MONTHLY' }))}>
+            <select style={inputSt} value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value as 'DAILY' | 'WEEKLY' | 'MONTHLY' }))}>
+              <option value="DAILY">Daily</option>
               <option value="WEEKLY">Weekly</option>
               <option value="MONTHLY">Monthly</option>
             </select>
           </Field>
+          {form.frequency === 'WEEKLY' ? (
+            <Field label="Send on*">
+              <select style={inputSt} value={String(form.weekday)} onChange={e => setForm(f => ({ ...f, weekday: Number(e.target.value) }))}>
+                {WEEKDAYS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+            </Field>
+          ) : form.frequency === 'MONTHLY' ? (
+            <Field label="Send on*">
+              <select style={inputSt} value={form.dayOfMonth} onChange={e => setForm(f => ({ ...f, dayOfMonth: e.target.value }))}>
+                {MONTH_DAYS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+            </Field>
+          ) : (
+            <Field label="Send on">
+              <div style={{ ...inputSt, color: '#777', display: 'flex', alignItems: 'center' }}>Every day</div>
+            </Field>
+          )}
           <Field label="Delivery time*">
-            <TimeSelect style={inputSt} value={form.time} onChange={v => setForm(f => ({ ...f, time: v }))} />
+            {/* hourOnly: the cron runs hourly, so minutes could never be honoured. */}
+            <TimeSelect style={inputSt} hourOnly value={form.time} onChange={v => setForm(f => ({ ...f, time: v }))} />
           </Field>
           <Field label="Timezone*">
             <select style={inputSt} value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>
@@ -531,6 +668,32 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
             </select>
           </Field>
         </div>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
+          Reports send on the hour, in the timezone you choose.
+        </p>
+
+        {/* Date range covered */}
+        <div style={{ display: 'grid', gridTemplateColumns: form.rangeType === 'ROLLING_N_DAYS' ? '2fr 1fr' : '1fr', gap: 12, marginBottom: 4 }}>
+          <Field label="Date range covered*">
+            <select style={inputSt} value={form.rangeType} onChange={e => setForm(f => ({ ...f, rangeType: e.target.value }))}>
+              {RANGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </Field>
+          {form.rangeType === 'ROLLING_N_DAYS' && (
+            <Field label="Days*">
+              <input
+                style={inputSt} type="number" min={1} max={400} value={form.rangeDays}
+                onChange={e => setForm(f => ({ ...f, rangeDays: Math.min(400, Math.max(1, Number(e.target.value) || 30)) }))}
+              />
+            </Field>
+          )}
+        </div>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#777' }}>
+          {form.rangeType === 'PREVIOUS_PERIOD'
+            ? `${describePrevious(form.frequency)}. `
+            : ''}
+          Every range ends yesterday, so a report never contains a day that is still in progress.
+        </p>
 
         {/* File type */}
         <Field label="File type*">
@@ -570,8 +733,18 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
           )}
         </Field>
 
-        {/* Locations */}
-        <Field label="Restaurants (leave empty for all)">
+        {/* Locations — one, several, or all */}
+        <Field label={`Restaurants (${form.filter.locationReferenceIds.length || locations.length} of ${locations.length} selected)`}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button
+              type="button" style={secondaryBtn}
+              onClick={() => setForm(f => ({ ...f, filter: { ...f.filter, locationReferenceIds: locations.map(l => l.reference) } }))}
+            >Select all</button>
+            <button
+              type="button" style={secondaryBtn}
+              onClick={() => setForm(f => ({ ...f, filter: { ...f.filter, locationReferenceIds: [] }, fanOut: false }))}
+            >Clear (all restaurants)</button>
+          </div>
           <div style={{ maxHeight: 140, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, padding: 8 }}>
             {locations.map(l => (
               <label key={l.reference} style={checkLabel}>
@@ -630,6 +803,19 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
 
         {/* Columns */}
         <Field label="Columns to include">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <button type="button" onClick={applyBasicPreset} disabled={presetBusy} style={secondaryBtn}>
+              {presetBusy ? 'Checking your data…' : 'Basic — only columns you use'}
+            </button>
+            <button type="button" onClick={() => setForm(f => ({ ...f, columns: columns.map(c => c.key) }))} style={secondaryBtn}>
+              Select all
+            </button>
+          </div>
+          {presetNote && (
+            <div style={{ background: '#f4f8ff', border: '1px solid #d7e5ff', color: '#274b8a', padding: 10, borderRadius: 8, marginBottom: 10, fontSize: 12.5, lineHeight: 1.5 }}>
+              {presetNote}
+            </div>
+          )}
           {Object.keys(grouped).length === 0 && (
             <div style={{ color: '#aaa', fontSize: 12 }}>Loading columns…</div>
           )}
@@ -646,6 +832,31 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
               </div>
             </div>
           ))}
+        </Field>
+
+        {/* Keep-tidy + fan-out */}
+        <Field label="Options">
+          <label style={{ ...checkLabel, display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+            <input type="checkbox" checked={form.autoTidy} onChange={e => setForm(f => ({ ...f, autoTidy: e.target.checked }))} />
+            <span>
+              Keep this tidy automatically
+              <span style={{ display: 'block', color: '#777', fontSize: 12 }}>
+                Re-check before every send and leave out columns you have not used in the last 12 months.
+                Off by default, so the columns you pick above stay exactly as you set them.
+              </span>
+            </span>
+          </label>
+          {form.filter.locationReferenceIds.length > 1 && (
+            <label style={{ ...checkLabel, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <input type="checkbox" checked={form.fanOut} onChange={e => setForm(f => ({ ...f, fanOut: e.target.checked }))} />
+              <span>
+                One report per location
+                <span style={{ display: 'block', color: '#777', fontSize: 12 }}>
+                  Sends {form.filter.locationReferenceIds.length} separate attachments instead of one combined sheet.
+                </span>
+              </span>
+            </label>
+          )}
         </Field>
 
         {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}

@@ -24,6 +24,9 @@ function hasCronSecret(req: NextRequest): boolean {
 interface ReportRow {
   reference: string; restaurant_reference: string; name: string
   frequency: string; time: string; timezone: string; file_type: string
+  weekday: number | null; day_of_month: string | null
+  range_type: string | null; range_days: number | null
+  auto_tidy: boolean; fan_out: boolean
   columns: unknown; recipients: unknown; owner_references: unknown; filter: unknown
   last_run_at: string | null
 }
@@ -38,20 +41,27 @@ export async function GET(req: NextRequest) {
   const reports = (forceRef
     ? await sql`
         SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
+               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
                columns, recipients, owner_references, filter, last_run_at::text AS last_run_at
         FROM disco_scheduled_reports WHERE active = true AND reference = ${forceRef}::uuid`
     : await sql`
         SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
+               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
                columns, recipients, owner_references, filter, last_run_at::text AS last_run_at
         FROM disco_scheduled_reports WHERE active = true`) as ReportRow[]
 
   const results: { report: string; status: string; rows?: number; error?: string }[] = []
   for (const r of reports) {
     if (!force && !isReportDue(r, now)) continue
+    const freq = (String(r.frequency).toUpperCase() === 'DAILY' ? 'DAILY'
+      : String(r.frequency).toUpperCase() === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY') as 'DAILY' | 'WEEKLY' | 'MONTHLY'
     const cfg: ScheduledReportConfig = {
       name: r.name,
-      frequency: r.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY',
+      frequency: freq,
       time: r.time, timezone: r.timezone,
+      weekday: r.weekday, dayOfMonth: r.day_of_month,
+      rangeType: r.range_type, rangeDays: r.range_days,
+      autoTidy: r.auto_tidy === true,
       columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
       restaurantReference: r.restaurant_reference,
       filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
@@ -61,19 +71,44 @@ export async function GET(req: NextRequest) {
     let rowCount = 0
     let error = ''
     try {
-      const period = reportPeriod(cfg.frequency, now)
-      const gen = await buildReport(cfg, period, r.file_type)
-      rowCount = gen.rowCount
+      // The window now comes from the report's OWN timezone and range choice —
+      // see lib/reports/report-period.ts for the three defects this replaced.
+      const period = reportPeriod({
+        frequency: freq, timezone: r.timezone,
+        rangeType: r.range_type, rangeDays: r.range_days,
+      }, now)
+
+      // ── COMBINED, OR ONE REPORT PER LOCATION ────────────────────────────
+      // fan_out splits a multi-location report into one attachment per location
+      // so a manager receives only their own site. Default (false) is the single
+      // combined sheet every existing report already produces.
+      const locs = ((cfg.filter?.locationReferenceIds || []) as string[]).filter(Boolean)
+      const scopes: (string | null)[] = r.fan_out && locs.length > 1 ? locs : [null]
+
+      const attachments: { filename: string; content: string | Uint8Array; contentType: string }[] = []
+      for (const one of scopes) {
+        const scopedCfg: ScheduledReportConfig = one
+          ? { ...cfg, filter: { ...cfg.filter, locationReferenceIds: [one] } }
+          : cfg
+        const gen = await buildReport(scopedCfg, period, r.file_type)
+        rowCount += gen.rowCount
+        const suffix = one ? `_${one.slice(0, 8)}` : ''
+        attachments.push({
+          filename: `${r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}${suffix}_${period.from}_${period.to}.${gen.ext}`,
+          content: gen.body, contentType: gen.contentType,
+        })
+      }
+
       if (recipients.length) {
-        const filename = `${r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}_${period.from}_${period.to}.${gen.ext}`
+        const many = attachments.length > 1
         const res = await sendEmail({
           to: recipients.join(','),
           subject: `${r.name} — ${period.from} to ${period.to} | Disco Cater`,
           // layout() like every other transactional email — this was the one
           // sender passing bare HTML, so the report arrived with no Disco Cater
           // logo and no concierge footer while carrying a "| Disco Cater" subject.
-          html: layout(`<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached (${gen.rowCount} order${gen.rowCount === 1 ? '' : 's'}).</p>`),
-          attachments: [{ filename, content: gen.body, contentType: gen.contentType }],
+          html: layout(`<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached${many ? ` (${attachments.length} locations, ${rowCount} orders in total)` : ` (${rowCount} order${rowCount === 1 ? '' : 's'})`}.</p>`),
+          attachments,
         })
         if (!res.success) { status = 'FAILED'; error = res.error || 'email failed' }
       }

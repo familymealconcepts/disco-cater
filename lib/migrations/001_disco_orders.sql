@@ -816,3 +816,28 @@ ALTER TABLE disco_restaurant_sessions ADD COLUMN IF NOT EXISTS via_master_passwo
 -- restaurant name at all. FamilyMeal's /login does not return one, so it is
 -- resolved once at login and carried here.
 ALTER TABLE disco_restaurant_sessions ADD COLUMN IF NOT EXISTS restaurant_name TEXT;
+
+-- ── Scheduled reports: scheduling, ranges, and column tidiness ──────────────
+-- frequency previously allowed only WEEKLY/MONTHLY and fired on Mondays / the
+-- 1st with no choice; the window was a rolling 7 or 31 days computed in UTC and
+-- ending TODAY, so every report contained a partial day and "monthly" was never
+-- a calendar month. weekday/day_of_month make the firing day a choice;
+-- range_type/range_days make the window one. See lib/reports/report-period.ts.
+ALTER TABLE disco_scheduled_reports DROP CONSTRAINT IF EXISTS disco_scheduled_reports_frequency_check;
+ALTER TABLE disco_scheduled_reports ADD CONSTRAINT disco_scheduled_reports_frequency_check
+  CHECK (frequency IN ('DAILY','WEEKLY','MONTHLY'));
+-- 0=Sun..6=Sat. NULL means Monday, which is what every report created before
+-- this column existed actually did.
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS weekday SMALLINT;
+-- '1'..'28' or 'LAST'. Capped at 28 on save so a monthly report cannot silently
+-- skip February. NULL means the 1st.
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS day_of_month TEXT;
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS range_type TEXT NOT NULL DEFAULT 'PREVIOUS_PERIOD';
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS range_days INTEGER;
+-- Re-evaluate empty columns on every send rather than keeping the chosen set.
+-- Default false: a report whose shape changes on its own is the flicker this
+-- feature exists to avoid.
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS auto_tidy BOOLEAN NOT NULL DEFAULT false;
+-- One report per location instead of a single combined one. Default false =
+-- combined, matching every existing report.
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS fan_out BOOLEAN NOT NULL DEFAULT false;
