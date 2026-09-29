@@ -235,6 +235,31 @@ export async function POST(request: NextRequest) {
 
         await recordEvent(payments[0].order_reference, 'CHARGE_REFUNDED', event, 'STRIPE_WEBHOOK')
 
+        // ── POPULATE disco_orders.refund ────────────────────────────────────
+        // This is the ONLY place that sees all three refund origins — Disco's own
+        // refund routes, FamilyMeal's backend, and a manual Stripe-dashboard
+        // refund — which is why the column was empty for refunds Disco did not
+        // issue itself: $1,681.65 across 8 orders, including a full $1,159.00 at
+        // Apollo Bagels - Kips Bay.
+        //
+        // CUMULATIVE, NOT INCREMENTED. charge.amount_refunded is the running
+        // total Stripe holds, so writing it straight across is idempotent — a
+        // redelivered webhook, or a second partial refund, lands on the right
+        // number instead of doubling it.
+        //
+        // GREATEST() so this can never walk a value BACKWARDS. The four in-app
+        // refund paths write this column too, and one of them may have written a
+        // fresher figure moments earlier; taking the larger of the two means a
+        // late or out-of-order webhook cannot clobber it.
+        const refundedDollars = (charge.amount_refunded ?? 0) / 100
+        if (refundedDollars > 0) {
+          await sql`
+            UPDATE disco_orders
+            SET refund = GREATEST(COALESCE(refund, 0), ${refundedDollars}), updated_at = NOW()
+            WHERE reference = ${payments[0].order_reference}::uuid
+          `.catch(e => console.error('[Webhook] charge.refunded — refund column write failed:', e instanceof Error ? e.message : e))
+        }
+
         // A fully-refunded order needs its courier stood down — regardless of
         // which path issued the refund (Disco's own refund routes, FM's own
         // backend, or a manual Stripe-dashboard refund). This is the one place

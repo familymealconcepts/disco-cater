@@ -418,7 +418,15 @@ export default function DashboardPage() {
   const NOT_AVAILABLE_REASON = 'Needs per-order transaction detail not yet available for FM-mirrored orders.'
 
   const isDoorDash = (saleStats.doordashDeliveryFeeSum || 0) > 0
-  const deliveryFeeTitle = isDoorDash ? 'DoorDash Delivery' : 'Third-Party Delivery'
+  // "(not paid out)" for the same reason the tips card carries it, and verified
+  // the same way rather than assumed. computeBreakdown's transfer adds
+  // order.ownDeliveryFee but never order.thirdPartyDeliveryFee, and Total Amount
+  // subtracts st.third_party_delivery_fee outright — the courier network takes it,
+  // not the restaurant. Confirmed on live Stripe: Westwoods BBQ #39316639 charged
+  // $1,500.00 with an $85.00 third-party delivery fee and transferred $1,271.35,
+  // exactly the formula WITHOUT that fee ($1,356.35 had it been paid out); Surf
+  // Taco - Red Bank #39805408 matches the same way to the cent.
+  const deliveryFeeTitle = isDoorDash ? 'DoorDash Delivery (not paid out)' : 'Third-Party Delivery (not paid out)'
   // Previously hardcoded to 0 regardless of data — now reads the real field
   // (still null/"Not available" until the backfill populates it).
   const deliveryFee = isDoorDash ? saleStats.doordashDeliveryFeeSum : saleStats.thirdPartyDeliveryFeeSum

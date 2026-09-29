@@ -959,7 +959,14 @@ export async function syncAllRestaurantOrders(
     SELECT o.restaurant_reference::text AS ref, COUNT(*)::int AS n, MIN(o.order_date)::text AS soonest
     FROM disco_orders o
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
-    WHERE t.id IS NULL AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
+    -- (t.id IS NULL OR t.source = 'FM_LIST') — the SAME predicate
+    -- repairBareOrderDetail uses. This used to be t.id IS NULL alone, which
+    -- only matches an order with NO sale-transaction row at all. An FM_LIST row
+    -- HAS a row, carrying NULL service_charge/tax/delivery/tips, so the urgent
+    -- pass could never see one however soon it was due: all 28 bare orders found
+    -- on 2026-09-28 were FM_LIST, 20 of them DUE.
+    WHERE (t.id IS NULL OR t.source = 'FM_LIST')
+      AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
       AND o.is_deleted = false AND o.order_date >= CURRENT_DATE
     GROUP BY 1
     ORDER BY MIN(o.order_date) ASC
@@ -1016,6 +1023,20 @@ export async function syncAllRestaurantOrders(
     for (const ref of slice) {
       if (convertedDone.has(ref)) continue
       convertedDone.add(ref)
+      // REPAIR, THEN SYNC — the same order the rotation loop below uses.
+      // This sweep originally called syncRestaurantOrders alone and then had the
+      // rotation `continue` past anything it had handled. repairBareOrderDetail
+      // is only called from that rotation, so every converted restaurant silently
+      // stopped being repaired the moment the sweep started covering it, and bare
+      // FM_LIST rows accumulated behind it — 28 of them, across 13 restaurants,
+      // every one at a converted restaurant.
+      if (!urgentDone.has(ref)) {
+        const swept = await repairBareOrderDetail(ref)
+        if (swept.bareBefore > 0) {
+          console.warn(`[fm-orders-sync] converted-sweep bare repair: restaurant=${ref} bareBefore=${swept.bareBefore} repaired=${swept.repaired}`)
+          bareRepairs.push({ restaurantReference: ref, ...swept })
+        }
+      }
       results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 50, maxPages: 1, stopAtKnownDate: true }))
     }
     console.log(`[fm-orders-sync] converted-restaurant sweep: ${convertedDone.size} of ${convertedAll.length} (offset=${offset})`)

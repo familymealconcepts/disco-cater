@@ -91,6 +91,7 @@ async function main() {
   const done: Record<string, unknown> = readProgress(PROGRESS)
   const todo = queue.filter(q => !done[q.ref])
   console.log(`queue ${queue.length} | already recorded ${Object.keys(done).length} | this run ${Math.min(limit, todo.length)}`)
+  const unresolvedStripe: string[] = []
 
   let n = 0
   for (const q of todo) {
@@ -102,9 +103,51 @@ async function main() {
       if (q.acct) {
         const imp = await importRestaurantStripeAccount(q.ref, q.acct, { stripe }) as unknown as Record<string, unknown>
         rec.stripe = (imp.capability as { reusable?: boolean } | undefined)?.reusable ?? imp.reusable ?? null
+      } else {
+        // ── SAY SO WHEN THERE IS NOTHING TO LINK ────────────────────────────
+        // Stripe is resolved ONLY from data/stripe-account-resolutions.json. A
+        // restaurant absent from that file gets no Stripe link at all, and until
+        // now that happened silently: the 2026-09-24 batch converted 54, of which
+        // exactly the 42 present in that file got an account id and the other 12
+        // got nothing. Seven of those twelve had a perfectly good account waiting
+        // in FamilyMeal.
+        //
+        // The resolutions file is a point-in-time artifact and will always lag a
+        // batch it was not built for, so this cannot be fixed by regenerating it
+        // once. What it can stop being is INVISIBLE: the gap is now recorded per
+        // restaurant and counted at the end, so the next run reports its own
+        // blind spot instead of leaving it to be discovered in an audit.
+        rec.stripe = 'UNRESOLVED'
+        unresolvedStripe.push(q.name)
+        console.warn(`  ⚠ ${q.name}: no Stripe account resolved — not in data/stripe-account-resolutions.json. Converted WITHOUT a payout path; check FamilyMeal for an account to link.`)
       }
-      const m = await importFmMenuFaithfully(q.ref) as unknown as Record<string, number>
-      rec.menu = { menus: m.menus, items: m.items, groups: m.groups, links: m.itemGroupLinks }
+      // ── ALREADY-IMPORTED GUARD ────────────────────────────────────────────
+      // importFmMenuFaithfully used to run unconditionally, which made a failed
+      // conversion UNRETRYABLE: attempt 1 imports the menu, then a later gate
+      // (tax, readiness) refuses, and every retry dies on
+      //   duplicate key value violates unique constraint "uq_disco_menus_rest_url"
+      // before convertToNative is even reached. 29 Hance Bakehouse hit exactly
+      // this on 2026-09-28 and had to be converted by hand; Cotton's Place has
+      // been stuck on it since 2026-09-09.
+      //
+      // So skip the import when this restaurant already HAS a native menu. The
+      // import is the expensive, collision-prone step; conversion is the part a
+      // retry actually needs to re-run.
+      const existing = (await sql`
+        SELECT COUNT(*)::int AS menus FROM disco_menus WHERE restaurant_reference = ${q.ref}::uuid
+      `.catch(() => [{ menus: 0 }])) as { menus: number }[]
+      const alreadyImported = (existing[0]?.menus ?? 0) > 0
+      if (alreadyImported) {
+        const items = (await sql`
+          SELECT COUNT(*)::int AS n FROM disco_menu_items WHERE restaurant_reference = ${q.ref}::uuid
+        `.catch(() => [{ n: 0 }])) as { n: number }[]
+        rec.menu = { menus: existing[0].menus, items: items[0]?.n ?? 0, groups: 0, links: 0 }
+        rec.menuSkipped = 'already imported — reusing the existing native menu so the retry can reach convertToNative'
+        console.log(`  ↻ ${q.name}: menu already imported (${existing[0].menus} menus, ${items[0]?.n ?? 0} items) — skipping import`)
+      } else {
+        const m = await importFmMenuFaithfully(q.ref) as unknown as Record<string, number>
+        rec.menu = { menus: m.menus, items: m.items, groups: m.groups, links: m.itemGroupLinks }
+      }
 
       const r = await convertToNative(q.ref, { stripe, skipInvites: true, actorEmail: 'peter@familymeal.com' }) as unknown as Record<string, unknown>
       rec.converted = r.converted
@@ -130,6 +173,11 @@ async function main() {
   }
   const all = Object.values(done) as { converted?: boolean }[]
   console.log(`\nrecorded ${all.length} | converted ${all.filter(x => x.converted).length} | failed ${all.filter(x => !x.converted).length}`)
+  if (unresolvedStripe.length) {
+    console.log(`\n⚠ ${unresolvedStripe.length} restaurant(s) converted with NO Stripe account resolved — they cannot pay out until one is linked:`)
+    for (const n of unresolvedStripe) console.log(`   - ${n}`)
+    console.log('  Check FamilyMeal (tbl_stripe_connected_accounts) for an account, verify it in live Stripe, then link it.')
+  }
   process.exit(0)
 }
 main()
