@@ -1,4 +1,5 @@
 import { sql, runMigrations } from './db'
+import { resolvePlace } from './geo/us-state-from-address'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { alertOps } from './ops-alert'
 
@@ -91,10 +92,31 @@ function normalize(r: FmRow): CacheRow | null {
   const name = String(r.businessName || '')
   const slug = r.businessNameWithoutSpaces ? String(r.businessNameWithoutSpaces).toLowerCase() : slugify(name)
 
-  const city = String(addr.city || '')
-  const state = String(addr.state || '')
-  const location = [city, state].filter(Boolean).join(', ')
-  const addressLine1 = addr.addressLine1 != null ? String(addr.addressLine1) : null
+  const addressLine1Raw = addr.addressLine1 != null ? String(addr.addressLine1) : null
+  // ── THE DISPLAY LABEL ─────────────────────────────────────────────────────
+  // This used to be `[addr.city, addr.state].join(', ')` straight from FM, which
+  // is faithful and produced an inconsistent sidebar: FM's tbl_address.state is
+  // NULL for 3,892 of its 5,305 addresses, so 3,308 restaurants rendered as a
+  // bare "Dallas" next to a neighbouring "New York, NY". A further 37 render as
+  // "NY, NY" because the city column holds a state abbreviation, and 56 carried
+  // a non-state in the state column ("Manhattan", "OHIO").
+  //
+  // resolvePlace reads the state back out of the address line, where FM actually
+  // keeps it, and repairs the mis-filed columns. It is applied HERE rather than
+  // only as a backfill because this function runs daily and would otherwise
+  // overwrite the corrected values the next morning.
+  //
+  // It never invents a place: anything it cannot read unambiguously keeps what
+  // FM gave it, and it never returns less than the row already had.
+  const place = resolvePlace({
+    city: addr.city != null ? String(addr.city) : null,
+    state: addr.state != null ? String(addr.state) : null,
+    addressLine1: addressLine1Raw,
+  })
+  const city = place.city ?? ''
+  const state = place.state ?? ''
+  const location = place.location ?? ''
+  const addressLine1 = addressLine1Raw
   const addressLine2 = addr.addressLine2 != null ? String(addr.addressLine2) : null
   const zipcode = addr.zipcode != null ? String(addr.zipcode) : null
   const address = [addressLine1, city, state, zipcode]
