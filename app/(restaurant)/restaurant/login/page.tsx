@@ -22,10 +22,107 @@ const DARK = '#1A1028'
 const INDIGO = '#6B6EF9'
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
+/**
+ * Set a Disco Cater password, shown only after FamilyMeal has ALREADY verified
+ * the password the person just typed.
+ *
+ * ── WHY THE WORDING IS LIKE THIS ───────────────────────────────────────────
+ * A page that asks for a new password unprompted is indistinguishable from a
+ * phishing prompt, so this one is built to be checkable by the person reading
+ * it: it appears only after a correct password on a page they navigated to
+ * themselves, it names their restaurant back to them, it explains the cause and
+ * the consequence in plain terms, there is no link to click and nothing to
+ * download, and it does not manufacture urgency. It also says explicitly that
+ * their FamilyMeal password still works on FamilyMeal, because the single most
+ * likely worry is that this is taking something away.
+ */
+function SetDiscoPassword({ setup, onDone }: {
+  setup: { token: string; email: string; firstName: string | null; restaurantName: string | null }
+  onDone: (user: Record<string, unknown>) => void | Promise<void>
+}) {
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setErr('')
+    if (pw.length < 8) { setErr('Please choose a password of at least 8 characters.'); return }
+    if (pw !== pw2) { setErr('The two passwords do not match.'); return }
+    setBusy(true)
+    try {
+      // The existing accept-invite endpoint: it consumes the one-time token,
+      // writes the password through acceptInvite, and signs the person in.
+      const res = await fetch('/api/restaurant/accept-invite', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ token: setup.token, password: pw }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setErr(d.error || 'Could not set your password. Please try logging in again.'); return }
+      await onDone(d)
+    } catch {
+      setErr('Unable to connect. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }
+  const input: React.CSSProperties = { width: '100%', padding: '11px 13px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, padding: '32px 28px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 10, marginTop: 0 }}>
+        Choose a Disco Cater password
+      </h1>
+      <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.6, marginTop: 0, marginBottom: 10 }}>
+        That password was correct{setup.restaurantName ? <> — thanks, {setup.firstName || 'and welcome back'}.</> : '.'}{' '}
+        {setup.restaurantName
+          ? <><strong>{setup.restaurantName}</strong> now takes its orders through Disco Cater directly, so the portal keeps its own password from here on.</>
+          : <>Your restaurant now takes its orders through Disco Cater directly, so the portal keeps its own password from here on.</>}
+      </p>
+      <p style={{ fontSize: 13, color: '#777', lineHeight: 1.6, marginTop: 0, marginBottom: 20 }}>
+        Your FamilyMeal password is unchanged and still works on FamilyMeal. This only sets the one you will use here.
+        You will be signed in as soon as you have chosen it.
+      </p>
+
+      {err && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#DC2626', fontWeight: 500 }}>
+          {err}
+        </div>
+      )}
+
+      <form onSubmit={submit}>
+        <div style={{ marginBottom: 6, fontSize: 12.5, color: '#888' }}>Signing in as {setup.email}</div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={label}>New password</label>
+          <input style={input} type="password" autoComplete="new-password" value={pw}
+            onChange={e => setPw(e.target.value)} placeholder="At least 8 characters" />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <label style={label}>Confirm password</label>
+          <input style={input} type="password" autoComplete="new-password" value={pw2}
+            onChange={e => setPw2(e.target.value)} />
+        </div>
+        <button type="submit" disabled={busy} style={{
+          width: '100%', padding: '12px 0', border: 'none', borderRadius: 8, background: GRAD,
+          color: '#fff', fontSize: 14.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.7 : 1,
+        }}>
+          {busy ? 'Setting your password…' : 'Set password and continue'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
 export default function RestaurantLoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  // Set only when the server says this person needs a Disco password. The FM
+  // fallback below is untouched and still runs for everyone else.
+  const [setup, setSetup] = useState<{ token: string; email: string; firstName: string | null; restaurantName: string | null } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -112,6 +209,15 @@ export default function RestaurantLoginPage() {
         })
         if (dres.ok) {
           const d = await dres.json()
+          // ── SET A DISCO PASSWORD, THEN CONTINUE ────────────────────────────
+          // The server verified this password against FamilyMeal and found the
+          // person's restaurants are all on Disco now. It returned a one-time
+          // token and NO session — nothing is signed in until the password is
+          // actually set below.
+          if (d.needsPasswordSetup) {
+            setSetup({ token: d.setupToken, email: d.email, firstName: d.firstName, restaurantName: d.restaurantName })
+            return
+          }
           storeDiscoUser(d)
           await navigateByRole(d.role || '')
           return
@@ -166,6 +272,12 @@ export default function RestaurantLoginPage() {
             <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 500, letterSpacing: '0.04em' }}>Restaurant Portal</div>
           </div>
 
+          {setup ? (
+            <SetDiscoPassword
+              setup={setup}
+              onDone={async (user) => { storeDiscoUser(user); await navigateByRole((user.role as string) || '') }}
+            />
+          ) : (
           <div style={{ background: '#fff', borderRadius: 16, padding: '32px 28px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
             <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 6, marginTop: 0 }}>
               Log in to Restaurant Portal
@@ -223,6 +335,7 @@ export default function RestaurantLoginPage() {
               </button>
             </form>
           </div>
+          )}
         </div>
       </div>
     </>

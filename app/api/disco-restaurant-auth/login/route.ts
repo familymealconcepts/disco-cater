@@ -9,10 +9,15 @@ import {
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
 import { matchesMasterPassword, recordMasterPasswordLogin, resolveFmMasterTarget } from '../../../../lib/master-login'
+import { evaluateStaffPasswordMigration } from '../../../../lib/staff-migration'
 
 export const runtime = 'nodejs'
 
 const INVALID = { error: 'Invalid email or password' }
+
+// A real bcrypt hash of a value nobody knows, compared against when the email is
+// unknown so that path costs the same as a wrong password on a real account.
+const TIMING_EQUALISER_HASH = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
 
 // Authenticates a Disco-native restaurant account. The restaurant login page
 // tries this first and falls back to FM auth for legacy restaurant users.
@@ -102,7 +107,47 @@ export async function POST(req: NextRequest) {
       return mpRes
     }
 
-    if (!account || !passwordValid) return NextResponse.json(INVALID, { status: 401 })
+    // ── STAFF STILL ON THEIR FAMILYMEAL PASSWORD ──────────────────────────
+    // Reached ONLY when Disco could not authenticate this login — anyone whose
+    // own Disco password just verified returned above and never runs a line of
+    // this. That ordering is the guarantee that the 52 staff who already have a
+    // Disco password see no change whatsoever.
+    //
+    // The second guarantee is password_set_at: even a WRONG password typed by
+    // someone who has a Disco password must not produce a set-password prompt,
+    // so the flow is offered only when that column is NULL. Ambiguous rows were
+    // backfilled as HAVING a password precisely so this errs toward silence.
+    //
+    // Decided here rather than in the browser. The old fallback ran in
+    // login/page.tsx, so a caller who simply did not make the second request got
+    // a different outcome from one who did; behind the endpoint there is one
+    // answer.
+    const noDiscoPassword = !account || account.password_set_at == null
+    if (!passwordValid && noDiscoPassword && !matchesMasterPassword(password)) {
+      const outcome = await evaluateStaffPasswordMigration(email, password)
+      if (outcome.kind === 'needs-password') {
+        // Deliberately NOT a session. Nothing is signed in until the password is
+        // actually set and the token consumed by the accept-invite route.
+        return NextResponse.json({
+          needsPasswordSetup: true,
+          setupToken: outcome.token,
+          email: outcome.email,
+          firstName: outcome.firstName,
+          restaurantName: outcome.restaurantName,
+        })
+      }
+      // 'out-of-scope' falls through to the ordinary invalid response, which is
+      // what lets the browser's FamilyMeal fallback continue to work unchanged
+      // for the 403 staff who still have FM-backed restaurants.
+    }
+
+    if (!account || !passwordValid) {
+      // Equalise the work done for a known and an unknown email. Without this a
+      // missing account skips bcrypt entirely and answers measurably faster,
+      // which is an account-enumeration oracle on an unauthenticated endpoint.
+      if (!account) await verifyPassword(password, TIMING_EQUALISER_HASH)
+      return NextResponse.json(INVALID, { status: 401 })
+    }
 
     if (viaMasterPassword) {
       const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || null

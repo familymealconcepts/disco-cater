@@ -841,3 +841,33 @@ ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS auto_tidy BOOLEAN N
 -- One report per location instead of a single combined one. Default false =
 -- combined, matching every existing report.
 ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS fan_out BOOLEAN NOT NULL DEFAULT false;
+
+-- ── Does this account have a Disco password of its own? ─────────────────────
+-- Conversion inserts a SENTINEL hash (bcrypt of a random UUID) so the row can
+-- exist before the person has ever set a password, and under skipInvites no
+-- invite token is minted either. That makes "has a real password" impossible to
+-- read off password_hash — a sentinel and a real bcrypt hash are the same shape.
+--
+-- The staff-migration prompt keys on this column and NOTHING else: NULL means no
+-- Disco password, and anyone with a value never reaches that code path at all.
+-- The backfill below is deliberately asymmetric — it marks every account as
+-- having a password EXCEPT the ones provably without one, so an ambiguous row
+-- errs toward "leave this person alone".
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMPTZ;
+
+-- Provably WITHOUT a password, left NULL:
+--   · an outstanding invite_token — the invite was never accepted, so
+--     acceptInvite never ran and the hash is still the sentinel
+--   · a conversion row never written since its INSERT (created_at = updated_at):
+--     under skipInvites no token was ever minted, so it cannot have been
+--     accepted, and nothing else has touched it
+-- Everything else — including a conversion row that WAS written later, which
+-- might be an accepted invite or a reset — is marked as having one.
+UPDATE disco_restaurant_accounts
+   SET password_set_at = updated_at
+ WHERE password_set_at IS NULL
+   AND invite_token IS NULL
+   AND NOT (
+     created_by = 'fm-authorized-users-sync'
+     AND updated_at <= created_at + INTERVAL '5 seconds'
+   );

@@ -113,6 +113,12 @@ export async function acceptInvite(email: string, passwordHash: string): Promise
     SET password_hash = ${passwordHash},
         invite_token = NULL,
         invite_token_expires_at = NULL,
+        -- The ONE place a Disco password comes into existence, so the one place
+        -- that records it. Conversion writes a sentinel hash indistinguishable
+        -- in shape from a real one, which is why "has a password" cannot be read
+        -- off password_hash and needs its own column. The login route gates the
+        -- staff set-password prompt on this and nothing else.
+        password_set_at = NOW(),
         updated_at = NOW()
     WHERE email = ${email}
   `

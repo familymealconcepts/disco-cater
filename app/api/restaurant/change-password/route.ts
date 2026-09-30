@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 403 })
     }
     const hash = await hashPassword(String(newPassword))
-    await sql`UPDATE disco_restaurant_accounts SET password_hash = ${hash} WHERE email = ${ctx.email}`
+    // password_set_at marks that a real Disco password exists. It is what the
+    // login route checks before offering the staff set-password step, so a
+    // password set HERE must record itself too — otherwise someone who changed
+    // their password could later be prompted to create one.
+    await sql`UPDATE disco_restaurant_accounts SET password_hash = ${hash}, password_set_at = NOW(), updated_at = NOW() WHERE email = ${ctx.email}`
     return NextResponse.json({ ok: true })
   }
 

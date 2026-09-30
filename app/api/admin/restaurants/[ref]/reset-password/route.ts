@@ -33,7 +33,9 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
     const tempPassword = randomBytes(9).toString('base64url') // ~12 chars, single-use
     try {
       const hash = await hashPassword(tempPassword)
-      await sql`UPDATE disco_restaurant_accounts SET password_hash = ${hash}, updated_at = NOW() WHERE email = ${acct.email}`
+      // Same marker as acceptInvite — a super-admin reset produces a real Disco
+      // password, so it must not leave the account looking like it has none.
+      await sql`UPDATE disco_restaurant_accounts SET password_hash = ${hash}, password_set_at = NOW(), updated_at = NOW() WHERE email = ${acct.email}`
     } catch (e) {
       console.error('[reset-password] native hash/store failed:', e instanceof Error ? e.message : e)
       return NextResponse.json({ error: 'Unable to reset password' }, { status: 500 })
