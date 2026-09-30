@@ -244,6 +244,29 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const loadMenu = useCallback(async (ref: string) => {
     if (!ref) return
     try {
+      // ── NATIVE FIRST ───────────────────────────────────────────────────────
+      // Once a restaurant has converted, Disco owns its menu and FamilyMeal's
+      // copy is a stale snapshot. Building this dialog from FM was showing staff
+      // a different menu from the one the customer ordered off: on order
+      // #900000272 at DeCheco's - Hudson, FM returns only the REQUIRED "byo-
+      // sauce" group for "gluten-free build your own" while Disco holds that
+      // group AND the OPTIONAL "gf byo - toppings" (29 options). Nothing here
+      // filtered optional groups out — the source simply did not contain them.
+      //
+      // FM remains the source for restaurants that have not converted, which is
+      // what the { native: false } answer selects.
+      try {
+        const nRes = await fetch(`/api/restaurant/order-edit-menu?ref=${encodeURIComponent(ref)}`, { credentials: 'include' })
+        if (nRes.ok) {
+          const nd = await nRes.json()
+          if (nd?.native && Array.isArray(nd.sections)) {
+            setMenuData(nd.sections as MenuSection[])
+            console.log('[edit-client] menu loaded from Disco (native)', { ref, sections: nd.sections.length })
+            return
+          }
+        }
+      } catch { /* fall through to FamilyMeal */ }
+
       const mRes = await fetch(`/api/fm-menu?ref=${encodeURIComponent(ref)}`)
       if (!mRes.ok) { console.error('[edit-client] fm-menu failed', { ref, status: mRes.status }); return }
       const menus = await mRes.json()
