@@ -28,6 +28,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { getMarketplaceRestaurants } from './marketplace-restaurants'
+import { sql } from './db'
 
 const DEFAULT_FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const DEFAULT_DELAY_MS = 1000 // ~1 req/sec to FM, per spec
@@ -80,7 +81,38 @@ async function fmGet<T>(fmBase: string, urlPath: string): Promise<T | null> {
   }
 }
 
+// ── NATIVE RESTAURANTS READ NEON ───────────────────────────────────────────
+// This dataset feeds the AI assistant's price answers (pricePerPerson,
+// topPackages). Built from FamilyMeal it quoted a converted restaurant's OLD
+// prices: across the 80 busiest native restaurants, 29 have diverged from FM and
+// 75 items are priced differently. Returns null for an FM-backed restaurant, so
+// the FamilyMeal crawl below still serves the ~3,400 unconverted ones.
+async function fetchNativePackages(ref: string): Promise<FmPackage[] | null> {
+  try {
+    const native = (await sql`
+      SELECT is_disco_native FROM disco_restaurant_cache
+      WHERE restaurant_reference = ${ref} LIMIT 1
+    `) as { is_disco_native: boolean | null }[]
+    if (!native[0]?.is_disco_native) return null
+    const items = (await sql`
+      SELECT name, price, serves, description FROM disco_menu_items
+      WHERE restaurant_reference = ${ref}::uuid AND visible = true
+      ORDER BY position, name
+    `) as { name: string; price: string | number; serves: string | null; description: string | null }[]
+    return items.map(i => ({
+      name: i.name, price: Number(i.price) || 0,
+      serves: i.serves ?? undefined, description: i.description ?? undefined,
+    }))
+  } catch {
+    // Fall through to FamilyMeal rather than emit an empty menu for this
+    // restaurant — a missing entry is worse than a slightly stale one.
+    return null
+  }
+}
+
 async function fetchPackagesForRestaurant(fmBase: string, ref: string, delay: number): Promise<FmPackage[]> {
+  const native = await fetchNativePackages(ref)
+  if (native) return native
   const menus = await fmGet<FmMenu[]>(fmBase, `/public-api/menu?restaurantReference=${ref}`)
   if (!Array.isArray(menus) || menus.length === 0) return []
   await sleep(delay)

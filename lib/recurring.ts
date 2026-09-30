@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { sql } from './db'
 import { getCustomerSession } from './customer-auth'
 
 // ── Customer auth ──────────────────────────────────────────────────────────
@@ -227,7 +228,40 @@ function normName(s: string): string {
 // All meal-package names on a restaurant's public menu. The public endpoint
 // usually returns a flat array of packages, but some FM responses nest them
 // under categories — collect names from both shapes.
+// ── NATIVE RESTAURANTS READ NEON, NOT FAMILYMEAL ───────────────────────────
+// After conversion Disco owns the menu and FamilyMeal keeps a frozen snapshot.
+// Both functions below drove REAL MONEY off that snapshot: repriceCart charged
+// FM's price, and checkMenuAvailability declared any Disco-only item
+// unavailable and cancelled the occurrence.
+//
+// Measured across the 80 busiest native restaurants: 29 had diverged from FM —
+// 75 items priced differently (Beach Buns Bakery's Small Breakfast Box is
+// $31.50 in Disco and $38.00 in FM) and 194 items that exist in Disco and not
+// in FM at all.
+//
+// Returns null for an FM-backed restaurant so the FamilyMeal path below still
+// runs for the ~3,400 that have not converted.
+async function nativeMenuPrices(restaurantReference: string): Promise<Map<string, number> | null> {
+  const rows = (await sql`
+    SELECT c.is_disco_native FROM disco_restaurant_cache c
+    WHERE c.restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(() => [])) as { is_disco_native: boolean | null }[]
+  if (!rows[0]?.is_disco_native) return null
+  const items = (await sql`
+    SELECT name, price FROM disco_menu_items
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true
+  `.catch(() => [])) as { name: string; price: string | number }[]
+  const m = new Map<string, number>()
+  for (const it of items) {
+    const p = Number(it.price)
+    if (it.name && Number.isFinite(p)) m.set(normName(it.name), p)
+  }
+  return m
+}
+
 async function fetchMenuItemNames(restaurantReference: string): Promise<string[]> {
+  const native = await nativeMenuPrices(restaurantReference)
+  if (native) return [...native.keys()]
   const res = await fetch(`${FM_API}/public-api/restaurants/${restaurantReference}/mealPackages`, {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
@@ -247,6 +281,8 @@ async function fetchMenuItemNames(restaurantReference: string): Promise<string[]
 // same public mealPackages endpoint as the availability check, capturing the
 // per-package price (FM uses `price`, sometimes `pricePerUnit`).
 async function fetchMenuItemPrices(restaurantReference: string): Promise<Map<string, number>> {
+  const native = await nativeMenuPrices(restaurantReference)
+  if (native) return native
   const res = await fetch(`${FM_API}/public-api/restaurants/${restaurantReference}/mealPackages`, {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
