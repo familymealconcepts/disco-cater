@@ -19,6 +19,8 @@
 // extraItemsGroups on each package) so the dialog renders it unchanged, and it
 // reads the same tables as the customer page so the two can no longer disagree.
 import { sql } from '../db'
+import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
+import { menuRowToScheduleExtras } from '../menu-settings'
 
 export interface NativeAddOn { reference: string; name: string; price: number; visible: boolean; position: number }
 export interface NativeExtraItemsGroup {
@@ -37,8 +39,44 @@ export interface NativePackage {
   imageUrl?: string
   extraItemsGroups: NativeExtraItemsGroup[]
 }
+/** The disco_menus columns the schedule is built from. */
+type ScheduleColumns = {
+  schedule_config: NativeScheduleConfig | null
+  availability_mode: string | null
+  start_date: string | null
+  end_date: string | null
+  lead_time_hours: number | null
+  rolling_availability_days: number | null
+  max_orders_per_day: number | null
+  daily_cutoff_time: string | null
+  hard_cutoff_date: string | null
+  skipped_days: { fromDate: string; toDate: string }[] | null
+}
+
 export interface NativeCategory { reference: string; name: string; description: string | null; mealPackages: NativePackage[] }
-export interface NativeMenuSection { menu: { reference: string; name: string; position: number }; categories: NativeCategory[] }
+/**
+ * The menu's availability, in the SAME shape lib/scheduling/cutoffs consumes and
+ * the customer ordering page already uses (shared.tsx builds it identically).
+ *
+ * Carried here so the order-edit RESCHEDULE dialog can offer the times the
+ * restaurant actually accepts. It previously generated its own 30-minute
+ * 07:00-21:00 grid from a hardcoded constant, which both omitted real slots
+ * (the engine's interval is 15 minutes) and offered times outside the menu's
+ * own pickup window.
+ */
+export interface NativeMenuSchedule {
+  scheduleType: 'SAME_DAY' | 'CUSTOM'
+  repeatWeekDays: { days: string; fromPickUpTime: string; toPickUpTime: string }[]
+  startDate?: string
+  endDate?: string
+  prepTime?: number
+  rollingAvailability?: number
+  cutOff?: string
+  cutOffDate?: string
+  skippedDays?: { fromDate: string; toDate: string }[]
+  timezone?: string | null
+}
+export interface NativeMenuSection { menu: { reference: string; name: string; position: number; scheduleOption?: NativeMenuSchedule }; categories: NativeCategory[] }
 
 /**
  * Menus → categories → items → modifier groups for a native restaurant.
@@ -61,11 +99,28 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
   if (!nativeRows[0]?.is_disco_native) return null
 
   const menus = (await sql`
-    SELECT reference, name, position FROM disco_menus
+    SELECT reference, name, position,
+           schedule_config, availability_mode,
+           to_char(start_date, 'YYYY-MM-DD') AS start_date,
+           to_char(end_date, 'YYYY-MM-DD') AS end_date,
+           lead_time_hours, rolling_availability_days, max_orders_per_day,
+           to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
+           to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+           skipped_days
+    FROM disco_menus
     WHERE restaurant_reference = ${restaurantRef}::uuid AND visible = true AND archived = false
     ORDER BY position, name
-  `.catch(() => [])) as { reference: string; name: string; position: number | null }[]
+  `.catch(() => [])) as (ScheduleColumns & { reference: string; name: string; position: number | null })[]
   if (!menus.length) return []
+
+  // The RESTAURANT's clock. Lead times and cutoffs are counted on the kitchen's
+  // clock, not the browser's — read the same way isNativeDateTimeValid reads it,
+  // including the deliberately missing ::uuid (disco_restaurant_cache
+  // .restaurant_reference is TEXT; casting throws).
+  const tzRows = (await sql`
+    SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantRef} LIMIT 1
+  `.catch(() => [])) as { timezone: string | null }[]
+  const timezone = tzRows[0]?.timezone ?? null
 
   const cats = (await sql`
     SELECT reference, name, description, menu_reference FROM disco_menu_categories
@@ -136,7 +191,15 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
 
   const primary = menus[0]
   return menus.map(m => ({
-    menu: { reference: m.reference, name: m.name, position: m.position ?? 0 },
+    menu: {
+      reference: m.reference, name: m.name, position: m.position ?? 0,
+      scheduleOption: {
+        ...buildNativeScheduleOption(m.schedule_config, m.availability_mode, m.start_date, m.end_date),
+        ...menuRowToScheduleExtras(m),
+        ...(Array.isArray(m.skipped_days) && m.skipped_days.length ? { skippedDays: m.skipped_days } : {}),
+        timezone,
+      } as NativeMenuSchedule,
+    },
     categories: cats
       // A category whose menu_reference is NULL predates the multi-menu model
       // and belongs to the primary menu — the same fallback the customer page

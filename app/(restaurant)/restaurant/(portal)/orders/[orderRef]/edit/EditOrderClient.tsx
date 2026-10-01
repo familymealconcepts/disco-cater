@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { buildAvailableTimes, type FmScheduleLike } from '../../../../../../../lib/scheduling/cutoffs'
 import { useRouter } from 'next/navigation'
 import { cartSubtotal, lineUnitPrice } from '../../../../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../../../../lib/pricing/lineItem'
@@ -19,7 +20,15 @@ const GREEN = '#2E9E5B'
 const RED = '#E76F51'
 
 // ─── FM menu shapes (mirror customer builder) ────────────────────────────────
-interface FmMenu { reference: string; name: string; position?: number; settings?: { serviceCharge?: number | null; serviceChargeName?: string | null } }
+interface FmMenu {
+  reference: string; name: string; position?: number
+  settings?: { serviceCharge?: number | null; serviceChargeName?: string | null }
+  // The menu's real availability. Present on BOTH paths: FamilyMeal returns it
+  // on /api/fm-menu, and lib/menu/native-edit-menu.ts builds the same shape from
+  // disco_menus for a converted restaurant. This is what the reschedule dialog
+  // offers times from.
+  scheduleOption?: FmScheduleLike
+}
 interface FmAddOn { reference: string; name: string; price: number; visible?: boolean; position?: number }
 interface FmExtraItemsGroup {
   reference: string; name: string; externalName?: string; subExternalName?: string
@@ -86,12 +95,36 @@ function fmtWeekdayDate(iso: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
-// 30-minute pickup/delivery slots, 7:00 AM → 9:00 PM (mirrors customer checkout).
-const TIME_SLOTS: { value: string; label: string }[] = (() => {
-  const out: { value: string; label: string }[] = []
-  for (let mins = 7 * 60; mins <= 21 * 60; mins += 30) {
-    const value = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
-    out.push({ value, label: fmt12h(value) })
+// ── RESCHEDULE TIME OPTIONS ──────────────────────────────────────────────────
+// These used to be a hardcoded 30-minute grid from 07:00 to 21:00, with a
+// comment claiming it mirrored customer checkout. It did not. The availability
+// engine's interval is FIFTEEN minutes (SLOT_MINUTES in lib/scheduling/cutoffs)
+// and the bounds are the menu's own pickup window, so the grid both OMITTED real
+// slots and OFFERED times the restaurant does not accept.
+//
+// It was not a rounding nuisance. Order #900000273 at Supernatural is a genuine
+// 11:45 delivery on a menu open 10:30-14:30; the dialog offered 11:30 and 12:00
+// and nothing between, so the order could not be rescheduled at all without
+// moving it to a time the customer had not agreed to. Across the estate 5,140 of
+// 25,562 timed orders (20%) sit at a time that grid cannot reproduce, at 268
+// Disco-native restaurants.
+//
+// Times now come from the ORDER'S OWN MENU, through the same buildAvailableTimes
+// the customer ordering page calls.
+
+/** Every 15-minute time in a day — the escape hatch, and the fallback when a
+ *  menu has no window on the chosen date (a closed day). Staff must never be
+ *  left with an EMPTY dropdown, which is the one way this could be worse than
+ *  the grid it replaces. */
+const linkBtn: CSSProperties = {
+  background: 'none', border: 'none', padding: 0, font: 'inherit',
+  color: '#5B6FE8', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer',
+}
+
+const ALL_DAY_SLOTS: string[] = (() => {
+  const out: string[] = []
+  for (let mins = 0; mins < 24 * 60; mins += 15) {
+    out.push(`${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`)
   }
   return out
 })()
@@ -178,6 +211,8 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const [draftDate, setDraftDate] = useState('')   // YYYY-MM-DD
   const [draftTime, setDraftTime] = useState('')   // HH:mm
   const origDt = useRef({ date: '', time: '' })     // normalized loaded date/time
+  // Escape hatch out of the menu's window — see rescheduleOptions below.
+  const [showAllTimes, setShowAllTimes] = useState(false)
 
   const lineCounter = useRef(0)
 
@@ -405,6 +440,51 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   )
   // Date/time differs from what we loaded → also counts as a change (drives the
   // "changed" UI and triggers a re-price).
+  // ── The menu this order actually came from ────────────────────────────────
+  // Resolved from the CART, not from the first menu on the list: a restaurant
+  // with a Breakfast menu (07:30-10:30) and a Lunch menu (10:30-14:30) would
+  // otherwise be offered breakfast hours for a lunch order. Falls back to the
+  // first menu when the cart's items cannot be placed (an FM menu that has since
+  // changed), which is the same explicit fallback the customer page uses.
+  const orderMenu = useMemo(() => {
+    const refs = new Set(cart.filter(l => !l.removed).map(l => l.reference))
+    if (refs.size) {
+      const hit = menuData.find(sec => sec.categories.some(c => (c.mealPackages || []).some(p => refs.has(p.reference))))
+      if (hit) return hit.menu
+    }
+    return menuData[0]?.menu
+  }, [cart, menuData])
+
+  // ── The times this restaurant actually accepts on the drafted date ────────
+  // buildAvailableTimes is the SAME function the customer ordering page calls,
+  // so the two surfaces cannot disagree about what is bookable.
+  //
+  // NOTE WHAT IS DELIBERATELY NOT DONE: the `disabled` flag (lead time, daily
+  // and hard cutoffs) is READ BUT NOT APPLIED. Staff rescheduling an order the
+  // restaurant has already accepted are in the same position as staff taking a
+  // phone order — they are the kitchen, and a 48-hour lead time must not stop
+  // them moving tomorrow's order by fifteen minutes. The window is a fact about
+  // the restaurant's hours; the lead time is a rule about new orders.
+  const scheduleSlots = useMemo(() => {
+    const sched = orderMenu?.scheduleOption
+    if (!sched || !draftDate) return []
+    try {
+      return buildAvailableTimes(sched, draftDate).map(t => t.time.slice(0, 5))
+    } catch {
+      return []
+    }
+  }, [orderMenu, draftDate])
+
+  // What the dropdown shows. The current time is always included even when it
+  // falls outside the window — an order already AT 11:45 must never lose its own
+  // value by opening the dialog, and a restaurant may have narrowed its hours
+  // since the order was placed.
+  const rescheduleOptions = useMemo(() => {
+    const base = (showAllTimes || scheduleSlots.length === 0) ? ALL_DAY_SLOTS : scheduleSlots
+    const keep = [draftTime, (orderTime || '').slice(0, 5), origDt.current.time].filter(t => /^\d{2}:\d{2}$/.test(t))
+    return [...new Set([...base, ...keep])].sort()
+  }, [showAllTimes, scheduleSlots, draftTime, orderTime])
+
   const rescheduled = toIsoDateInput(orderDate) !== origDt.current.date || (orderTime || '').slice(0, 5) !== origDt.current.time
   const changed = cartChanged || rescheduled
 
@@ -759,7 +839,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
                   </div>
                 </div>
                 <button
-                  onClick={() => { setDraftDate(toIsoDateInput(orderDate)); setDraftTime((orderTime || '').slice(0, 5)); setRescheduleOpen(true) }}
+                  onClick={() => { setDraftDate(toIsoDateInput(orderDate)); setDraftTime((orderTime || '').slice(0, 5)); setShowAllTimes(false); setRescheduleOpen(true) }}
                   style={{ background: 'none', border: `1px solid ${BLUE}`, color: BLUE, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                   Reschedule
                 </button>
@@ -852,8 +932,19 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
             <select value={draftTime} onChange={e => setDraftTime(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 20, outline: 'none', boxSizing: 'border-box', background: '#fff', color: DARK }}>
               <option value="">Select a time…</option>
-              {TIME_SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {rescheduleOptions.map(t => <option key={t} value={t}>{fmt12h(t)}</option>)}
             </select>
+            {/* Say WHERE the list came from. A dropdown that silently narrowed
+                to a restaurant's hours would read as a bug to anyone who
+                remembers the old 7am-9pm list. */}
+            <div style={{ marginTop: -14, marginBottom: 18, fontSize: 11.5, color: '#777', lineHeight: 1.5 }}>
+              {!draftDate ? 'Pick a date to see available times.'
+                : scheduleSlots.length === 0
+                  ? `${orderMenu?.name ? `${orderMenu.name} has` : 'This menu has'} no pickup window on ${fmtWeekdayDate(draftDate)} — showing all times.`
+                  : showAllTimes
+                    ? <>Showing all times. <button type="button" onClick={() => setShowAllTimes(false)} style={linkBtn}>Back to {orderMenu?.name || 'menu'} hours</button></>
+                    : <>{scheduleSlots[0] && scheduleSlots[scheduleSlots.length - 1] ? `${orderMenu?.name || 'Menu'} hours · ${fmt12h(scheduleSlots[0])}–${fmt12h(scheduleSlots[scheduleSlots.length - 1])}. ` : ''}<button type="button" onClick={() => setShowAllTimes(true)} style={linkBtn}>Show all times</button></>}
+            </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setRescheduleOpen(false)} style={pillBtnOutline('#666')}>Cancel</button>
               <button
