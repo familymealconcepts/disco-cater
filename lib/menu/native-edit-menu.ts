@@ -32,6 +32,9 @@ export interface NativePackage {
   reference: string; name: string; description: string | null; price: number
   serves: string | null; allowedSpecialInstructions: boolean
   minQuantity?: number
+  /** Already a full URL — native item images are re-hosted in Vercel Blob at
+   *  import, so there is no FM image reference to resolve. */
+  imageUrl?: string
   extraItemsGroups: NativeExtraItemsGroup[]
 }
 export interface NativeCategory { reference: string; name: string; description: string | null; mealPackages: NativePackage[] }
@@ -72,13 +75,14 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
 
   const items = (await sql`
     SELECT reference, category_reference, name, description, price, serves,
-           min_quantity, allow_special_instructions
+           min_quantity, allow_special_instructions, image_url
     FROM disco_menu_items
     WHERE restaurant_reference = ${restaurantRef}::uuid AND visible = true
     ORDER BY position, name
   `.catch(() => [])) as {
     reference: string; category_reference: string | null; name: string; description: string | null
     price: string | number; serves: string | null; min_quantity: number | null; allow_special_instructions: boolean
+    image_url: string | null
   }[]
 
   // ── MODIFIER GROUPS ───────────────────────────────────────────────────────
@@ -152,6 +156,7 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
             serves: it.serves,
             allowedSpecialInstructions: it.allow_special_instructions === true,
             minQuantity: it.min_quantity ?? undefined,
+            imageUrl: it.image_url || undefined,
             extraItemsGroups: groupsByItem.get(it.reference) ?? [],
           })),
       })),

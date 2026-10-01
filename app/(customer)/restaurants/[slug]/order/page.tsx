@@ -19,6 +19,20 @@ interface Pkg {
 // categories correctly. This page only has a single flat package grid (no
 // menu/category tabs), so it flattens the primary menu's categories, matching
 // FM's own "default menu" convention already established in shared.tsx.
+// ── THIS WHOLE SURFACE IS FAMILYMEAL, END TO END ──────────────────────────
+// getCachedRestaurant has no is_disco_native filter, so a converted restaurant
+// reached here renders FamilyMeal's frozen prices — verified live: Beach Buns
+// Bakery showed "Small Breakfast Box" at $38.00 against Disco's $31.50.
+//
+// It is NOT fixed by pointing this function at Neon. OrderWizard then passes the
+// NATIVE package reference to /api/order/dates and /api/order/times, which call
+// FM's availableDates / availablePickUp — FamilyMeal has never seen that
+// reference, so the customer would get correct prices and no selectable dates.
+// A broken flow is worse than a stale price, so the half-fix was reverted.
+//
+// Nothing in the customer UI links here: the live first-party route is
+// /order/[slug], which renders RestaurantView and IS native-gated. Porting this
+// page means porting its availability endpoints too, or deleting it.
 async function fetchPrimaryMenuPackages(restaurantRef: string): Promise<Pkg[]> {
   const menuData = await fetchMenuData(restaurantRef)
   const primary = menuData[0]

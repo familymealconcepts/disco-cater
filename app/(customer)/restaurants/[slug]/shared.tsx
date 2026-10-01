@@ -255,6 +255,14 @@ function formatFullAddress(a?: FmRestaurantLookup['address'] | null): string {
 }
 
 // Exported for reuse by order/page.tsx (the 1st-party route's own package list).
+/**
+ * FAMILYMEAL ONLY. Do not call this for a restaurant that may be Disco-native —
+ * after conversion Disco owns the menu and this returns FamilyMeal's frozen
+ * snapshot. Its one caller inside this file sits in the FM-backed branch, below
+ * loadDiscoNativeRestaurant's early return; the order page calls
+ * loadNativeEditMenu first and only falls through to here for FM-backed
+ * restaurants.
+ */
 export async function fetchMenuData(restaurantRef: string) {
   try {
     const menuRes = await fetch(
