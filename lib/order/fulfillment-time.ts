@@ -52,7 +52,10 @@ export const READY_BY_LEAD_MINUTES = 30
 // A NULL delivery_type is deliberately NOT third-party. 19,630 historical
 // FM-mirrored rows carry null, and treating those as third-party would shift
 // every one of them by 30 minutes.
-const THIRD_PARTY_DELIVERY_TYPES = new Set([
+// Exported for lib/reports/fulfillment-filter.ts, which must expand a report's
+// "Third-Party Delivery" filter to exactly these values. A second list would be
+// the bug this one already prevents, one table over.
+export const THIRD_PARTY_DELIVERY_TYPES = new Set([
   'THIRD_PARTY_DELIVERY',
   'DLIVRD_DELIVERY',
   'NASH_DELIVERY',

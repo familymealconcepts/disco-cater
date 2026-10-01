@@ -62,6 +62,18 @@ export async function GET(req: NextRequest) {
       weekday: r.weekday, dayOfMonth: r.day_of_month,
       rangeType: r.range_type, rangeDays: r.range_days,
       autoTidy: r.auto_tidy === true,
+      // ── LATE ARRIVALS ──────────────────────────────────────────────────
+      // Sweep up orders dated before this window that only reached Neon since
+      // the previous run. An FM-mirrored order carries its real placement time
+      // but lands whenever the sync next runs, so an order placed on the 4th and
+      // synced on the 10th fell between the 07th run (row did not exist) and the
+      // 14th run (window starts after its date) and was invisible forever.
+      // 140 of the 438 orders placed since scheduled reports began did this.
+      //
+      // Bounded on last_run_at so each late arrival is swept exactly once. NULL
+      // on a report's FIRST run, which is correct — there is no earlier window
+      // for anything to have fallen out of.
+      catchUpSince: r.last_run_at,
       columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
       restaurantReference: r.restaurant_reference,
       filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
@@ -69,6 +81,7 @@ export async function GET(req: NextRequest) {
     const recipients = (Array.isArray(r.recipients) ? (r.recipients as string[]) : []).filter(Boolean)
     let status = 'SUCCESS'
     let rowCount = 0
+    let lateRows = 0
     let error = ''
     try {
       // The window now comes from the report's OWN timezone and range choice —
@@ -92,6 +105,17 @@ export async function GET(req: NextRequest) {
           : cfg
         const gen = await buildReport(scopedCfg, period, r.file_type)
         rowCount += gen.rowCount
+        lateRows += gen.lateRows
+        if (gen.invalidColumns.length) {
+          // A column the restaurant explicitly asked for that cannot be produced
+          // is a content defect. Alerted, not merely logged: nobody is watching
+          // a scheduled send, and this is how a report arrives with no money
+          // columns and nothing says so.
+          await alertOps('scheduled report is missing columns it was configured with', {
+            report: r.name, reference: r.reference,
+            missing: gen.invalidColumns, restaurantReference: r.restaurant_reference,
+          })
+        }
         const suffix = one ? `_${one.slice(0, 8)}` : ''
         attachments.push({
           filename: `${r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}${suffix}_${period.from}_${period.to}.${gen.ext}`,
@@ -107,7 +131,13 @@ export async function GET(req: NextRequest) {
           // layout() like every other transactional email — this was the one
           // sender passing bare HTML, so the report arrived with no Disco Cater
           // logo and no concierge footer while carrying a "| Disco Cater" subject.
-          html: layout(`<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached${many ? ` (${attachments.length} locations, ${rowCount} orders in total)` : ` (${rowCount} order${rowCount === 1 ? '' : 's'})`}.</p>`),
+          // A late arrival is dated outside the window the subject line states,
+          // so the email says why it is there rather than leaving the restaurant
+          // to find a September order in an October report and distrust both.
+          html: layout(
+            `<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached${many ? ` (${attachments.length} locations, ${rowCount} orders in total)` : ` (${rowCount} order${rowCount === 1 ? '' : 's'})`}.</p>`
+            + (lateRows > 0 ? `<p style="color:#555">${lateRows} order${lateRows === 1 ? '' : 's'} from an earlier period ${lateRows === 1 ? 'is' : 'are'} included — ${lateRows === 1 ? 'it' : 'they'} reached Disco Cater after that period's report had already been sent.</p>` : ''),
+          ),
           attachments,
         })
         if (!res.success) { status = 'FAILED'; error = res.error || 'email failed' }

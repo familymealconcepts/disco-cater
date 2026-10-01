@@ -49,6 +49,18 @@ export interface ReportFilter {
   deliveryTypes?: string[]
   locationReferenceIds?: string[]
 }
+/**
+ * Column keys a saved report asked for that no longer exist.
+ *
+ * NEVER SILENT. Nine of the twelve keys on Gracious Bakery's report were
+ * orphaned when commit 3dc0666 (2026-09-15) replaced the column model, and the
+ * filter below dropped them without a word — so a restaurant had configured
+ * Subtotal, Tax and Total and received a CSV with none of them, and nothing
+ * anywhere said so. Surfaced now through buildReport's return value, logged by
+ * the cron, and reported by the scheduled-reports API so the editor can show it.
+ */
+export interface InvalidColumnReport { keys: string[]; kept: number }
+
 export interface ScheduledReportConfig {
   name: string
   frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY'
@@ -66,6 +78,12 @@ export interface ScheduledReportConfig {
    * on its own is the flicker this feature was asked to avoid.
    */
   autoTidy?: boolean
+  /**
+   * Sweep up orders dated before this window that only synced after the given
+   * timestamp — normally the report's own previous run. See
+   * BuildOptions.catchUpSince in lib/reports/order-report-rows.ts.
+   */
+  catchUpSince?: string | null
   columns: string[]
   // The report's own restaurant — the base scope for the disco_orders query.
   // (`ownerReferences` is FM-parity owner metadata — the creating USER's ref —
@@ -118,18 +136,25 @@ const MONEY_KEYS = new Set(ORDER_REPORT_COLUMNS.filter(c => c.financial).map(c =
 async function fetchReportRows(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
-): Promise<{ rows: OrderReportRow[]; useCols: string[]; totals: Partial<OrderReportRow> }> {
+): Promise<{ rows: OrderReportRow[]; useCols: string[]; totals: Partial<OrderReportRow>; invalidColumns: string[] }> {
   // Scope to the report's restaurant(s): the explicit location filter if set,
   // otherwise the report's own restaurant. NEVER ownerReferences — that is a USER
   // ref and would match no orders (RM8).
   const locFilter = (cfg.filter?.locationReferenceIds || []).filter(Boolean)
   const scopeRefs = (locFilter.length ? locFilter : [cfg.restaurantReference]).filter(Boolean)
 
-  const chosen = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
+  const requested = (cfg.columns || []).map(String)
+  const chosen = requested.filter(k => COLUMN_LABEL[k])
+  const invalidColumns = requested.filter(k => !COLUMN_LABEL[k])
+  if (invalidColumns.length) {
+    // Loud, and it names the report: a column a restaurant explicitly asked for
+    // that cannot be produced is a content defect, not a formatting nicety.
+    console.error(`[buildReport] "${cfg.name}" requests ${invalidColumns.length} column(s) that no longer exist and they will be absent: ${invalidColumns.join(', ')}`)
+  }
   let useCols = chosen.length ? chosen : ORDER_REPORT_COLUMNS.map(c => c.key)
   if (!useCols.includes(ALWAYS_INCLUDED)) useCols = [...useCols, ALWAYS_INCLUDED]
 
-  if (!scopeRefs.length) return { rows: [], useCols, totals: {} }
+  if (!scopeRefs.length) return { rows: [], useCols, totals: {}, invalidColumns }
 
   const rows = await buildOrderReportRows({
     refs: scopeRefs,
@@ -138,6 +163,7 @@ async function fetchReportRows(
     dateField: cfg.filter?.dateType === 'createdDate' ? 'created_at' : 'order_date',
     orderStatuses: cfg.filter?.orderStatuses,
     deliveryTypes: cfg.filter?.deliveryTypes,
+    catchUpSince: cfg.catchUpSince ?? null,
   })
 
   // Subsidy: hidden unless a row actually carries one, exactly as the download
@@ -174,7 +200,7 @@ async function fetchReportRows(
     }
   }
 
-  return { rows, useCols, totals: totalsRow(rows) }
+  return { rows, useCols, totals: totalsRow(rows), invalidColumns }
 }
 
 /**
@@ -205,8 +231,8 @@ const cellOf = (r: Partial<OrderReportRow>, key: string): unknown => (r as Recor
 export async function generateReportCsv(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
-): Promise<{ csv: string; rowCount: number }> {
-  const { rows, useCols, totals } = await fetchReportRows(cfg, period)
+): Promise<{ csv: string; rowCount: number; invalidColumns: string[]; rows: OrderReportRow[] }> {
+  const { rows, useCols, totals, invalidColumns } = await fetchReportRows(cfg, period)
   assertReconciled(rows)
   const header = useCols.map(k => csvCell(COLUMN_LABEL[k])).join(',')
   const lines = rows.map(r => useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(r, k)) : cellOf(r, k))).join(','))
@@ -214,7 +240,7 @@ export async function generateReportCsv(
   const t = useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(totals, k)) : ''))
   const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))
   if (labelAt >= 0) t[labelAt] = csvCell('TOTAL')
-  return { csv: [header, ...lines, t.join(',')].join('\n'), rowCount: rows.length }
+  return { csv: [header, ...lines, t.join(',')].join('\n'), rowCount: rows.length, invalidColumns, rows }
 }
 
 // ── PDF generation (pure-JS via pdf-lib — no native deps, serverless-safe; same
@@ -227,10 +253,18 @@ const PDF_RULE = rgb(0.85, 0.85, 0.88)
 const PDF_ZEBRA = rgb(0.96, 0.96, 0.98)
 
 // Relative column widths so wide fields (name/email) get room and money stays tight.
+// ORPHANED BY THE SAME RENAME. Every key here was an old column key, so since
+// commit 3dc0666 not one of them has matched and every column has fallen to the
+// default weight. Re-keyed to the current set.
 const PDF_COL_WEIGHT: Record<string, number> = {
-  orderNumber: 1.1, orderDate: 1, createdDate: 1, orderType: 0.9, deliveryType: 1.3,
-  orderStatus: 1, customerName: 1.7, customerEmail: 2.2, customerPhone: 1.3,
-  subtotal: 0.9, tax: 0.8, total: 0.9,
+  location: 1.8, orderId: 1.1, customerName: 1.7, createdDate: 1, serviceType: 1.3,
+  orderDate: 1, orderTime: 0.9,
+  netSales: 0.95, stateTax: 0.85, localTax: 0.85, otherTax: 0.85,
+  selfDeliveryFee: 1, thirdPartyDeliveryFee: 1,
+  tipPickup: 0.85, tipSelfDelivery: 0.95, tipThirdPartyDelivery: 1,
+  serviceCharge: 0.95, discount: 0.85, leadGenOne: 0.9, leadGenTwo: 0.9,
+  gross: 0.95, stripeFee: 0.9, refundAmount: 0.9, thirdPartySubsidy: 1,
+  totalDistributed: 1.1,
 }
 
 function truncateToWidth(text: string, font: PDFFont, size: number, maxW: number): string {
@@ -244,8 +278,8 @@ function truncateToWidth(text: string, font: PDFFont, size: number, maxW: number
 export async function generateReportPdf(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
-): Promise<{ pdf: Uint8Array; rowCount: number }> {
-  const { rows, useCols, totals } = await fetchReportRows(cfg, period)
+): Promise<{ pdf: Uint8Array; rowCount: number; invalidColumns: string[]; rows: OrderReportRow[] }> {
+  const { rows, useCols, totals, invalidColumns } = await fetchReportRows(cfg, period)
   assertReconciled(rows)
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
@@ -309,7 +343,7 @@ export async function generateReportPdf(
   }
   if (!rows.length) page.drawText('No data for this period.', { x: M, y: y - 4, size: 10, font, color: PDF_GREY })
 
-  return { pdf: await doc.save(), rowCount: rows.length }
+  return { pdf: await doc.save(), rowCount: rows.length, invalidColumns, rows }
 }
 
 // Unified entry: build the report body in the requested format, with the right
@@ -318,13 +352,23 @@ export async function buildReport(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
   fileType: string,
-): Promise<{ body: string | Uint8Array; contentType: string; ext: 'pdf' | 'csv'; rowCount: number }> {
+): Promise<{ body: string | Uint8Array; contentType: string; ext: 'pdf' | 'csv'; rowCount: number; invalidColumns: string[]; lateRows: number }> {
+  // Counted here rather than inside the generators so both formats report it
+  // identically: rows whose date falls OUTSIDE the stated window are the late
+  // arrivals the catch-up clause swept in, and the email says so.
+  const lateOf = (rows: OrderReportRow[]) => cfg.catchUpSince
+    ? rows.filter(r => {
+        const d = cfg.filter?.dateType === 'createdDate' ? r.createdDate : r.orderDate
+        return !!d && d < period.from
+      }).length
+    : 0
+
   if (fileType === 'PDF') {
-    const { pdf, rowCount } = await generateReportPdf(cfg, period)
-    return { body: pdf, contentType: 'application/pdf', ext: 'pdf', rowCount }
+    const { pdf, rowCount, invalidColumns, rows } = await generateReportPdf(cfg, period)
+    return { body: pdf, contentType: 'application/pdf', ext: 'pdf', rowCount, invalidColumns, lateRows: lateOf(rows) }
   }
-  const { csv, rowCount } = await generateReportCsv(cfg, period)
-  return { body: csv || 'No data for this period.', contentType: 'text/csv', ext: 'csv', rowCount }
+  const { csv, rowCount, invalidColumns, rows } = await generateReportCsv(cfg, period)
+  return { body: csv || 'No data for this period.', contentType: 'text/csv', ext: 'csv', rowCount, invalidColumns, lateRows: lateOf(rows) }
 }
 
 // Scheduling now lives in report-period.ts alongside the window maths, because

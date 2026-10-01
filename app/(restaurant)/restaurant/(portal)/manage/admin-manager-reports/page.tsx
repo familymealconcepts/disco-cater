@@ -4,6 +4,7 @@ import { confirmDialog } from '../../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 import { formatTime12 } from '../../../../../../lib/utils/time'
 import { TimeSelect } from '../../_components/TimeSelect'
+import { FULFILLMENT_CONCEPTS, FULFILLMENT_CONCEPT_LABEL, collapseFulfillmentFilter } from '../../../../../../lib/reports/fulfillment-filter'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTime12 = formatTime12
@@ -141,7 +142,11 @@ const TIMEZONES = [
 const ORDER_STATUSES = ['COMPLETED','REFUND','CANCELED','RESERVED','EXPIRED','DUE','VOID','UNPAID','PAID']
 const STATUS_GROUP: Record<string, string[]> = { VOID: ['VOID', 'VOIDED'], REFUND: ['REFUND', 'REFUNDED'] }
 const statusGroupMembers = (s: string) => STATUS_GROUP[s] || [s]
-const FULFILLMENT_TYPES = ['PICKUP','OWN_DELIVERY','DLIVRD_DELIVERY']
+// The three concepts the report's own Service column prints — NOT raw
+// delivery_type values. The old list held three of the seven raw values and
+// omitted every third-party courier but one, so no configuration reachable from
+// here could include a third-party order. See lib/reports/fulfillment-filter.ts.
+const FULFILLMENT_TYPES = [...FULFILLMENT_CONCEPTS]
 
 
 // The scheduled-reports UI body (tabs + content + editor) without any page
@@ -336,7 +341,11 @@ function normalizeIncoming(r: Record<string, unknown>): ReportPayload {
       reference: (filter.reference as string) || undefined,
       dateType: ((filter.dateType as 'orderDate' | 'createdDate') || 'createdDate'),
       orderStatuses: Array.isArray(filter.orderStatuses) ? filter.orderStatuses as string[] : [...ORDER_STATUSES],
-      deliveryTypes: Array.isArray(filter.deliveryTypes) ? filter.deliveryTypes as string[] : [...FULFILLMENT_TYPES],
+      // Collapse whatever is stored — raw values on a pre-existing report,
+      // concepts on a new one — so the boxes show what it really matches.
+      deliveryTypes: Array.isArray(filter.deliveryTypes) && filter.deliveryTypes.length
+        ? collapseFulfillmentFilter(filter.deliveryTypes as string[])
+        : [...FULFILLMENT_TYPES],
       locationReferenceIds: Array.isArray(filter.locationReferenceIds) ? filter.locationReferenceIds as string[] : [],
     },
   }
@@ -795,7 +804,7 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
             {FULFILLMENT_TYPES.map(t => (
               <label key={t} style={checkLabel}>
                 <input type="checkbox" checked={form.filter.deliveryTypes.includes(t)} onChange={() => toggleArr('deliveryTypes', t)} />
-                {t.replace(/_/g, ' ')}
+                {FULFILLMENT_CONCEPT_LABEL[t] ?? t.replace(/_/g, ' ')}
               </label>
             ))}
           </div>

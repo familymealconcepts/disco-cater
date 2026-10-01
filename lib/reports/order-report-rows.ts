@@ -1,4 +1,5 @@
 import { sql } from '../db'
+import { expandFulfillmentFilter } from './fulfillment-filter'
 
 /**
  * THE canonical order-money report: FamilyMeal's column set, with a payout figure
@@ -52,6 +53,11 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   { key: 'serviceType', label: 'Service', financial: false },
   { key: 'orderDate', label: 'Order Date', financial: false },
   { key: 'orderTime', label: 'Order Time', financial: false },
+  // Restored. It was on the pre-3dc0666 column list, three saved reports still
+  // ask for it, and the value has been on OrderReportRow the whole time — it was
+  // simply never re-listed when the column set was replaced. Without it the
+  // migration would have had to drop a column those restaurants chose.
+  { key: 'orderStatus', label: 'Status', financial: false },
   { key: 'netSales', label: 'Net Sales', financial: true },
   { key: 'stateTax', label: 'Tax (State)', financial: true },
   { key: 'localTax', label: 'Tax (Local)', financial: true },
@@ -199,12 +205,32 @@ export interface BuildOptions {
   /** Optional filters, used by scheduled reports. Empty/absent = no filter. */
   orderStatuses?: string[]
   deliveryTypes?: string[]
+  /**
+   * Also include orders that fall BEFORE `from` but only synced into Neon after
+   * this timestamp — the previous run of this report.
+   *
+   * WHY. An FM-mirrored order carries its real placement time but arrives in
+   * Neon whenever the sync next runs. Order #80285521 was placed 2026-09-04 and
+   * synced 2026-09-10: the 09-07 run covered its date and found nothing because
+   * the row did not exist yet, and the 09-14 run's window starts after its date.
+   * It has never appeared in a report and never would have. 140 of the 438
+   * orders placed since scheduled reports began (32%) synced after the run that
+   * covered them, so this is ongoing, not an artifact of the FM backfill.
+   *
+   * Strictly `< from`: an order dated AFTER the window is not late, it is early,
+   * and its own future run will carry it. Bounding on the previous run means
+   * each late arrival is swept up exactly once.
+   */
+  catchUpSince?: string | null
 }
 
 export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderReportRow[]> {
   const byCreated = opts.dateField === 'created_at'
   const statuses = (opts.orderStatuses ?? []).filter(Boolean)
-  const deliveryTypes = (opts.deliveryTypes ?? []).filter(Boolean)
+  // Concepts in, raw column values out. A stored filter may hold either shape —
+  // see lib/reports/fulfillment-filter.ts for why both must keep working.
+  const deliveryTypes = expandFulfillmentFilter(opts.deliveryTypes)
+  const catchUpSince = opts.catchUpSince ? String(opts.catchUpSince) : null
 
   // COALESCE(placed_at, created_at) FOR "CREATED DATE", NOT created_at ALONE.
   // placed_at is FM's real order-creation timestamp (backfilled for pre-freeze
@@ -229,8 +255,16 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
         ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
      WHERE o.restaurant_reference = ANY(${opts.refs}::uuid[])
        AND o.is_deleted = false
-       AND (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
-           BETWEEN ${opts.from}::date AND ${opts.to}::date
+       AND (
+             (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
+               BETWEEN ${opts.from}::date AND ${opts.to}::date
+             -- Late arrivals: dated before this window, but synced since the
+             -- previous run, so no earlier run could have seen them.
+             OR (${catchUpSince !== null}
+                 AND o.created_at > ${catchUpSince}::timestamptz
+                 AND (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
+                     < ${opts.from}::date)
+           )
        AND (${statuses.length === 0} OR o.order_status = ANY(${statuses}))
        AND (${deliveryTypes.length === 0} OR COALESCE(o.delivery_type, 'PICKUP') = ANY(${deliveryTypes}))
      ORDER BY o.order_date, o.order_time, o.order_number
