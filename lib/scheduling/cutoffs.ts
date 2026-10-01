@@ -57,7 +57,10 @@ const DAY_MS = 86_400_000
  * to know about timezones. Falls back to the raw instant when the zone is absent
  * or unrecognised — the previous behaviour, never a throw.
  */
-function wallClockInZone(instant: Date, tz?: string | null): Date {
+// Exported for lib/menu/category-lead-time.ts, which must shift `now` into the
+// restaurant's clock exactly the way this module's own gates do — a second
+// implementation is how the picker and the server gate drift apart.
+export function wallClockInZone(instant: Date, tz?: string | null): Date {
   if (!tz) return instant
   try {
     const parts = new Intl.DateTimeFormat('en-US', {

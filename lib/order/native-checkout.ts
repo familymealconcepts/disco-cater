@@ -5,6 +5,7 @@
 
 import type Stripe from 'stripe'
 import { MENU_ACTIVE_SQL } from '../menu-state'
+import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
 import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
@@ -361,8 +362,88 @@ const SCHEDULE_MENU_COLUMNS = `
 // loadRestaurantDeliverySettings. Restaurant-wide closed days are checked
 // separately by isNativeDateClosed; no menu row at all (nothing to validate
 // against) passes, matching the client's ungated default.
-export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string, menuReference?: string): Promise<boolean> {
+export interface NativeDateTimeOptions {
+  /**
+   * The `reference` of every disco_menu_items row in the cart. Supplied, the
+   * gate additionally enforces per-category lead times
+   * (lib/menu/category-lead-time.ts). Omitted, it behaves exactly as before.
+   */
+  itemReferences?: string[]
+  /**
+   * Staff direct entry. Peter's ruling: the per-category lead time protects the
+   * kitchen's prep time, and staff taking a phone order ARE the kitchen.
+   *
+   * NAMED, not inferred. Both money paths share buildNativePlaceInput, so an
+   * exemption that worked by simply not passing itemReferences would have been
+   * one refactor away from silently exempting the customer path too. Every
+   * other gate in this function still applies to direct entry.
+   */
+  exemptCategoryLeadTimes?: boolean
+}
+
+/**
+ * The item names in a cart whose CATEGORY requires more notice than the chosen
+ * slot gives. Empty when nothing breaches — which is every cart at every
+ * restaurant except the one category in CATEGORY_LEAD_TIME_HOURS.
+ *
+ * Exported so the placement path can name the offending items in its error
+ * instead of answering with the generic date message. The gate below calls the
+ * same function, so the message can never describe a different rule from the
+ * one that actually refused.
+ */
+export async function findCategoryLeadBreaches(
+  restaurantReference: string,
+  itemReferences: string[],
+  orderDate: string,
+  orderTime: string,
+  now: Date = new Date(),
+): Promise<{ name: string; hours: number }[]> {
+  if (!anyCategoryLeadTimes()) return []
+  const refs = [...new Set((itemReferences || []).filter(Boolean))]
+  if (!refs.length || !orderDate || !orderTime) return []
+
+  const rows = (await sql`
+    SELECT i.name, i.category_reference::text AS category_reference
+    FROM disco_menu_items i
+    WHERE i.restaurant_reference = ${restaurantReference}::uuid
+      AND i.reference::text = ANY(${refs})
+  `.catch(e => {
+    // Loud. A swallowed failure here reads as "nothing breaches", which is the
+    // permissive answer — exactly the wrong direction for a gate.
+    console.error('[native-checkout] findCategoryLeadBreaches: item lookup failed for', restaurantReference, e instanceof Error ? e.message : e)
+    return []
+  })) as { name: string; category_reference: string | null }[]
+  if (!rows.length) return []
+
+  // Same timezone source the menu gate uses, read the same way — note the
+  // missing ::uuid, which is deliberate (disco_restaurant_cache.restaurant_reference
+  // is TEXT; casting throws). See isNativeDateTimeValid below.
+  const tzRows = (await sql`
+    SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(e => { console.error('[native-checkout] findCategoryLeadBreaches: timezone lookup failed for', restaurantReference, e instanceof Error ? e.message : e); return [] })) as { timezone: string | null }[]
+  const tz = tzRows[0]?.timezone ?? null
+
+  const out: { name: string; hours: number }[] = []
+  for (const r of rows) {
+    const hours = categoryLeadTimeHours(r.category_reference)
+    if (hours == null) continue
+    if (!isCategoryLeadSatisfied(hours, orderDate, orderTime, now, tz)) out.push({ name: r.name, hours })
+  }
+  return out
+}
+
+export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string, menuReference?: string, opts?: NativeDateTimeOptions): Promise<boolean> {
   if (!orderDate || !orderTime) return false
+  // ── PER-CATEGORY LEAD TIME ────────────────────────────────────────────────
+  // Runs INSIDE the gate rather than beside it, so it is enforced for every
+  // caller of the gate rather than for the one placement path that exists
+  // today. The menu's own lead time is checked further down; both apply, which
+  // makes the effective rule max(menu, category) without either knowing about
+  // the other. See lib/menu/category-lead-time.ts.
+  if (!opts?.exemptCategoryLeadTimes && opts?.itemReferences?.length) {
+    const breaches = await findCategoryLeadBreaches(restaurantReference, opts.itemReferences, orderDate, orderTime)
+    if (breaches.length) return false
+  }
   let menu: ScheduleMenuRow | undefined
   if (menuReference) {
     const exact = (await sql`

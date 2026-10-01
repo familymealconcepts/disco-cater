@@ -17,6 +17,7 @@ import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
+import { categoryLeadTimeHours, isCategoryLeadSatisfied, categoryLeadNotice } from '../../../../lib/menu/category-lead-time'
 import { trackEvent } from '../../../../lib/analytics'
 import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
@@ -41,6 +42,10 @@ interface FmSchedule {
   // Native path: true only when a lead time was actually set (vs the 24h default).
   // Undefined on the FM path (treated as explicit → shown, unchanged).
   prepTimeExplicit?: boolean
+  // The RESTAURANT's IANA zone, injected by shared.tsx from disco_restaurant_cache.
+  // Lead times are counted on the kitchen's clock, not the diner's — see
+  // wallClockInZone in lib/scheduling/cutoffs.ts for the measured divergence.
+  timezone?: string | null
 }
 interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
@@ -473,6 +478,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       }))
       .filter(x => x.visiblePkgs.length > 0)
   }, [activeSection, menuQuery])
+
   // Whether ANY item currently on screen carries a restaurant-provided label.
   // Drives the one-time legend: shown when there is something to attribute, and
   // absent entirely on a menu with no labels, so it never introduces the idea
@@ -586,6 +592,112 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // call (and, for method=invoice, the no-card "Send Invoice" flow).
   const isDirectEntry = searchParams?.get('mode') === 'direct-entry'
   const directEntryMethod: 'payment' | 'invoice' = searchParams?.get('method') === 'invoice' ? 'invoice' : 'payment'
+
+  // ── PER-CATEGORY LEAD TIME ────────────────────────────────────────────────
+  // One category at one restaurant today (Colonial Ranch Market's Freezer Meat
+  // Packages, 48 hours). lib/menu/category-lead-time.ts holds the rule, the
+  // reasoning, and the general per-category design if this ever needs to stop
+  // being hardcoded. Everything below is generic over that module — nothing
+  // here knows which category or which restaurant.
+
+  // `now`, as a value that does NOT come from render. A bare new Date() during
+  // render differs between the server pass and hydration, which React reports
+  // as a mismatch. null until the effect runs, and null means "not evaluated" —
+  // the card still STATES its requirement, it just does not refuse yet. The
+  // server gate is what actually refuses, so an un-hydrated second is harmless.
+  const [nowTs, setNowTs] = useState<number | null>(null)
+  useEffect(() => {
+    setNowTs(Date.now())
+    // A customer can sit on this page for a long time. Without this, someone who
+    // loaded the page 47 hours before their slot would keep an Add button that
+    // the server has already started refusing.
+    const t = setInterval(() => setNowTs(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
+  // The restaurant's own clock. Injected onto every menu's scheduleOption by
+  // shared.tsx; first non-null wins because it is a restaurant-level value that
+  // happens to be carried per menu.
+  const restaurantTz = useMemo(
+    () => menuData.map(s => s.menu?.scheduleOption?.timezone).find(tz => !!tz) ?? null,
+    [menuData],
+  )
+
+  // Item reference → the category it sits under, across EVERY menu (not just
+  // the active tab) so a cart assembled before a tab switch still resolves.
+  const categoryRefByPkg = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const sec of menuData) for (const cat of sec.categories) for (const p of cat.mealPackages) m.set(p.reference, cat.reference)
+    return m
+  }, [menuData])
+
+  /** Required notice for an item, in hours — null for everything without a rule. */
+  function pkgLeadHours(pkg: FmPackage): number | null {
+    return categoryLeadTimeHours(categoryRefByPkg.get(pkg.reference))
+  }
+
+  /**
+   * True when this item cannot be had on the CURRENTLY selected slot.
+   *
+   * STAFF DIRECT ENTRY IS EXEMPT, and the exemption has to be stated HERE as
+   * well as on the server. This same component serves both surfaces — the
+   * customer page and /restaurant/orders/create?mode=direct-entry — so a
+   * client-side block with no exemption would refuse staff at the card and the
+   * server's exemption would never be reachable. Peter's ruling: the rule
+   * protects the kitchen's prep time, and staff taking a phone order are the
+   * kitchen.
+   */
+  function pkgLeadBlocked(pkg: FmPackage): boolean {
+    if (isDirectEntry) return false
+    const hours = pkgLeadHours(pkg)
+    if (hours == null || nowTs == null || !selDate || !selTime) return false
+    return !isCategoryLeadSatisfied(hours, selDate, selTime, new Date(nowTs), restaurantTz)
+  }
+
+  // ── THE DATE-CHANGE HOLE, CLOSED ──────────────────────────────────────────
+  // DERIVED from (cart × selDate × selTime) rather than recomputed inside the
+  // two date-setting functions that exist today. The hole this closes is that
+  // the cart is cleared on a MENU change and never on a DATE change, so a
+  // customer could pick a later date, add the item, move the date sooner and
+  // check out. An event-driven check would close it for startOrder() and
+  // confirmPicker() and reopen it the day somebody adds a third way to set the
+  // date; this cannot go stale because it is not a check, it is a value.
+  const cartLeadBreaches = useMemo(() => {
+    if (isDirectEntry) return []   // see pkgLeadBlocked — staff are exempt
+    if (nowTs == null || !selDate || !selTime || cart.length === 0) return []
+    const out: { lineId: string; name: string; hours: number }[] = []
+    for (const line of cart) {
+      const hours = categoryLeadTimeHours(categoryRefByPkg.get(line.pkg.reference))
+      if (hours == null) continue
+      if (!isCategoryLeadSatisfied(hours, selDate, selTime, new Date(nowTs), restaurantTz)) {
+        out.push({ lineId: line.lineId, name: line.pkg.name, hours })
+      }
+    }
+    return out
+  }, [isDirectEntry, cart, selDate, selTime, nowTs, restaurantTz, categoryRefByPkg])
+
+  // The slot in effect before the current one, offered back as "keep my
+  // original date" when the change is what created the conflict. A ref, not
+  // state: it must not itself trigger a re-render, and it is only ever read
+  // inside an event handler.
+  const prevSelRef = useRef<{ date: string; time: string } | null>(null)
+  // Only worth offering when going back actually resolves the conflict.
+  const prevSlotClearsConflict = useMemo(() => {
+    const prev = prevSelRef.current
+    if (!prev || nowTs == null || cartLeadBreaches.length === 0) return false
+    return cartLeadBreaches.every(b => isCategoryLeadSatisfied(b.hours, prev.date, prev.time, new Date(nowTs), restaurantTz))
+  }, [cartLeadBreaches, nowTs, restaurantTz])
+
+  function removeLeadBlockedItems() {
+    const ids = new Set(cartLeadBreaches.map(b => b.lineId))
+    setCart(prev => prev.filter(l => !ids.has(l.lineId)))
+  }
+  function restorePrevSlot() {
+    const prev = prevSelRef.current
+    if (!prev) return
+    setSelDate(prev.date); setSelTime(prev.time)
+    setTempDate(prev.date); setTempTime(prev.time)
+  }
 
   // Checkout funnel capture (abandonment tracking) — Direct Entry is a
   // restaurant admin placing on behalf of a customer, not a diner session, so
@@ -863,6 +975,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function startOrder() {
     if (!canStartOrder) return
     setActiveMenuIdx(tempMenuIdx)
+    // Remember the slot being replaced, so a date change that strands a
+    // lead-time item can offer to go back to it rather than only to drop it.
+    if (selDate && selTime && (selDate !== tempDate || selTime !== tempTime)) prevSelRef.current = { date: selDate, time: selTime }
     setSelDate(tempDate)
     setSelTime(tempTime)
     setOrderType(tempType)
@@ -895,6 +1010,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function openPicker() { openMenus() }
   function confirmPicker() {
     if (!tempDate || !tempTime) return
+    if (selDate && selTime && (selDate !== tempDate || selTime !== tempTime)) prevSelRef.current = { date: selDate, time: selTime }
     setSelDate(tempDate); setSelTime(tempTime); setOrderType(tempType)
     setHasSelection(true); setPickerOpen(false)
   }
@@ -963,6 +1079,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // validated, committed address (lat/lng present — that's what the payload
   // needs). Logged-out users are fine: /orders/init is public (no auth).
   const canPreview = !!fmRef && cart.length > 0 && !!selDate && !!selTime &&
+    // A cart holding an item the chosen date cannot support must not reach
+    // checkout. The server refuses it anyway (isNativeDateTimeValid), but being
+    // stopped at the pay screen after entering a card is a worse way to learn.
+    cartLeadBreaches.length === 0 &&
     (orderType === 'PICKUP' || (addrValidated && !!addr.line1 && addr.lat != null && addr.lng != null))
 
   // ── Checkout funnel capture: pure-client transitions ───────────────────────
@@ -1176,6 +1296,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const orderingPaused = restaurantSettings?.onlineOrderingAllowed === false
   const announcement = (restaurantSettings?.announcement || '').trim()
   const canCheckout = !orderingPaused && cart.length > 0 && !belowMin && !!selDate && !!selTime &&
+    // An item whose category needs more notice than the chosen date gives blocks
+    // checkout outright, not just the pricing preview — these are two separate
+    // gates and canPreview does not feed this one. The server refuses the order
+    // either way (isNativeDateTimeValid); being refused AFTER entering a card is
+    // a worse way to find out. The conflict banner is on screen saying why.
+    cartLeadBreaches.length === 0 &&
     (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
 
   // GA funnel: checkout drawer opened. Fires once per open (covers both the
@@ -1194,7 +1320,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }, [checkoutOpen])
   // Subtotal/total are already shown in the order summary above the button, so
   // the label is just the action.
-  const ctaLabel = orderingPaused ? 'Not accepting online orders' : cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
+  const ctaLabel = orderingPaused ? 'Not accepting online orders'
+    : cartLeadBreaches.length > 0 ? `Not available for ${fmtDateShort(selDate)}`
+    : cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
 
   // Login gate: only the checkout action requires auth. Direct Entry (restaurant
   // admin placing on behalf of a customer) is never gated. When logged out, open
@@ -1384,6 +1512,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       return
     }
     if (remainingToAdd(pkg) === 0) return // sold out for the selected date
+    // Enforcement point 1 of 3. The card already says so and is visibly
+    // non-interactive; this is the guard behind it, so a programmatic or
+    // keyboard-driven activation cannot slip past the styling.
+    if (pkgLeadBlocked(pkg)) return
     handleAddClickInner(pkg)
   }
   // Ceiling for the "Add to Order" modal's quantity stepper — how many more of
@@ -1417,6 +1549,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
   function canConfirmAddOns() {
     if (!addOnsPkg) return false
+    // The modal cannot be OPENED on a blocked item (handleAddClick refuses),
+    // but it can be left open while the date moves underneath it.
+    if (pkgLeadBlocked(addOnsPkg)) return false
     // The item's own minimum quantity, checked the same way a required group is:
     // it blocks "Add to Order" rather than being discovered at checkout.
     if (addOnsQty < minAddOnsQty()) return false
@@ -2081,6 +2216,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     // that case). soldOutToday only once a real 0 is confirmed.
                     const remainingCap = pkg.maxInventoryPerDay != null ? remainingByRef[pkg.reference] : undefined
                     const soldOutToday = remainingCap === 0
+                    // Per-category lead time. `leadHours` is stated on the card
+                    // whether or not it currently bites — the customer should
+                    // learn the rule while browsing, not when they are refused.
+                    const leadHours = pkgLeadHours(pkg)
+                    const leadBlocked = pkgLeadBlocked(pkg)
+                    const inert = soldOutToday || leadBlocked
                     return (
                       <div key={pkg.reference} className="pkg-card" onClick={() => handleAddClick(pkg)} style={{
                         background: '#fff', borderRadius: 12,
@@ -2088,8 +2229,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         display: 'flex', flexDirection: 'row', padding: 12, gap: 12,
                         boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
-                        cursor: soldOutToday ? 'default' : 'pointer',
-                        opacity: soldOutToday ? 0.55 : 1,
+                        cursor: inert ? 'default' : 'pointer',
+                        // NEVER display:none. A hidden item teaches the customer
+                        // it does not exist; a dimmed one with a reason teaches
+                        // them to pick a later date.
+                        opacity: inert ? 0.55 : 1,
                       }}>
                         {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -2121,6 +2265,29 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                           {minCardQty(pkg) > 1 && (
                             <div style={{ fontSize: 11, color: '#8a89a8', fontWeight: 600, marginTop: 3 }}>
                               Select {minCardQty(pkg)}+
+                            </div>
+                          )}
+                          {/* The requirement, stated quietly and always. */}
+                          {leadHours != null && !leadBlocked && (
+                            <div style={{ fontSize: 11, color: '#8a89a8', fontWeight: 600, marginTop: 3 }}>
+                              {categoryLeadNotice(leadHours)}
+                            </div>
+                          )}
+                          {/* The same rule in the active voice once it bites,
+                              naming the date that fails and offering the way
+                              out. "Not available" rather than "unavailable":
+                              the item is fine, the DATE is the problem, and the
+                              customer can fix the date. */}
+                          {leadBlocked && leadHours != null && (
+                            <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 700, marginTop: 3, lineHeight: 1.45 }}>
+                              Not available for {fmtDateShort(selDate)} — needs {leadHours} hours&rsquo; notice
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); openMenus() }}
+                                style={{ display: 'block', marginTop: 2, background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: BLUE, textDecoration: 'underline', cursor: 'pointer' }}
+                              >
+                                Choose a later date
+                              </button>
                             </div>
                           )}
                           {qty > 0 && (
@@ -2616,6 +2783,43 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           .date-time-sticky { top: 0 !important; }
         }
       `}</style>
+
+      {/* ── Lead-time conflict banner ──────────────────────────────────────
+          Shown whenever the cart holds an item the SELECTED date cannot
+          support. Derived from cartLeadBreaches, so it appears on any path
+          that moves the date and disappears the moment the conflict is
+          resolved — there is no dismiss, because dismissing would leave a cart
+          that cannot check out with nothing on screen saying why.
+
+          THE ITEMS ARE NAMED AND NEVER DROPPED. Silently removing an $899
+          Grand Slam because the customer nudged the date is a worse outcome
+          than the block itself; the customer decides which of the two things
+          they actually wanted. */}
+      {cartLeadBreaches.length > 0 && (
+        <div role="alert" style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#fff', border: '1px solid #FDA29B', borderLeft: '4px solid #B42318', color: DARK, padding: '14px 18px', borderRadius: 12, fontSize: 13, fontFamily: F, zIndex: 950, boxShadow: '0 8px 28px rgba(0,0,0,0.18)', maxWidth: 'min(460px, calc(100vw - 32px))' }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>
+            {cartLeadBreaches.length > 1 ? 'Some items need more notice' : 'This item needs more notice'}
+          </div>
+          <div style={{ color: '#585786', lineHeight: 1.55 }}>
+            {[...new Set(cartLeadBreaches.map(b => b.name))].join(', ')}{' '}
+            {cartLeadBreaches.length > 1 ? 'need' : 'needs'} {Math.max(...cartLeadBreaches.map(b => b.hours))} hours&rsquo; notice,
+            so {cartLeadBreaches.length > 1 ? 'they are' : 'it is'} not available for {fmtDateShort(selDate)}.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+            {prevSlotClearsConflict && prevSelRef.current && (
+              <button type="button" onClick={restorePrevSlot} style={{ padding: '8px 14px', borderRadius: 999, border: 'none', background: BLUE, color: '#fff', fontSize: 12.5, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>
+                Go back to {fmtDateShort(prevSelRef.current.date)}
+              </button>
+            )}
+            <button type="button" onClick={openMenus} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${BLUE}`, background: '#fff', color: BLUE, fontSize: 12.5, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>
+              Choose a later date
+            </button>
+            <button type="button" onClick={removeLeadBlockedItems} style={{ padding: '8px 14px', borderRadius: 999, border: '1px solid #e5e5e5', background: '#fff', color: '#727272', fontSize: 12.5, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>
+              {cartLeadBreaches.length > 1 ? 'Remove these items' : 'Remove this item'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Reorder feedback toast */}
       {reorderToast && (

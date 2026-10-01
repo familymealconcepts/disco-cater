@@ -2,7 +2,7 @@ import type Stripe from 'stripe'
 import { repriceCartFromMenu } from './native-cart-reprice'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums,
+  isNativeDateTimeValid, findCategoryLeadBreaches, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums,
   cartSubtotal, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   priceNativeCart, resolveCartMenuReference, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
@@ -115,7 +115,34 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // availability, skipped days) — the picker only hides invalid options, it
   // doesn't stop a direct API call from requesting one.
   const orderTime = String(cd.orderTime ?? '')
-  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime, menuReference))) {
+  // ── PER-CATEGORY LEAD TIME: THE EXEMPTION IS NAMED, NOT INFERRED ──────────
+  // Staff direct entry is exempt (Peter's ruling: the rule protects the
+  // kitchen's prep time, and staff taking a phone order are the kitchen). It is
+  // passed as a flag rather than expressed by withholding itemReferences,
+  // because this prelude is shared by BOTH money paths and by both the customer
+  // and direct-entry routes — an exemption that worked by omission would have
+  // been one refactor away from exempting everybody. Every OTHER gate here
+  // still applies to direct entry, including the menu's own lead time.
+  const exemptCategoryLeadTimes = params.isDirectEntry === true
+  const itemReferences = items.map(i => i.reference).filter((r): r is string => !!r)
+  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime, menuReference, { itemReferences, exemptCategoryLeadTimes }))) {
+    // Ask the gate WHY before answering, so a 48-hour rule is not reported as
+    // "no longer available for this menu" — which would send the customer to
+    // change their time when what they need is a later date. Same function the
+    // gate itself called, so the message can never describe a different rule
+    // from the one that refused.
+    if (!exemptCategoryLeadTimes) {
+      const breaches = await findCategoryLeadBreaches(ref, itemReferences, orderDate, orderTime)
+      if (breaches.length) {
+        const hours = Math.max(...breaches.map(b => b.hours))
+        const names = [...new Set(breaches.map(b => b.name))]
+        return {
+          ok: false,
+          status: 400,
+          error: `${names.join(', ')} ${names.length > 1 ? 'need' : 'needs'} ${hours} hours' notice. Please choose a date at least ${hours} hours from now, or remove ${names.length > 1 ? 'these items' : 'this item'}.`,
+        }
+      }
+    }
     return { ok: false, status: 400, error: 'The selected date/time is no longer available for this menu. Please choose a different date or time.' }
   }
 
