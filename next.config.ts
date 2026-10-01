@@ -12,10 +12,28 @@ const nextConfig: NextConfig = {
   // static JSON, regenerated only if Sanity data changes before full sunset)
   // — no live Sanity lookup at request time.
   async redirects() {
-    return legacyRestaurantSlugRedirects.flatMap(({ oldSlug, newSlug }) => ([
-      { source: `/restaurants/${oldSlug}`, destination: `/restaurants/${newSlug}`, permanent: true },
-      { source: `/order/${oldSlug}`, destination: `/order/${newSlug}`, permanent: true },
-    ]))
+    return [
+      // ── THE DELETED ORDERING WIZARD ────────────────────────────────────────
+      // /restaurants/[slug]/order was a one-package-at-a-time stepper, removed
+      // in 9ccdda1 because it served FamilyMeal's frozen menu (Beach Buns
+      // Bakery was priced $38.00 against Disco's $31.50) and could not complete
+      // an order on a native restaurant at all.
+      //
+      // Nothing in the product ever linked to it and it was never in the
+      // sitemap, so this exists purely for a bookmark or a stale backlink —
+      // which would otherwise hit a bare 404. Permanent (308) so browsers and
+      // crawlers stop asking.
+      //
+      // The `:slug` segment cannot swallow the live routes: this matches only a
+      // path with the literal `/order` SUFFIX, so /restaurants/[slug] and
+      // /order/[slug] are untouched.
+      { source: '/restaurants/:slug/order', destination: '/restaurants/:slug', permanent: true },
+
+      ...legacyRestaurantSlugRedirects.flatMap(({ oldSlug, newSlug }) => ([
+        { source: `/restaurants/${oldSlug}`, destination: `/restaurants/${newSlug}`, permanent: true },
+        { source: `/order/${oldSlug}`, destination: `/order/${newSlug}`, permanent: true },
+      ])),
+    ]
   },
   // mupdf ships a WASM binary that must load from node_modules at runtime rather
   // than be bundled by Turbopack — used by the become-a-partner menu import to
