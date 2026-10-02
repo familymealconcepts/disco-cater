@@ -26,7 +26,6 @@ interface ScheduledReport {
   day_of_month?: string | null
   range_type?: string | null
   range_days?: number | null
-  auto_tidy?: boolean
   fan_out?: boolean
   [k: string]: unknown
 }
@@ -53,10 +52,8 @@ interface ReportPayload {
   dayOfMonth: string
   rangeType: string
   rangeDays: number
-  autoTidy: boolean
   fanOut: boolean
   fileType: 'CSV' | 'PDF'
-  columns: string[]
   recipients: string[]
   ownerReferences: string[]
   filter: {
@@ -219,12 +216,10 @@ function emptyReport(): ReportPayload {
     dayOfMonth: '1',
     rangeType: 'PREVIOUS_PERIOD',
     rangeDays: 30,
-    autoTidy: false,
     fanOut: false,
     time: `${hh}:${mm}`,
     timezone: 'America/New_York',
     fileType: 'CSV',
-    columns: [],
     recipients: [],
     ownerReferences: [],
     filter: {
@@ -329,12 +324,10 @@ function normalizeIncoming(r: Record<string, unknown>): ReportPayload {
     dayOfMonth: String(r.dayOfMonth ?? r.day_of_month ?? '1'),
     rangeType: String(r.rangeType ?? r.range_type ?? 'PREVIOUS_PERIOD'),
     rangeDays: Number(r.rangeDays ?? r.range_days ?? 30) || 30,
-    autoTidy: (r.autoTidy ?? r.auto_tidy) === true,
     fanOut: (r.fanOut ?? r.fan_out) === true,
     time: (r.time as string) || '09:00',
     timezone: (r.timezone as string) || 'America/New_York',
     fileType: ((r.fileType as 'CSV' | 'PDF') || 'CSV'),
-    columns: Array.isArray(r.columns) ? r.columns as string[] : [],
     recipients: Array.isArray(r.recipients) ? r.recipients as string[] : [],
     ownerReferences: Array.isArray(r.ownerReferences) ? r.ownerReferences as string[] : [],
     filter: {
@@ -431,7 +424,6 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
   const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [form, setForm] = useState<ReportPayload>(initial)
   const [locations, setLocations] = useState<LocationOption[]>([])
-  const [columns, setColumns] = useState<ReportColumn[]>([])
   const [emailInput, setEmailInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -473,21 +465,7 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
         }
       })
       .catch(() => {})
-    fetch('/api/restaurant/reports/columns')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (Array.isArray(d)) setColumns(d)
-        else if (Array.isArray(d?.content)) setColumns(d.content)
-      })
-      .catch(() => {})
   }, [])
-
-  // Default: select all columns on initial load if none selected
-  useEffect(() => {
-    if (!columns.length || form.columns.length) return
-    setForm(f => ({ ...f, columns: columns.map(c => c.key) }))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns])
 
   function addRecipient() {
     const e = emailInput.trim()
@@ -520,13 +498,6 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
     })
   }
 
-  function toggleColumn(key: string) {
-    setForm(f => {
-      const arr = f.columns
-      const next = arr.includes(key) ? arr.filter(x => x !== key) : [...arr, key]
-      return { ...f, columns: next }
-    })
-  }
 
   async function save() {
     if (!form.recipients.length) { setError('At least one email recipient is required'); return }
@@ -587,47 +558,7 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
   }
 
   // ── BASIC PRESET ──────────────────────────────────────────────────────────
-  // Asks the server which columns actually carry data over a 12-month look-back
-  // and selects those. It only ever SETS the checkboxes — the restaurant sees
-  // the result and can change it, and what is saved is a plain column list, so
-  // the report's shape never moves on its own afterwards.
-  const [presetBusy, setPresetBusy] = useState(false)
-  const [presetNote, setPresetNote] = useState('')
-  async function applyBasicPreset() {
-    setPresetBusy(true)
-    setPresetNote('')
-    try {
-      const res = await fetch('/api/restaurant/reports/column-presence', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ filter: { locationReferenceIds: form.filter.locationReferenceIds } }),
-      })
-      if (!res.ok) { setPresetNote('Could not check your data just now — every column is still selected.'); return }
-      const d = await res.json()
-      setForm(f => ({ ...f, columns: d.suggested as string[] }))
-      if (!d.judged) {
-        setPresetNote(`Only ${d.orders} order${d.orders === 1 ? '' : 's'} in the last ${d.lookbackMonths} months — too few to tell which columns you use, so all of them are selected. Try again once you have at least ${d.minOrders}.`)
-      } else {
-        const dropped = (d.dropped as { label: string }[]).map(x => x.label)
-        const unknown = (d.unknown as { label: string }[]).map(x => x.label)
-        const parts: string[] = []
-        parts.push(dropped.length
-          ? `Left out ${dropped.length} column${dropped.length === 1 ? '' : 's'} with no data in the last ${d.lookbackMonths} months: ${dropped.join(', ')}.`
-          : `Every column has data in the last ${d.lookbackMonths} months, so nothing was left out.`)
-        if (unknown.length) {
-          parts.push(`Kept ${unknown.join(', ')} — some of that data is missing rather than zero, so we cannot tell whether you use it.`)
-        }
-        parts.push(`Based on ${d.orders} orders, ${d.from} to ${d.to}. You can change any of these.`)
-        setPresetNote(parts.join(' '))
-      }
-    } catch {
-      setPresetNote('Could not check your data just now — every column is still selected.')
-    } finally {
-      setPresetBusy(false)
-    }
-  }
 
-  const grouped = groupByCategory(columns)
 
   return (
     <div style={modalBackdrop}>
@@ -810,51 +741,27 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
           </div>
         </Field>
 
-        {/* Columns */}
-        <Field label="Columns to include">
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-            <button type="button" onClick={applyBasicPreset} disabled={presetBusy} style={secondaryBtn}>
-              {presetBusy ? 'Checking your data…' : 'Basic — only columns you use'}
-            </button>
-            <button type="button" onClick={() => setForm(f => ({ ...f, columns: columns.map(c => c.key) }))} style={secondaryBtn}>
-              Select all
-            </button>
+        {/* ── COLUMNS ARE NO LONGER CHOSEN ────────────────────────────────
+            Peter's ruling 2026-10-02: a column appears when it carries a
+            non-zero value in the period being reported, and Net Sales, Gross
+            and Total Distributed always appear. That is decided per send from
+            the rows themselves (lib/reports/visible-columns.ts), so there is
+            nothing left to store — a stored choice and a per-render rule cannot
+            both be true, and the stored one would silently lose.
+
+            The picker, the "Basic — only columns you use" preset and the
+            12-month look-back behind it are all retired rather than left on
+            screen writing a value nothing reads. */}
+        <Field label="Columns">
+          <div style={{ background: '#f7f8fb', border: '1px solid #e6e8f0', borderRadius: 8, padding: '12px 14px', fontSize: 12.5, color: '#555', lineHeight: 1.6 }}>
+            Columns are chosen automatically for each report. Anything with no activity in the period is left out, and
+            <strong> Net Sales</strong>, <strong>Gross</strong> and <strong>Total Distributed</strong> are always included.
+            Reports covering more than one location start with a <strong>Location</strong> column.
           </div>
-          {presetNote && (
-            <div style={{ background: '#f4f8ff', border: '1px solid #d7e5ff', color: '#274b8a', padding: 10, borderRadius: 8, marginBottom: 10, fontSize: 12.5, lineHeight: 1.5 }}>
-              {presetNote}
-            </div>
-          )}
-          {Object.keys(grouped).length === 0 && (
-            <div style={{ color: '#aaa', fontSize: 12 }}>Loading columns…</div>
-          )}
-          {Object.entries(grouped).map(([cat, cols]) => (
-            <div key={cat} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', marginBottom: 6 }}>{cat}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {cols.map(c => (
-                  <label key={c.key} style={checkLabel}>
-                    <input type="checkbox" checked={form.columns.includes(c.key)} onChange={() => toggleColumn(c.key)} />
-                    {c.displayLabel}
-                  </label>
-                ))}
-              </div>
-            </div>
-          ))}
         </Field>
 
         {/* Keep-tidy + fan-out */}
         <Field label="Options">
-          <label style={{ ...checkLabel, display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-            <input type="checkbox" checked={form.autoTidy} onChange={e => setForm(f => ({ ...f, autoTidy: e.target.checked }))} />
-            <span>
-              Keep this tidy automatically
-              <span style={{ display: 'block', color: '#777', fontSize: 12 }}>
-                Re-check before every send and leave out columns you have not used in the last 12 months.
-                Off by default, so the columns you pick above stay exactly as you set them.
-              </span>
-            </span>
-          </label>
           {form.filter.locationReferenceIds.length > 1 && (
             <label style={{ ...checkLabel, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
               <input type="checkbox" checked={form.fanOut} onChange={e => setForm(f => ({ ...f, fanOut: e.target.checked }))} />
@@ -879,15 +786,6 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
   )
 }
 
-function groupByCategory(cols: ReportColumn[]): Record<string, ReportColumn[]> {
-  const out: Record<string, ReportColumn[]> = {}
-  for (const c of cols) {
-    const cat = c.category || 'OTHER'
-    if (!out[cat]) out[cat] = []
-    out[cat].push(c)
-  }
-  return out
-}
 
 function formatNameStamp(): string {
   const d = new Date()

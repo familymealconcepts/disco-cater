@@ -6,10 +6,10 @@ import { sql } from '../db'
 import { displayEmail } from '../customer-email-guard'
 import {
   ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
-  subsidyShouldShow, reconcileRow, type OrderReportRow,
+  reconcileRow, type OrderReportRow,
 } from './order-report-rows'
 import { resolvePeriod, type PeriodSpec, type Frequency } from './report-period'
-import { getColumnPresence, NEVER_HIDE } from './column-presence'
+import { visibleReportColumns, rowsSpanLocations } from './visible-columns'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
 
@@ -143,18 +143,20 @@ async function fetchReportRows(
   const locFilter = (cfg.filter?.locationReferenceIds || []).filter(Boolean)
   const scopeRefs = (locFilter.length ? locFilter : [cfg.restaurantReference]).filter(Boolean)
 
+  // A stored column choice is no longer read. lib/reports/visible-columns.ts
+  // decides the shape from the rows in the period, and the on-demand export
+  // calls the SAME function — so a scheduled report and a download of the same
+  // window cannot disagree about which columns exist.
+  //
+  // invalidColumns is still reported: a saved report carrying keys that no
+  // longer resolve means its configuration predates a rename, and the cron
+  // surfaces that even though those keys no longer affect the output.
   const requested = (cfg.columns || []).map(String)
-  const chosen = requested.filter(k => COLUMN_LABEL[k])
   const invalidColumns = requested.filter(k => !COLUMN_LABEL[k])
-  if (invalidColumns.length) {
-    // Loud, and it names the report: a column a restaurant explicitly asked for
-    // that cannot be produced is a content defect, not a formatting nicety.
-    console.error(`[buildReport] "${cfg.name}" requests ${invalidColumns.length} column(s) that no longer exist and they will be absent: ${invalidColumns.join(', ')}`)
-  }
-  let useCols = chosen.length ? chosen : ORDER_REPORT_COLUMNS.map(c => c.key)
-  if (!useCols.includes(ALWAYS_INCLUDED)) useCols = [...useCols, ALWAYS_INCLUDED]
 
-  if (!scopeRefs.length) return { rows: [], useCols, totals: {}, invalidColumns }
+  if (!scopeRefs.length) {
+    return { rows: [], useCols: visibleReportColumns([], { multiLocation: scopeRefs.length > 1 }), totals: {}, invalidColumns }
+  }
 
   const rows = await buildOrderReportRows({
     refs: scopeRefs,
@@ -166,39 +168,16 @@ async function fetchReportRows(
     catchUpSince: cfg.catchUpSince ?? null,
   })
 
-  // Subsidy: hidden unless a row actually carries one, exactly as the download
-  // behaves. Without it Total Distributed cannot be derived from the visible
-  // columns; permanently on, it is a zero column on every report ever sent.
-  const showSubsidy = subsidyShouldShow(rows)
-  if (!showSubsidy) useCols = useCols.filter(k => k !== 'thirdPartySubsidy')
-  else if (!useCols.includes('thirdPartySubsidy')) {
-    const at = useCols.indexOf(ALWAYS_INCLUDED)
-    useCols = at >= 0 ? [...useCols.slice(0, at), 'thirdPartySubsidy', ...useCols.slice(at)] : [...useCols, 'thirdPartySubsidy']
-  }
-  // Only ever offer Location when the report genuinely spans several.
-  if (new Set(rows.map(r => r.location)).size <= 1) useCols = useCols.filter(k => k !== 'location')
-
-  // ── OPTIONAL AUTO-TIDY ────────────────────────────────────────────────────
-  // OFF by default. When a restaurant has explicitly asked for it, drop the
-  // columns proven empty over a 12-MONTH look-back — deliberately not over the
-  // report's own period, which is what would make a column flicker in and out
-  // between a month with one third-party order and a month without.
+  // ── ONE RULE, BOTH SURFACES ───────────────────────────────────────────────
+  // Non-zero only; Net Sales / Gross / Total Distributed always; no FamilyMeal
+  // fee ever; and Location prepended when the rows span restaurants — which is
+  // what a system admin reporting on "All Locations" receives, and what a merged
+  // report used to deliver with no way to tell the rows apart.
   //
-  // getColumnPresence keeps NULL separate from 0, so a field FamilyMeal never
-  // sent (Stripe fee, chiefly) reads as unjudgeable and is kept. NEVER_HIDE and
-  // the minimum-evidence bar do the rest.
-  if (cfg.autoTidy) {
-    try {
-      const presence = await getColumnPresence(scopeRefs)
-      if (presence.judged) {
-        const drop = new Set(presence.empty.filter(k => !NEVER_HIDE.has(k) && k !== ALWAYS_INCLUDED))
-        if (drop.size) useCols = useCols.filter(k => !drop.has(k))
-      }
-    } catch (e) {
-      // Never fail a send over a cosmetic decision — keep every column.
-      console.error('[buildReport] auto-tidy presence lookup failed; sending the full column set:', e instanceof Error ? e.message : e)
-    }
-  }
+  // The subsidy needs no special case any more: it appears exactly when an order
+  // carries one, like every other column. auto_tidy is gone for the same reason —
+  // it was a toggle between this rule and not-this-rule.
+  const useCols = visibleReportColumns(rows, { multiLocation: scopeRefs.length > 1 || rowsSpanLocations(rows) })
 
   return { rows, useCols, totals: totalsRow(rows), invalidColumns }
 }

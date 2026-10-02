@@ -107,7 +107,11 @@ async function main() {
   const cells = (l: string) => l.split(',').map(c => c.replace(/^"|"$/g, ''))
   const head = cells(lines[0])
   const rowsOnly = lines.slice(1, -1)       // drop header and the totals row
-  const ids = rowsOnly.map(l => cells(l)[0]).filter(Boolean)
+  // BY NAME, not position. Location now leads a multi-location report, so
+  // column 0 is the restaurant name rather than the order id.
+  const idCol = head.indexOf('Order ID')
+  check('the Order ID column was found', idCol >= 0, true)
+  const ids = rowsOnly.map(l => cells(l)[idCol]).filter(Boolean)
   check('no duplicate orders', ids.length, new Set(ids).size)
 
   // THE COLUMN THE REPORT FILTERS ON, not any date in the row. This report is
@@ -146,6 +150,44 @@ async function main() {
     WHERE table_name = 'disco_orders' AND column_name IN ('customer_email','customer_phone')
   `)[0] as { n: number }
   console.log(`   (disco_orders still holds ${q.n} contact column(s) — the report query does not select them)`)
+
+  console.log('\n8. COLUMN RULES — one rule, both surfaces')
+  const { visibleReportColumns, ALWAYS_SHOWN_COLUMNS, NEVER_SHOWN_COLUMNS } = await import('../lib/reports/visible-columns')
+
+  // A single all-zero row: only the always-shown three survive.
+  const zeroRow = Object.fromEntries(REPORT_COLUMNS.map(c => [c.key, 0])) as any
+  zeroRow.location = 'One Place'; zeroRow.orderId = ''; zeroRow.customerName = ''
+  zeroRow.createdDate = ''; zeroRow.orderDate = ''; zeroRow.orderTime = ''; zeroRow.serviceType = ''; zeroRow.orderStatus = ''
+  check('an all-zero period keeps exactly the three always-shown columns',
+    visibleReportColumns([zeroRow]), [...ALWAYS_SHOWN_COLUMNS])
+
+  // One non-zero field brings its column back.
+  const withTip = { ...zeroRow, tipPickup: 4.5 }
+  check('a non-zero value brings its column back', visibleReportColumns([withTip]).includes('tipPickup'), true)
+  check('a still-zero column stays out', visibleReportColumns([withTip]).includes('discount'), false)
+
+  // The subsidy is no longer special-cased either way.
+  check('subsidy hidden when zero', visibleReportColumns([zeroRow]).includes('thirdPartySubsidy'), false)
+  check('subsidy shown when an order carries one',
+    visibleReportColumns([{ ...zeroRow, thirdPartySubsidy: 3 }]).includes('thirdPartySubsidy'), true)
+
+  // The FamilyMeal fee can never appear.
+  check('no FamilyMeal fee column exists at all', REPORT_COLUMNS.some(c => NEVER_SHOWN_COLUMNS.has(c.key)), false)
+  check('the fee is excluded even if a row carries one',
+    visibleReportColumns([{ ...zeroRow, fee: 99 } as any]).some(k => NEVER_SHOWN_COLUMNS.has(k)), false)
+
+  console.log('\n9. ALL LOCATIONS — the restaurant name leads the report')
+  const twoPlaces = [{ ...zeroRow, location: 'Garden District', netSales: 10 }, { ...zeroRow, location: 'Uptown', netSales: 20 }]
+  check('Location is the FIRST column when rows span restaurants', visibleReportColumns(twoPlaces)[0], 'location')
+  check('Location is absent when they do not', visibleReportColumns([{ ...zeroRow, netSales: 10 }])[0], 'netSales')
+  check('an empty multi-location period still leads with Location',
+    visibleReportColumns([], { multiLocation: true })[0], 'location')
+
+  console.log('\n10. NO REPORT STILL CARRIES A STORED COLUMN CHOICE')
+  const stored2 = (await sql`
+    SELECT count(*)::int AS n FROM disco_scheduled_reports
+    WHERE jsonb_array_length(COALESCE(columns,'[]'::jsonb)) > 0 OR auto_tidy = true`)[0] as { n: number }
+  check('every report is on the per-render rule', stored2.n, 0)
 
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)

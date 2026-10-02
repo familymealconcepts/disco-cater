@@ -29,6 +29,14 @@ import { collapseFulfillmentFilter } from '../lib/reports/fulfillment-filter'
 
 const APPLY = process.argv.includes('--apply')
 
+// ── 2026-10-02: THE STORED COLUMN CHOICE IS RETIRED ─────────────────────────
+// Columns are now decided per send from the rows in the period
+// (lib/reports/visible-columns.ts). A stored choice and a per-render rule
+// cannot both be true, so the stored one is cleared rather than left behind to
+// be silently ignored — a value nothing reads is the next person's wrong lead.
+// auto_tidy goes with it: it was a toggle between this rule and not-this-rule.
+const RETIRE_STORED_COLUMNS = true
+
 /**
  * Old column key → the current key(s) that carry the same information.
  *
@@ -94,14 +102,17 @@ async function main() {
     const newDt = collapseFulfillmentFilter(storedDt)
     const dtChanged = JSON.stringify(newDt) !== JSON.stringify(storedDt)
     const colsChanged = JSON.stringify(newCols) !== JSON.stringify(cols)
-    if (!dtChanged && !colsChanged) {
+    const colsNeedClearing = RETIRE_STORED_COLUMNS && cols.length > 0
+    if (!dtChanged && !colsChanged && !colsNeedClearing) {
       console.log(`  ·  "${r.name}" (${r.ref.slice(0, 8)}) — already current`)
       continue
     }
 
     changed++
     console.log(`\n  ${APPLY ? 'UPDATING' : 'WOULD UPDATE'}  "${r.name}" (${r.ref.slice(0, 8)}, created ${r.created_at.slice(0, 10)})`)
-    if (colsChanged) {
+    if (colsNeedClearing) {
+      console.log(`     columns  ${cols.length} -> 0 (retired; chosen per send from the period's rows)`)
+    } else if (colsChanged) {
       console.log(`     columns  ${cols.length} -> ${newCols.length}`)
       console.log(`        before: ${cols.join(', ')}`)
       console.log(`        after:  ${newCols.join(', ')}`)
@@ -113,10 +124,12 @@ async function main() {
 
     if (APPLY) {
       const nextFilter = { ...filter, deliveryTypes: newDt }
+      const storedCols = RETIRE_STORED_COLUMNS ? [] : newCols
       await sql`
         UPDATE disco_scheduled_reports
-           SET columns = ${JSON.stringify(newCols)}::jsonb,
+           SET columns = ${JSON.stringify(storedCols)}::jsonb,
                filter  = ${JSON.stringify(nextFilter)}::jsonb,
+               auto_tidy = ${RETIRE_STORED_COLUMNS ? false : null},
                updated_at = NOW()
          WHERE reference = ${r.ref}::uuid
       `

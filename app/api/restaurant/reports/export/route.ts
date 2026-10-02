@@ -6,9 +6,10 @@ import { sql } from '../../../../../lib/db'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { contentDisposition } from '../../../../../lib/download-filename'
 import { resolveDiscoGroupScope } from '../../../../../lib/restaurant-write-scope'
+import { visibleReportColumns } from '../../../../../lib/reports/visible-columns'
 import {
   ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
-  subsidyShouldShow, reconcileRow, type OrderReportRow, type ReportColumnDef,
+  reconcileRow, type OrderReportRow, type ReportColumnDef,
 } from '../../../../../lib/reports/order-report-rows'
 
 export const runtime = 'nodejs'
@@ -28,13 +29,17 @@ const money = (n: number) => `$${n.toFixed(2)}`
 // #900000142 it read $1,159.00 while $1,011.29 reached the restaurant. The final
 // column is now Total Distributed — the payout, verified to the cent against
 // Stripe's transfer_data.amount on eleven real orders.
-function activeColumns(rows: OrderReportRow[], multiLocation: boolean, forceSubsidy: boolean): ReportColumnDef[] {
-  // The subsidy column is hidden while every row is zero (which is every order
-  // ever placed) and AUTO-SHOWN the moment one is not, so Total Distributed can
-  // always be derived from what is on screen. Kealoha can also force it on.
-  const showSubsidy = forceSubsidy || subsidyShouldShow(rows)
-  const cols = ORDER_REPORT_COLUMNS.filter(c => c.key !== 'thirdPartySubsidy' || showSubsidy)
-  return multiLocation ? [LOCATION_COLUMN, ...cols] : cols
+// THE SAME FUNCTION THE SCHEDULED REPORTS CALL. The two used to answer the
+// column question separately — this one auto-showed only the subsidy, that one
+// also had auto_tidy and a stored preset — so a download and a scheduled send of
+// the same window could differ. See lib/reports/visible-columns.ts.
+function activeColumns(rows: OrderReportRow[], multiLocation: boolean): ReportColumnDef[] {
+  const byKey = new Map<string, ReportColumnDef>(
+    [LOCATION_COLUMN, ...ORDER_REPORT_COLUMNS].map(c => [c.key, c]),
+  )
+  return visibleReportColumns(rows, { multiLocation })
+    .map(k => byKey.get(k))
+    .filter((c): c is ReportColumnDef => !!c)
 }
 
 const MONEY_KEYS = new Set(ORDER_REPORT_COLUMNS.filter(c => c.financial).map(c => c.key))
@@ -165,9 +170,9 @@ export async function GET(req: NextRequest) {
   const to = sp.get('to') || ''
   const dateField = sp.get('dateField') === 'created' ? 'created' : 'order'
   const format = (['csv', 'xls', 'pdf'].includes(sp.get('format') || '') ? sp.get('format') : 'csv') as 'csv' | 'xls' | 'pdf'
-  // Operator override for the subsidy column; it also auto-shows when any row is
-  // non-zero, so this only matters for forcing a permanently-zero column visible.
-  const forceSubsidy = sp.get('showSubsidy') === '1'
+  // showSubsidy is gone: the subsidy column now appears exactly when an order
+  // carries one, like every other column. An older bookmarked URL carrying the
+  // parameter is simply ignored rather than erroring.
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) return NextResponse.json({ error: 'from and to dates (YYYY-MM-DD) are required.' }, { status: 400 })
 
   try {
@@ -209,7 +214,7 @@ export async function GET(req: NextRequest) {
     }
 
     const multiLocation = new Set(rows.map(r => r.location)).size > 1
-    const cols = activeColumns(rows, multiLocation, forceSubsidy)
+    const cols = activeColumns(rows, multiLocation)
     const totals = totalsRow(rows)
 
     const title = 'Orders Report'

@@ -657,20 +657,13 @@ function ExportPanel() {
   // arithmetic behind Total Distributed is never invisible — this only forces a
   // zero column visible for someone who wants to see it is there.
   //
-  // Persisted in localStorage so the choice survives a reload; wrapped because
-  // storage throws in private windows and a report download must not depend on it.
-  const [showSubsidy, setShowSubsidy] = useState(false)
-  useEffect(() => {
-    try { setShowSubsidy(localStorage.getItem('disco.report.showSubsidy') === '1') } catch { /* no storage */ }
-  }, [])
-  const toggleSubsidy = (v: boolean) => {
-    setShowSubsidy(v)
-    try { localStorage.setItem('disco.report.showSubsidy', v ? '1' : '0') } catch { /* no storage */ }
-  }
+  // The third-party subsidy checkbox is gone (Peter's ruling 2026-10-02). It
+  // existed to force a permanently-zero column visible; every column now appears
+  // exactly when some order in the period carries a non-zero value, so there is
+  // nothing left for it to override. Its localStorage key is simply abandoned.
   const download = (format: 'csv' | 'xls' | 'pdf') => {
     if (!from || !to) return
     const qs = new URLSearchParams({ from, to, dateField, format })
-    if (showSubsidy) qs.set('showSubsidy', '1')
     const a = document.createElement('a')
     a.href = `/api/restaurant/reports/export?${qs.toString()}`
     a.rel = 'noopener'
@@ -681,7 +674,10 @@ function ExportPanel() {
   return (
     <div style={{ marginBottom: 28, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '18px 20px' }}>
       <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Export report</h2>
-      <p style={{ fontSize: 12.5, color: '#888', margin: '0 0 14px' }}>Download your orders for a date range as CSV, Excel, or PDF.</p>
+      <p style={{ fontSize: 12.5, color: '#888', margin: '0 0 14px' }}>
+        Download your orders for a date range as CSV, Excel, or PDF. Columns with no activity in the range are left out;
+        Net Sales, Gross and Total Distributed are always included.
+      </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
         <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>From<input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={inp} /></label>
         <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>To<input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} style={inp} /></label>
@@ -690,11 +686,6 @@ function ExportPanel() {
             <option value="order">Order date</option>
             <option value="created">Created date</option>
           </select>
-        </label>
-        <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
-          title="Only relevant where a location covers part of the third-party delivery fee itself. Shown automatically whenever any order has one.">
-          <input type="checkbox" checked={showSubsidy} onChange={e => toggleSubsidy(e.target.checked)} />
-          Show third-party subsidy column
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => download('csv')} style={fmtBtn('#16A34A')}>CSV</button>
