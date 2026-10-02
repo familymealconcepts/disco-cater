@@ -58,6 +58,42 @@ restaurants with no tax rate anywhere in FM. NJ charges 6.625%, so the data is p
 incomplete — and they were LEFT OUT OF THE BATCH rather than corrected. That is the
 correct outcome, not a gap to close.
 
+## VERIFY AGAINST THE PRODUCT BEFORE ESCALATING
+
+**A query returning no rows is not evidence that a feature is broken.** It may be
+reading the wrong table, or the data may live somewhere else entirely. The same
+goes for a grep that finds nothing, or finds something and misreads what it means.
+
+Before reporting any finding that implies something is broken AT SCALE:
+
+- **Open the screen or route a user would actually use** and confirm the problem
+  is visible there. If it is not visible to a user, it is not yet a finding.
+- **If it came from a query or a grep, check it against a second, independent
+  source** before reporting it. One instrument is a hypothesis; two agreeing is
+  evidence.
+- **Say how it was verified**, in the report itself, so the strength of the
+  evidence is visible instead of assumed. "I ran a query" and "I opened the page
+  and saw it" are very different claims and must not read the same.
+
+**This rule exists because it has gone wrong three times**, and each one pointed
+at a working platform:
+
+- the boundary audit's claim that four settings areas were never ported — the
+  data was in another table
+- the "50 ungated routes" figure — it counted legacy routes that have native
+  counterparts, so most of them never run
+- **"151 restaurants nobody can administer"** — the Super Admin Ordering list
+  shows a named admin for them on screen, and those people can sign in through
+  FamilyMeal and manage their restaurant today. The query was measuring
+  DISCO-SIDE reach (grants, anchors, groups) and reporting it as reach.
+
+**The cost is real: a wrong escalation gets changes made to something that
+works.** That is worse than saying nothing.
+
+**This is not an instruction to stay quiet.** Keep flagging genuine risks to
+money, to customer orders, and to data integrity — loudly, and early. The rule is
+about VERIFYING before escalating, not about lowering the bar for what matters.
+
 ## THERE ARE NO TRANSACTIONS IN THIS REPO — read before any write to a live table
 
 `lib/db.ts` uses `neon()` in **HTTP mode**. Every statement is its own HTTP request and

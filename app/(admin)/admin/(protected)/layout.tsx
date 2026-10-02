@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { title: 'Users', path: '/admin/manage-users' },
   { title: 'Customers', path: '/admin/manage-customers' },
   { title: 'System Admins', path: '/admin/manage-admins' },
+  { title: 'Admins', path: '/admin/manage-restaurant-admins' },
   {
     title: 'Restaurants', path: '/admin/manage-restaurants/ordering',
     children: [
