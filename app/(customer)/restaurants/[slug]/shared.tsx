@@ -8,6 +8,7 @@ import { assertRestaurantOrderable } from '../../../../lib/restaurant-orderable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
+import { formatDisplayAddress, dedupeAddressString } from '../../../../lib/address-display'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -57,7 +58,7 @@ export interface CachedRestaurant {
 // Exported for reuse by order/page.tsx (the 1st-party route's own lookup).
 export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRestaurant | null> => {
   const rows = (await withDiscoTables(() => sql`
-    SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description,
+    SELECT c.restaurant_reference, c.name, c.slug, c.address, c.address_line1, c.address_line2, c.city, c.state, c.zipcode, c.location, c.cuisine, c.description,
            c.image_url, c.icon_url, c.lat, c.lng, c.timezone, o.is_premium, o.archived_at
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
@@ -73,7 +74,14 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
   if (!r) return null
   return {
     restaurantReference: r.restaurant_reference,
-    name: r.name, slug: r.slug, address: r.address, location: r.location,
+    name: r.name, slug: r.slug,
+    // Through the shared formatter — see lib/address-display.ts for the
+    // duplication this prevents.
+    address: formatDisplayAddress({
+      addressLine1: (r as any).address_line1, addressLine2: (r as any).address_line2,
+      city: (r as any).city, state: (r as any).state, zipcode: (r as any).zipcode,
+    }) || dedupeAddressString(r.address) || r.address,
+    location: r.location,
     cuisine: r.cuisine, description: r.description,
     imageUrl: r.image_url, iconUrl: r.icon_url, isPremium: r.is_premium,
     lat: r.lat != null ? Number(r.lat) : null, lng: r.lng != null ? Number(r.lng) : null,
@@ -414,7 +422,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // awaiting runMigrations() (57 statements) put that on the cold-render
     // critical path of the hottest customer surface for no benefit.
     const rows = (await withDiscoTables(() => sql`
-      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url, c.icon_url,
+      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.address_line1, c.address_line2, c.city, c.state, c.zipcode, c.location, c.cuisine, c.description, c.image_url, c.icon_url,
              c.timezone,
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,

@@ -1,4 +1,5 @@
 import { sql, runMigrations, withDiscoTables } from './db'
+import { formatDisplayAddress, dedupeAddressString } from './address-display'
 
 export interface MarketplaceRestaurantRow {
   reference: string
@@ -56,6 +57,7 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description,
            COALESCE(c.image_url, c.icon_url) AS image_url,
            c.lat, c.lng, c.location, c.address, c.is_disco_native,
+           c.address_line1, c.address_line2, c.city, c.state, c.zipcode,
            o.is_premium, o.order_url, o.featured_order
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
@@ -109,6 +111,8 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
     description: string | null; image_url: string | null; lat: string | null; lng: string | null
     location: string | null; address: string | null; is_disco_native: boolean | null
+    address_line1: string | null; address_line2: string | null
+    city: string | null; state: string | null; zipcode: string | null
     is_premium: boolean | null; order_url: string | null; featured_order: number | null
   }[]
 
@@ -122,7 +126,15 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     lat: r.lat,
     lng: r.lng,
     location: r.location,
-    address: r.address,
+    // THROUGH THE SHARED FORMATTER, not the raw column. The stored value is
+    // correct again after the backfill, but composing it here from the parts
+    // means a row that has not re-synced yet still renders once rather than
+    // twice. Falls back to the stored string for the 23 rows whose
+    // address_line1 does not carry the street (see dedupeAddressString).
+    address: formatDisplayAddress({
+      addressLine1: r.address_line1, addressLine2: r.address_line2,
+      city: r.city, state: r.state, zipcode: r.zipcode,
+    }) || dedupeAddressString(r.address) || r.address,
     isDiscoNative: r.is_disco_native,
     isPremium: r.is_premium,
     orderUrl: r.order_url,

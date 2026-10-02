@@ -2,6 +2,7 @@ import { sql, runMigrations } from './db'
 import { resolvePlace } from './geo/us-state-from-address'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { alertOps } from './ops-alert'
+import { formatDisplayAddress } from './address-display'
 
 // Builds/refreshes disco_restaurant_cache from FM. This is the ONLY place that
 // fetches FM for the map; the public /api/restaurants route reads the cache
@@ -119,10 +120,19 @@ function normalize(r: FmRow): CacheRow | null {
   const addressLine1 = addressLine1Raw
   const addressLine2 = addr.addressLine2 != null ? String(addr.addressLine2) : null
   const zipcode = addr.zipcode != null ? String(addr.zipcode) : null
-  const address = [addressLine1, city, state, zipcode]
-    .map((p) => (p == null ? '' : String(p)))
-    .filter(Boolean)
-    .join(', ')
+  // ── DO NOT JOIN THE PARTS ONTO LINE 1 ─────────────────────────────────────
+  // This used to be [addressLine1, city, state, zipcode].join(', '), and FM's
+  // addressLine1 is ITSELF a complete formatted address ending ", USA". So the
+  // stored column repeated its own tail on 4,200 of 4,207 restaurants:
+  //
+  //   "25 11th Ave, New York, NY 10011, USA, New York, NY, 10011"
+  //
+  // formatDisplayAddress uses line1 as the single authoritative copy and falls
+  // back to the structured columns ONLY to fill a gap — never appending a city
+  // that is already there. It also refuses to print a NYC borough as a state:
+  // ~20 rows carry "QUEENS"/"Brooklyn" in `state`, which a blind join renders
+  // as "Queens, QUEENS, 11375".
+  const address = formatDisplayAddress({ addressLine1, addressLine2, city, state, zipcode })
   const timezone = r.timezone != null && String(r.timezone).trim() ? String(r.timezone).trim() : null
 
   return { reference, name, slug, lat, lng, location, address, addressLine1, addressLine2, city: city || null, state: state || null, zipcode, timezone }

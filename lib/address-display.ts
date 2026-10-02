@@ -46,13 +46,29 @@ export interface AddressParts {
 }
 
 export function formatDisplayAddress(p: AddressParts): string {
-  const fields = [...fieldsOf(p.addressLine1), ...fieldsOf(p.addressLine2)]
+  const line1Fields = fieldsOf(p.addressLine1)
+  const fields = [...line1Fields, ...fieldsOf(p.addressLine2)]
 
-  // Does line1 already end in its own "ST 12345"? If so it is complete and
-  // nothing from the columns may be appended.
-  const last = fields[fields.length - 1] || ''
-  const m = STATE_ZIP_RE.exec(last)
-  const complete = !!m && !!stateFullName(m[1])
+  // ── COMPLETENESS IS A PROPERTY OF LINE 1, NOT OF THE JOINED STRING ────────
+  // This used to test the LAST field of line1+line2 together. A unit number in
+  // address_line2 ("#1158", "STE 1015", "na") then sat after line1's own
+  // "NC 27520", so the tail was no longer last, the address read as incomplete,
+  // and the state and zip were appended a second time:
+  //
+  //   "921 Town Centre Blvd, Clayton, NC 27520, #1158, NC 27520"
+  //
+  // Five rows did this. Line1 is the field that either carries its own tail or
+  // does not, so that is what is tested.
+  // ANY field, not just the last. Checking only the final field made the
+  // function sensitive to what came after the tail — a unit number in line2, or
+  // a previously-composed address fed back in as line1 — and in both cases it
+  // concluded "incomplete" and appended the state and zip a second time.
+  // Matching on whole comma fields (never substrings) and requiring a real US
+  // state abbreviation keeps this from firing on a street.
+  const complete = line1Fields.some(f => {
+    const m = STATE_ZIP_RE.exec(f)
+    return !!m && !!stateFullName(m[1])
+  })
 
   if (!complete) {
     const lower = fields.map(f => f.toLowerCase())
@@ -69,4 +85,44 @@ export function formatDisplayAddress(p: AddressParts): string {
   }
 
   return fields.join(', ')
+}
+
+/**
+ * De-duplicate an already-composed address string.
+ *
+ * ── WHY THIS EXISTS ALONGSIDE formatDisplayAddress ──────────────────────────
+ * formatDisplayAddress rebuilds the address from addressLine1 + the structured
+ * columns, which is the right answer when line1 carries the street. For 121
+ * cached rows it does not — line1 is null or holds only a locality — so
+ * recomposing would DROP the street that the stored `address` still has
+ * ("719 Central Avenue, Westfield, NJ, 07090" -> "Westfield, NJ").
+ *
+ * For those, the stored string is the only complete copy, and the repair is to
+ * remove the repetition rather than rebuild. A field is dropped when an earlier
+ * field already said it:
+ *
+ *   "200 Clinton St, Brooklyn, NY 11201, USA, Brooklyn, Brooklyn, 11201"
+ *     -> "200 Clinton St, Brooklyn, NY 11201"
+ *
+ * ORDER IS PRESERVED and the FIRST occurrence always wins, so the street can
+ * never be the thing removed. A field is a duplicate when its own words are
+ * already covered by the fields before it — which catches "Brooklyn" against
+ * "Brooklyn", "NY" and "11201" against "NY 11201", and "New Jersey" against a
+ * preceding "NJ" only when spelled the same (a state NAME following its own
+ * abbreviation is left alone rather than guessed at).
+ */
+export function dedupeAddressString(value: string | null | undefined): string {
+  const fields = (value || '').split(',').map(f => f.trim()).filter(Boolean)
+  const kept: string[] = []
+  const seenWords = new Set<string>()
+  for (const f of fields) {
+    if (COUNTRY_RE.test(f)) continue
+    const words = f.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean)
+    if (!words.length) continue
+    // Every word of this field already said earlier → it adds nothing.
+    if (words.every(w => seenWords.has(w))) continue
+    kept.push(f)
+    words.forEach(w => seenWords.add(w))
+  }
+  return kept.join(', ')
 }

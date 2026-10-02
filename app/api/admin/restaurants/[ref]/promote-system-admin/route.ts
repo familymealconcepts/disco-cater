@@ -75,28 +75,59 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       ORDER BY id ASC
     `) as Array<{ id: number; email: string; business_name: string | null; restaurant_name: string | null; restaurant_reference: string | null }>
 
-    // ── FM'S HALF, FIRST ────────────────────────────────────────────────────
-    // This is the part that actually gives the portal its system-admin level for
-    // an FM-backed login, and the part that was missing entirely.
+    // ── IS THIS RESTAURANT FAMILYMEAL'S, OR DISCO'S? ────────────────────────
+    // Peter's ruling, 2026-10-02: creating a system admin for a DISCO-NATIVE
+    // restaurant has nothing to do with FamilyMeal. No FM call, no FM role
+    // change, no FM group. Disco owns it entirely.
+    //
+    // Read from disco_restaurant_cache, which is the authoritative flag
+    // (disco_restaurant_accounts.is_disco_native is stale — see CLAUDE.md).
+    // Unknown reference → treated as FM-backed, the pre-existing behaviour, so a
+    // cache miss cannot silently skip a step an FM restaurant still needs.
+    const nativeRows = (await sql`
+      SELECT COALESCE(is_disco_native, false) AS native FROM disco_restaurant_cache
+      WHERE restaurant_reference = ${ref} LIMIT 1
+    `.catch(() => [])) as { native: boolean }[]
+    const isNative = nativeRows[0]?.native === true
+
+    // ── FM'S HALF — FM-BACKED RESTAURANTS ONLY ──────────────────────────────
+    // For those, FM's role change is what actually gives the portal its
+    // system-admin level, so it stays exactly as it was.
     let fm: { ok: boolean; status: number; detail: string }
-    try {
-      const h = await getFmServiceAuthHeader()
-      const res = await fmFetch(`${FM}/api/admin/restaurants/${ref}/system-admin`, { method: 'PUT', headers: h })
+    if (isNative) {
       fm = {
-        ok: res.ok,
-        status: res.status,
-        detail: res.ok
-          ? 'FamilyMeal transferred the restaurant\'s admin to SYSTEM_ADMIN.'
-          : `FamilyMeal returned ${res.status}.`,
+        ok: true, status: 0,
+        detail: 'Disco-native restaurant — FamilyMeal was not contacted. The role and the location grant live entirely in Disco Cater.',
       }
-    } catch (e) {
-      fm = { ok: false, status: 0, detail: `FamilyMeal call failed: ${e instanceof Error ? e.message : e}` }
+    } else {
+      try {
+        const h = await getFmServiceAuthHeader()
+        const res = await fmFetch(`${FM}/api/admin/restaurants/${ref}/system-admin`, { method: 'PUT', headers: h })
+        fm = {
+          ok: res.ok,
+          status: res.status,
+          detail: res.ok
+            ? 'FamilyMeal transferred the restaurant\'s admin to SYSTEM_ADMIN.'
+            : `FamilyMeal returned ${res.status}.`,
+        }
+      } catch (e) {
+        fm = { ok: false, status: 0, detail: `FamilyMeal call failed: ${e instanceof Error ? e.message : e}` }
+      }
+      if (!fm.ok) console.error('[promote-system-admin] FM transfer did not succeed:', ref, fm.status, fm.detail)
     }
-    if (!fm.ok) console.error('[promote-system-admin] FM transfer did not succeed:', ref, fm.status, fm.detail)
 
     // No Disco row is NOT a failure any more — FM's half may well have done the
     // work. Only report a hard error when NEITHER side could do anything.
     if (!accounts.length) {
+      if (isNative) {
+        // Nothing happened anywhere, and for a native restaurant nothing could:
+        // there is no FM half to fall back on. Say so rather than reporting a
+        // success built entirely out of a call that was never made.
+        return NextResponse.json(
+          { error: 'No Disco Cater portal account exists for this restaurant yet, so there is nobody to promote. Invite an admin first.' },
+          { status: 404 },
+        )
+      }
       if (fm.ok) {
         return NextResponse.json({
           success: true, updatedCount: 0, fm: fm.detail,

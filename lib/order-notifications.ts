@@ -22,6 +22,7 @@ import { loadOrderItemsWithAddOns } from './order-items'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
+import { formatDisplayAddress, dedupeAddressString } from './address-display'
 
 // Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
 // creates for a login-disabled holder row — provably never deliverable (confirmed
@@ -441,11 +442,16 @@ export async function dispatchOrderConfirmations(
     let cacheIsNative = false
     try {
       const rc = (await sql`
-        SELECT name, location, address, phone, timezone, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
-      `) as { name: string | null; location: string | null; address: string | null; phone: string | null; timezone: string | null; is_disco_native: boolean | null }[]
+        SELECT name, location, address, address_line1, address_line2, city, state, zipcode, phone, timezone, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { name: string | null; location: string | null; address: string | null; address_line1: string | null; address_line2: string | null; city: string | null; state: string | null; zipcode: string | null; phone: string | null; timezone: string | null; is_disco_native: boolean | null }[]
       cacheName = rc[0]?.name || ''
       cacheLocation = rc[0]?.location || ''
-      cacheAddress = rc[0]?.address || ''
+      // Through the shared formatter — an emailed confirmation repeating the
+      // city reads as a mistake in the order, not in the data.
+      cacheAddress = (rc[0] ? formatDisplayAddress({
+        addressLine1: rc[0].address_line1, addressLine2: rc[0].address_line2,
+        city: rc[0].city, state: rc[0].state, zipcode: rc[0].zipcode,
+      }) : '') || dedupeAddressString(rc[0]?.address) || rc[0]?.address || ''
       cachePhone = rc[0]?.phone || ''
       cacheTimezone = rc[0]?.timezone || ''
       cacheIsNative = rc[0]?.is_disco_native === true

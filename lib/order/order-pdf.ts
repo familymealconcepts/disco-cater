@@ -12,6 +12,7 @@ import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 import { displayEmail } from '../customer-email-guard'
 import { loadOrderItemsWithAddOns } from '../order-items'
 import { formatTime12 } from '../utils/time'
+import { formatDisplayAddress, dedupeAddressString } from '../address-display'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -113,10 +114,15 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   const restRef = String(o.restaurant_reference ?? '')
   let cacheName = '', cachePhone = '', cacheAddress = '', cacheTimezone = ''
   try {
-    const rc = (await sql`SELECT name, address, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null; address: string | null; phone: string | null; timezone: string | null }[]
+    const rc = (await sql`SELECT name, address, address_line1, address_line2, city, state, zipcode, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null; address: string | null; address_line1: string | null; address_line2: string | null; city: string | null; state: string | null; zipcode: string | null; phone: string | null; timezone: string | null }[]
     cacheName = rc[0]?.name || ''
     cachePhone = rc[0]?.phone || ''
-    cacheAddress = rc[0]?.address || ''
+    // Through the shared formatter so the PDF cannot print the city twice —
+    // see lib/address-display.ts. Falls back to the stored string.
+    cacheAddress = (rc[0] ? formatDisplayAddress({
+      addressLine1: rc[0].address_line1, addressLine2: rc[0].address_line2,
+      city: rc[0].city, state: rc[0].state, zipcode: rc[0].zipcode,
+    }) : '') || dedupeAddressString(rc[0]?.address) || rc[0]?.address || ''
     cacheTimezone = rc[0]?.timezone || ''
   } catch { /* best-effort */ }
 
