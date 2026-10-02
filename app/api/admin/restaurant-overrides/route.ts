@@ -3,6 +3,7 @@ import { sql, runMigrations, runMenuDriftMigrations } from '../../../../lib/db'
 import { stripeReadySql } from '../../../../lib/stripe-readiness'
 import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
 import { overridesSnapshot, cacheSnapshot, accountMarketplaceSnapshot, logSettingsChange } from '../../../../lib/settings-audit'
+import { stripeStatusByReference } from '../../../../lib/stripe-account-status'
 
 // Disco-owned per-restaurant overrides (Premium flag + order-URL) stored in Neon.
 // Admin-only (gated on the admin session cookie). The public /api/restaurants
@@ -160,7 +161,26 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      return NextResponse.json({ discoStripeEmails, overrides: Array.from(byRef.values()) })
+      // ── THE REAL STRIPE STATE, FOR EVERY ROW ─────────────────────────────
+      // The `stripe_connected` boolean above is FamilyMeal's answer to "does a
+      // Stripe account exist on FM's side", recorded by probing FM's
+      // /api/stripe/{ref}. It is NOT "Disco can route a payment to this
+      // restaurant", and for a Disco-native restaurant only the second question
+      // matters -- the customer checkout gate reads
+      // disco_restaurant_overrides.stripe_account_id and refuses without it.
+      //
+      // 292 rows carry stripe_connected = true with no account id at all, so the
+      // Ordering list has been showing "Connected" for restaurants whose
+      // customer page says "not set up to take online payments yet".
+      //
+      // stripeStatusByReference is the SAME resolver the restaurant portal's
+      // Locations list already uses, and it keys results under both the FM and
+      // the Disco reference so a converted restaurant resolves either way. It
+      // distinguishes the states the boolean collapses: connected, at-risk,
+      // restricted, unknown, no-account.
+      const overrides = Array.from(byRef.values())
+      const stripeStatus = await stripeStatusByReference(sql, overrides.map(o => String(o.restaurantReference))).catch(() => ({}))
+      return NextResponse.json({ discoStripeEmails, overrides, stripeStatus })
     }
 
     const rows = (await sql`

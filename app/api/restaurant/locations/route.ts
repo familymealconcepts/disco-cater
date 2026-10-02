@@ -35,13 +35,25 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   const search = (req.nextUrl.searchParams.get('search') || '').trim().toLowerCase()
   await runMigrations()
   const rows = (await sql`
-    SELECT restaurant_reference AS reference, name AS "businessName",
-           address, address_line2, city, state, zipcode, phone,
-           to_char(cached_at, 'YYYY-MM-DD') AS "createdDate",
-           (NOT COALESCE(is_live, false)) AS blocked
-    FROM disco_restaurant_cache
-    WHERE restaurant_reference = ANY(${refs}::text[])
-      AND (${search} = '' OR LOWER(name) LIKE '%' || ${search} || '%' OR LOWER(COALESCE(address, '')) LIKE '%' || ${search} || '%')
+    SELECT c.restaurant_reference AS reference, c.name AS "businessName",
+           c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
+           -- ── NOT cached_at. ────────────────────────────────────────────
+           -- cached_at is the last time the SYNC refreshed this row, so the
+           -- "Registered" column moved every time the cache ran and showed
+           -- today's date for a restaurant onboarded in July. Al Volo and
+           -- Realmuto read 10/01 in the portal against 07/20 and 07/22 in the
+           -- super-admin list, which takes FamilyMeal's real createdDate.
+           --
+           -- disco_restaurant_overrides.created_at is when Disco first recorded
+           -- the restaurant and is immutable: 2026-07-20 19:09 and 2026-07-22
+           -- 21:40 for those two, the same day as FM's own value. Falls back to
+           -- cached_at only when no overrides row exists at all.
+           to_char(COALESCE(ovr.created_at, c.cached_at), 'YYYY-MM-DD') AS "createdDate",
+           (NOT COALESCE(c.is_live, false)) AS blocked
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides ovr ON ovr.restaurant_reference = c.restaurant_reference
+    WHERE c.restaurant_reference = ANY(${refs}::text[])
+      AND (${search} = '' OR LOWER(c.name) LIKE '%' || ${search} || '%' OR LOWER(COALESCE(c.address, '')) LIKE '%' || ${search} || '%')
     ORDER BY COALESCE(location_position, 999999) ASC, name ASC
   `) as Record<string, string | boolean | null>[]
   // Stripe status from the SHARED resolver — the same stored snapshot the
@@ -134,11 +146,14 @@ export async function GET(req: NextRequest) {
         const siblings = (await sql`
           SELECT DISTINCT c.restaurant_reference AS reference, c.name AS "businessName",
                  c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
-                 to_char(c.cached_at, 'YYYY-MM-DD') AS "createdDate",
+                 -- Same correction as above: the registration date, not the
+                 -- last cache refresh.
+                 to_char(COALESCE(ovr2.created_at, c.cached_at), 'YYYY-MM-DD') AS "createdDate",
                  (NOT COALESCE(c.is_live, false)) AS blocked
             FROM disco_multi_unit_link_members seed
             JOIN disco_multi_unit_link_members sib ON sib.link_reference = seed.link_reference
             JOIN disco_restaurant_cache c ON c.restaurant_reference = sib.restaurant_reference
+            LEFT JOIN disco_restaurant_overrides ovr2 ON ovr2.restaurant_reference = c.restaurant_reference
            WHERE seed.restaurant_reference = ANY(${seedRefs}::text[])
              AND c.is_disco_native = true
              AND c.archived_at IS NULL

@@ -197,10 +197,12 @@ function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolea
 
 // Stripe Connect status per row. Never-checked (checkedAt === null) shows
 // "Unknown"; a row mid-check shows "Checking…". Green = connected, grey = not.
-function StripeStatus({ status, live, checking }: {
+function StripeStatus({ status, live, checking, isNative }: {
   status?: { connected: boolean; checkedAt: string | null; hasStripeAccount?: boolean }
   live?: { state: string; reason: string | null; chargeCapable: boolean }
   checking?: boolean
+  /** Disco-native: `status.connected` is FamilyMeal's answer and must not be read. */
+  isNative?: boolean
 }) {
   if (checking) return <span style={{ color: '#9CA3AF', fontSize: 12, whiteSpace: 'nowrap' }}>Checking…</span>
   const dot = (color: string) => (
@@ -242,13 +244,28 @@ function StripeStatus({ status, live, checking }: {
     if (live.state === 'unknown') {
       return <span title={live.reason ?? ''} style={{ color: '#9CA3AF', fontSize: 12, cursor: 'help' }}>Unknown</span>
     }
-    // live.state === 'no-account' falls through to the stored-flag logic below,
-    // which already distinguishes never-checked from checked-and-absent.
+    // 'no-account' falls through — but ONLY for an FM-backed restaurant. See below.
   }
 
-  // A disco Stripe account (connected during Disco onboarding) is authoritative and
-  // needs no FM probe. Otherwise fall back to the probed status (stripe_connected),
-  // which only means anything once it's been checked (checkedAt set).
+  // ── A NATIVE RESTAURANT NEVER FALLS BACK TO FAMILYMEAL'S ANSWER ───────────
+  // status.connected is disco_restaurant_overrides.stripe_connected, which is
+  // set by probing FM's /api/stripe/{ref}: it means "FamilyMeal holds a Stripe
+  // account for this restaurant", not "Disco can charge a card for it". For a
+  // Disco-native restaurant only the second is true payment readiness, and 292
+  // rows carry the flag with no Disco account id at all.
+  //
+  // Al Volo Gastronomia Italiana is one: FM says connected, Disco holds no
+  // account, and its customer page refuses every order with "not set up to take
+  // online payments yet" while this column said Connected. Falling through here
+  // is precisely how the two surfaces disagreed, so a native restaurant stops at
+  // the resolved snapshot.
+  if (isNative) {
+    return <span title="No Stripe account is linked in Disco Cater, so this restaurant cannot take payments."
+      style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', cursor: 'help' }}>{dot('#bbb')}Not connected</span>
+  }
+
+  // FM-BACKED: FamilyMeal creates the PaymentIntent, so its probe is the right
+  // signal and there is no Disco account to look for. Unchanged.
   const connected = status?.hasStripeAccount === true || status?.connected === true
   if (connected) return <span style={{ fontSize: 12, color: '#1D9E75', whiteSpace: 'nowrap' }}>{dot('#1D9E75')}Connected</span>
   if (!status || !status.checkedAt) return <span style={{ color: '#9CA3AF', fontSize: 12 }}>Unknown</span>
@@ -553,27 +570,39 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
-  // Stripe must be connected before online ordering can be toggled — a
-  // restaurant can't accept orders without a payout account. Disco-native
-  // restaurants connect via disco_restaurant_accounts.stripe_account_id, so a
-  // present Stripe account counts as connected too (fallback).
-  // A Disco-native restaurant's Stripe account is matched by its admin email (its
-  // own identity), since its Disco reference won't equal the FM row reference.
-  const hasDiscoStripe = (r: Restaurant) => {
-    const email = adminEmailOf(r).toLowerCase()
-    return !!email && discoStripeEmails.has(email)
-  }
+  // ── CAN THIS RESTAURANT ACTUALLY TAKE A PAYMENT? ──────────────────────────
+  // The answer differs by platform, and conflating them is what put "Connected"
+  // beside a restaurant whose customer page refuses the order.
+  //
+  // DISCO-NATIVE: Disco charges the card itself and needs its OWN connected
+  // account. The customer gate (lib/restaurant-orderable.ts) refuses on a null
+  // disco_restaurant_overrides.stripe_account_id, so the only honest answer here
+  // is the resolved snapshot -- charge-capable means an account exists AND
+  // Stripe has not stopped it.
+  //
+  // FM-BACKED: FamilyMeal's backend creates the PaymentIntent, so FM's own
+  // stripe_connected probe IS the right signal and there is no Disco account to
+  // look for. Unchanged for those rows.
+  //
+  // The email-matching fallback this replaces guessed a native restaurant's
+  // account by matching its admin's email against a set of Disco Stripe emails.
+  // It failed in both directions: Al Volo has no admin email on its FM row at
+  // all, and stripeStatusByReference already bridges FM and Disco references
+  // properly through disco_restaurant_accounts.fm_restaurant_reference.
+  const stripeStateOf = (r: Restaurant) => storedStripe[r.reference]?.state ?? 'no-account'
   const isStripeConnected = (r: Restaurant) => {
+    if (overrideMap[r.reference]?.isDiscoNative) {
+      const st = storedStripe[r.reference]
+      // 'connected' and 'at-risk' both still take payments today; 'restricted',
+      // 'unknown' and 'no-account' do not, or cannot be shown to.
+      return !!st && (st.state === 'connected' || st.state === 'at-risk')
+    }
     const s = stripeMap[r.reference]
-    return s?.connected === true || s?.hasStripeAccount === true || hasDiscoStripe(r)
+    return s?.connected === true || s?.hasStripeAccount === true
   }
-  // Status passed to the Stripe column: OR-in the email-matched Disco connection so
-  // a Disco-native restaurant reads Connected even though its reference differs.
-  const stripeStatusFor = (r: Restaurant) => {
-    const s = stripeMap[r.reference]
-    if (hasDiscoStripe(r)) return { connected: s?.connected ?? false, checkedAt: s?.checkedAt ?? null, hasStripeAccount: true }
-    return s
-  }
+  // The Stripe column reads the stored snapshot for a native restaurant and the
+  // FM probe for an FM-backed one.
+  const stripeStatusFor = (r: Restaurant) => stripeMap[r.reference]
 
   // Online Ordering = FM onlineOrderingAllowed boolean. Toggling opens a
   // confirmation modal; confirming routes through the GET→merge→PUT restaurant
@@ -747,6 +776,12 @@ export default function RestaurantsOrderingPage() {
   // FM reference this table is keyed by — so we match FM rows to their Disco Stripe
   // account by admin email (the reliable FM↔Disco link) instead of by reference.
   const [discoStripeEmails, setDiscoStripeEmails] = useState<Set<string>>(new Set())
+  // The STORED Stripe snapshot, resolved by lib/stripe-account-status.ts -- the
+  // same resolver the restaurant portal's Locations list reads, keyed under both
+  // the FM and the Disco reference. This is the authority for the Stripe column;
+  // `stripeMap` below survives only for the "last checked" timestamp and the FM
+  // probe that FM-backed restaurants still depend on.
+  const [storedStripe, setStoredStripe] = useState<Record<string, { state: string; reason: string | null; chargeCapable: boolean; accountId: string | null }>>({})
   // True once the cached Stripe statuses have loaded — gates the background check
   // so we don't treat everything as "never checked" before the cache arrives.
   const [stripeLoaded, setStripeLoaded] = useState(false)
@@ -906,6 +941,7 @@ export default function RestaurantsOrderingPage() {
       setStripeMap(sMap)
       setOverrideMap(oMap)
       setDiscoStripeEmails(new Set((Array.isArray(d?.discoStripeEmails) ? d.discoStripeEmails : []).map((e: string) => String(e).toLowerCase())))
+      setStoredStripe((d?.stripeStatus || {}) as Record<string, { state: string; reason: string | null; chargeCapable: boolean; accountId: string | null }>)
     } catch { /* non-fatal: the columns just won't render */ }
     finally { setStripeLoaded(true) }
   }, [])
@@ -1319,7 +1355,15 @@ export default function RestaurantsOrderingPage() {
                         : '—'
                     })()}
                   </td>
-                  <td style={cell}><StripeStatus status={stripeStatusFor(r)} live={liveStripe[r.reference]} checking={checkingRefs.has(r.reference)} /></td>
+                  <td style={cell}><StripeStatus
+                    status={stripeStatusFor(r)}
+                    // The stored snapshot renders through the SAME four-state
+                    // branch a live check uses, so Restricted is visible without
+                    // anyone pressing Check. A live result still wins when one
+                    // has been fetched for this row.
+                    live={liveStripe[r.reference] ?? (overrideMap[r.reference]?.isDiscoNative ? storedStripe[r.reference] : undefined)}
+                    checking={checkingRefs.has(r.reference)}
+                    isNative={overrideMap[r.reference]?.isDiscoNative} /></td>
                   {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
                       until Stripe is connected (can't accept orders without payouts). */}
                   <td style={cell}>

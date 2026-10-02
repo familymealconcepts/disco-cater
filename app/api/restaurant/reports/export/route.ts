@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
-import { getRestaurantRef } from '../../../../../lib/restaurant-auth'
+import { getRestaurantRef, getFmSystemAdminPermittedRefs, RESTAURANT_TOKEN_COOKIE } from '../../../../../lib/restaurant-auth'
+import { cookies } from 'next/headers'
 import { sql } from '../../../../../lib/db'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { contentDisposition } from '../../../../../lib/download-filename'
@@ -134,7 +135,30 @@ export async function GET(req: NextRequest) {
   // FM sessions resolve their restaurant from the JWT itself via getRestaurantRef
   // (same fix as the menu-manager Items-column bug, same root cause).
   const ref = ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef()) || ''
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
+
+  // ── A SESSION WITH NO SINGLE HOME IS NOT A SESSION WITH NO SCOPE ──────────
+  // getRestaurantRef returns the FM JWT's `restaurant` claim, honouring the
+  // selected-location cookie. An FM session that carries NEITHER — a
+  // SYSTEM_ADMIN or SUPER_ADMIN who has not picked a location yet — resolved to
+  // '' and this route answered {"error":"No restaurant in context"} as raw JSON
+  // in the browser, because Export is a navigation rather than a fetch.
+  //
+  // Reproduced by session shape: an FM JWT WITH a restaurant claim exports
+  // correctly; the same request with no claim and no fm_selected_restaurant
+  // cookie 400s, for every role. It has behaved this way since ec2038e
+  // (2026-07-16) — it is not fallout from the master-password, set-password or
+  // scheduled-reports work.
+  //
+  // Such a session does have a scope: FM's own list of what the admin manages.
+  // That is the SAME set the Reporting dashboard already charts for them
+  // (dashboard/sale-stats builds refs the same way and deliberately never
+  // errors), so Export now matches the figures on screen instead of refusing.
+  // No access is widened: the set comes from FamilyMeal, not from the request.
+  let fmFallbackRefs: string[] = []
+  if (!ref && ctx.authType !== 'disco') {
+    const token = (await cookies()).get(RESTAURANT_TOKEN_COOKIE)?.value || ''
+    if (token) fmFallbackRefs = [...(await getFmSystemAdminPermittedRefs(token).catch(() => new Set<string>()))]
+  }
 
   const sp = req.nextUrl.searchParams
   const from = sp.get('from') || ''
@@ -155,7 +179,17 @@ export async function GET(req: NextRequest) {
     // MUST NOT be scoped to visibility/archive status — an archived restaurant's
     // history must keep exporting. Archiving is not deletion.
     const scope = await resolveDiscoGroupScope(ctx)
-    const refs = scope.unrestricted || scope.refs.size === 0 ? [ref] : [...new Set([ref, ...scope.refs])]
+    const base = scope.unrestricted || scope.refs.size === 0 ? [ref] : [...new Set([ref, ...scope.refs])]
+    const refs = [...new Set([...base, ...fmFallbackRefs])].filter(Boolean)
+    // Only now, with every resolver exhausted, is there genuinely nothing to
+    // report on — and the message says what to do rather than naming an internal
+    // concept the reader cannot act on.
+    if (!refs.length) {
+      return NextResponse.json({
+        error: 'Choose a location before exporting.',
+        description: 'This session is not currently pointed at a restaurant. Pick a location in the portal, then export again.',
+      }, { status: 400 })
+    }
     const rows = await buildOrderReportRows({
       refs, from, to, dateField: dateField === 'created' ? 'created_at' : 'order_date',
     })
