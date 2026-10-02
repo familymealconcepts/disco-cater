@@ -4,6 +4,8 @@ import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../.
 import { normalizeSchedule } from '../../../../../../lib/reports/schedule-normalize'
 import { sanitizeReportFilter } from '../../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { REPORT_COLUMNS } from '../../../../../../lib/reports/native-reports'
+import { sanitizeReportColumns } from '../../../../../../lib/reports/fulfillment-filter'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -59,6 +61,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     if (!scope) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     const sched = normalizeSchedule(body)
+    // Same write-time validation as create -- an edit must not be the way a
+    // retired or unresolvable column gets back into a stored config.
+    const { columns: safeColumns, rejected } = sanitizeReportColumns(body?.columns, REPORT_COLUMNS.map(c => c.key))
+    if (rejected.length) console.warn('[reports/scheduled] refused columns on update:', ref, rejected)
+
     const rows = (await sql`
       UPDATE disco_scheduled_reports SET
         name = COALESCE(NULLIF(${String(body?.name || '')}, ''), name),
@@ -72,7 +79,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         range_days = ${sched.rangeDays},
         auto_tidy = ${sched.autoTidy},
         fan_out = ${sched.fanOut},
-        columns = ${JSON.stringify(body?.columns ?? [])}::jsonb,
+        columns = ${JSON.stringify(safeColumns)}::jsonb,
         recipients = ${JSON.stringify(body?.recipients ?? [])}::jsonb,
         owner_references = ${JSON.stringify(body?.ownerReferences ?? [])}::jsonb,
         filter = ${JSON.stringify(filter)}::jsonb,

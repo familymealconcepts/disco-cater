@@ -6,6 +6,8 @@ import { normalizeSchedule } from '../../../../../lib/reports/schedule-normalize
 import { sanitizeReportFilter } from '../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
+import { REPORT_COLUMNS } from '../../../../../lib/reports/native-reports'
+import { sanitizeReportColumns } from '../../../../../lib/reports/fulfillment-filter'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -82,6 +84,13 @@ export async function POST(req: NextRequest) {
     const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     await runDiscoOrderMigrations()
     const sched = normalizeSchedule(body)
+    // Columns are validated BEFORE they are stored. An unresolvable key used to
+    // be written happily and then dropped silently on every send -- see
+    // sanitizeReportColumns. Retired columns (customer email/phone) are refused
+    // here too, so they cannot come back through a hand-made payload.
+    const { columns: safeColumns, rejected } = sanitizeReportColumns(body?.columns, REPORT_COLUMNS.map(c => c.key))
+    if (rejected.length) console.warn('[reports/scheduled] refused columns on create:', rejected)
+
     const rows = (await sql`
       INSERT INTO disco_scheduled_reports (
         restaurant_reference, name, frequency, time, timezone, file_type,
@@ -93,7 +102,7 @@ export async function POST(req: NextRequest) {
         ${body?.fileType === 'PDF' ? 'PDF' : 'CSV'},
         ${sched.weekday}, ${sched.dayOfMonth}, ${sched.rangeType}, ${sched.rangeDays},
         ${sched.autoTidy}, ${sched.fanOut},
-        ${JSON.stringify(body?.columns ?? [])}::jsonb, ${JSON.stringify(body?.recipients ?? [])}::jsonb,
+        ${JSON.stringify(safeColumns)}::jsonb, ${JSON.stringify(body?.recipients ?? [])}::jsonb,
         ${JSON.stringify(owners)}::jsonb, ${JSON.stringify(filter)}::jsonb, ${ctx.email}
       ) RETURNING reference
     `) as { reference: string }[]

@@ -10,7 +10,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 import { sql } from '../lib/db'
 import { buildReport, REPORT_COLUMNS, type ScheduledReportConfig } from '../lib/reports/native-reports'
-import { expandFulfillmentFilter, collapseFulfillmentFilter } from '../lib/reports/fulfillment-filter'
+import { expandFulfillmentFilter, collapseFulfillmentFilter, sanitizeReportColumns, RETIRED_REPORT_COLUMNS } from '../lib/reports/fulfillment-filter'
 import { resolvePeriod } from '../lib/reports/report-period'
 
 let pass = 0, fail = 0
@@ -119,6 +119,33 @@ async function main() {
   const dates = rowsOnly.map(l => cells(l)[dateCol]).filter(Boolean)
   console.log(`   filtered on "${head[dateCol]}": ${dates.join(' ')}`)
   check('nothing dated AFTER the window is pulled in', dates.filter(d => d > '2026-09-07'), [])
+
+  console.log('\n7. RETIRED COLUMNS — customer contact details cannot come back')
+  const keys = REPORT_COLUMNS.map(c => c.key)
+  for (const k of ['customerEmail', 'customerPhone']) {
+    check(`"${k}" is not offered as a column`, keys.includes(k), false)
+    check(`"${k}" is listed as retired, not merely absent`, k in RETIRED_REPORT_COLUMNS, true)
+    const s1 = sanitizeReportColumns(['orderId', k, 'gross'], keys)
+    check(`"${k}" is refused at write time`, s1.columns, ['orderId', 'gross'])
+    check(`"${k}" refusal carries a reason`, s1.rejected.map(r => r.key), [k])
+  }
+  check('an unknown key is refused too', sanitizeReportColumns(['orderId', 'nonsense'], keys).columns, ['orderId'])
+  check('duplicates are collapsed', sanitizeReportColumns(['gross', 'gross'], keys).columns, ['gross'])
+  check('a valid set passes through untouched', sanitizeReportColumns(['orderId', 'netSales'], keys).columns, ['orderId', 'netSales'])
+
+  const stored = (await sql`
+    SELECT count(*)::int AS n FROM disco_scheduled_reports
+    WHERE columns::text ILIKE '%customerEmail%' OR columns::text ILIKE '%customerPhone%'
+  `)[0] as { n: number }
+  check('no stored report references either key', stored.n, 0)
+
+  // The underlying data is not selected either, so even a key that somehow got
+  // stored could only ever render blank.
+  const q = (await sql`
+    SELECT count(*)::int AS n FROM information_schema.columns
+    WHERE table_name = 'disco_orders' AND column_name IN ('customer_email','customer_phone')
+  `)[0] as { n: number }
+  console.log(`   (disco_orders still holds ${q.n} contact column(s) — the report query does not select them)`)
 
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)

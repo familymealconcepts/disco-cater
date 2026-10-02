@@ -99,3 +99,55 @@ export function collapseFulfillmentFilter(stored: string[] | null | undefined): 
   }
   return FULFILLMENT_CONCEPTS.filter(c => out.has(c))
 }
+
+// ── RETIRED COLUMNS ─────────────────────────────────────────────────────────
+// (Kept in this module so the two write-time guards a scheduled report needs —
+// what it may filter on, and what it may contain — sit together.)
+//
+// CUSTOMER CONTACT DETAILS DO NOT BELONG IN A SALES REPORT. Peter's ruling,
+// 2026-10-02: these reports are for sales and accounting, and an emailed CSV is
+// a poor place for a diner's email address and phone number to end up.
+//
+// `customerEmail` and `customerPhone` were columns before commit 3dc0666
+// (2026-09-15) replaced the column model. They did not survive it, and three
+// saved reports went on asking for them until the configurations were migrated.
+// This list exists so the removal is a DECISION a reader can find rather than an
+// omission someone helpfully restores: the row query selects neither field, the
+// column set offers neither, and sanitizeReportColumns refuses both at write
+// time even from a hand-made API payload.
+export const RETIRED_REPORT_COLUMNS: Readonly<Record<string, string>> = Object.freeze({
+  customerEmail: 'customer contact details do not belong in a sales report',
+  customerPhone: 'customer contact details do not belong in a sales report',
+})
+
+/**
+ * The columns a saved report is allowed to store.
+ *
+ * WHY THIS IS AT THE WRITE SIDE. Both save routes wrote `body.columns` to the
+ * database verbatim, so any string at all could be stored — and an unresolvable
+ * key then vanished at render time with the restaurant none the wiser. That is
+ * the defect that cost Gracious Bakery every money column on its weekly report.
+ * Validating here means a bad key is refused once, loudly, instead of being
+ * silently dropped on every send forever after.
+ *
+ * Takes the valid key set as an argument rather than importing it, so this
+ * module stays free of the report-column graph (native-reports imports the
+ * filter half of this file, and the reverse would be a cycle).
+ */
+export function sanitizeReportColumns(
+  requested: unknown,
+  validKeys: Iterable<string>,
+): { columns: string[]; rejected: { key: string; reason: string }[] } {
+  const valid = new Set(validKeys)
+  const list = Array.isArray(requested) ? requested.map(v => String(v ?? '').trim()).filter(Boolean) : []
+  const columns: string[] = []
+  const rejected: { key: string; reason: string }[] = []
+  for (const key of list) {
+    if (columns.includes(key)) continue
+    const retired = RETIRED_REPORT_COLUMNS[key]
+    if (retired) { rejected.push({ key, reason: retired }); continue }
+    if (!valid.has(key)) { rejected.push({ key, reason: 'not a report column' }); continue }
+    columns.push(key)
+  }
+  return { columns, rejected }
+}

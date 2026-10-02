@@ -53,9 +53,10 @@ const COLUMN_MIGRATION: Record<string, string[]> = {
   total: ['gross'],
   // Restored to the column set as part of this fix (see ORDER_REPORT_COLUMNS).
   orderStatus: ['orderStatus'],
-  // No equivalent in the current column set. Reported, not silently lost: the
-  // row query does not select customer email or phone at all, so restoring these
-  // is a query change, not a mapping. Raised rather than guessed at.
+  // RETIRED, NOT MISSING. Peter's ruling 2026-10-02: these reports are for sales
+  // and accounting, so customer contact details do not belong in them. Dropped
+  // deliberately, refused at write time by sanitizeReportColumns, and listed in
+  // RETIRED_REPORT_COLUMNS so nobody restores them as an oversight.
   customerEmail: [],
   customerPhone: [],
 }
