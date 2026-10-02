@@ -16,6 +16,8 @@ interface SysAdmin {
   // FM's user-list response embeds the assigned-locations list under
   // managedRestaurants[] — confirmed by UpdateAdminComponent.ts:106-107.
   managedRestaurants?: { reference: string; businessName?: string }[]
+  /** When this admin's earliest location registered (YYYY-MM-DD), or null. */
+  onboardedAt?: string | null
   // Display only. Derived server-side (see the API route's deriveTiers) and read
   // by nothing but the badge below — it grants and withholds nothing.
   tier?: 'PRIMARY' | 'REGIONAL' | null
@@ -34,6 +36,15 @@ type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email'> & {
 interface LocationOption {
   reference: string
   businessName: string
+}
+
+// "2026-10-02" → "Oct 2, 2026". Parsed as UTC noon so the date never shifts a
+// day under a negative local offset.
+function fmtOnboarded(d: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d)
+  if (!m) return d
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12))
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
 export default function ManageSystemAdminsPage() {
@@ -241,6 +252,9 @@ export default function ManageSystemAdminsPage() {
               <th style={colHead}>Name</th>
               <th style={colHead}>Email</th>
               <th style={colHead}>Tier</th>
+              {/* The column the list is now ordered by, shown so the ordering is
+                  legible rather than something to take on trust. */}
+              <th style={colHead}>Onboarded</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Locations</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
@@ -276,6 +290,15 @@ export default function ManageSystemAdminsPage() {
                   ) : (
                     <span title="No locations assigned, so this admin cannot be placed in a group" style={{ color: '#bbb' }}>—</span>
                   )}
+                </td>
+                {/* When this admin's EARLIEST location registered — the date the
+                    list is sorted by, newest first. An em dash means they hold no
+                    dated location; those sort to the END, never the top, because
+                    "no date" is not "newest". */}
+                <td style={{ ...cell, color: u.onboardedAt ? '#555' : '#bbb', whiteSpace: 'nowrap' }}>
+                  {u.onboardedAt
+                    ? <span title="When this admin's first location registered on Disco Cater">{fmtOnboarded(u.onboardedAt)}</span>
+                    : <span title="No dated location, so there is no onboarding date to show">—</span>}
                 </td>
                 {/* FM's user-list response embeds the assigned locations under
                     managedRestaurants[] (same field the Edit dialog reads), so

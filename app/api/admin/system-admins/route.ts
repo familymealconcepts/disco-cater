@@ -22,6 +22,11 @@ interface FmSystemAdmin {
    * already been made. See deriveTiers().
    */
   tier?: 'PRIMARY' | 'REGIONAL' | null
+  /**
+   * When this admin's EARLIEST location registered on Disco Cater (YYYY-MM-DD),
+   * or null when they hold no dated location. See resolveOnboardedAt.
+   */
+  onboardedAt?: string | null
   /** Creation order within its own account system. Not returned to the client. */
   _order?: [number, number]
 }
@@ -147,6 +152,78 @@ async function fetchAllFmSystemAdmins(h: Record<string, string>): Promise<FmSyst
 }
 
 
+/**
+ * "Onboarded" = when this admin's FIRST location registered on Disco Cater.
+ *
+ * ── WHY NOT THE OTHER TWO DATES ───────────────────────────────────────────
+ * There are three candidate dates and only one exists for everybody.
+ *
+ *  1. WHEN THE ADMIN WAS CREATED IN FAMILYMEAL — does not exist. FM's
+ *     AdminSystemAdminResponseDto carries no createdDate and FM exposes no
+ *     endpoint that does for system admins (established when the Primary/
+ *     Regional column was built; it works off LIST POSITION under
+ *     sort=createdDate,asc, which is an ordering, not a date). It cannot be
+ *     shown, compared across sources, or displayed in a column.
+ *
+ *  2. WHEN THEIR DISCO ACCOUNT WAS CREATED — exists only for the ~381
+ *     Disco-native admins, and for a converted restaurant it records the
+ *     CONVERSION, not the relationship. An admin running a restaurant since
+ *     2021 whose account was minted at conversion in September would sort to
+ *     the very top as if brand new. That is the opposite of what is wanted.
+ *
+ *  3. WHEN THEIR EARLIEST RESTAURANT REGISTERED — exists for both account
+ *     systems, means the same thing in both, and is the date a person would
+ *     recognise as "when they came on board". Chosen.
+ *
+ * Read from Neon for every admin's managed references at once, so FM-sourced
+ * and Disco-sourced rows are dated by the same clock rather than two.
+ */
+async function resolveOnboardedAt(admins: FmSystemAdmin[]): Promise<void> {
+  const refs = [...new Set(admins.flatMap(a => (a.managedRestaurants || []).map(m => m.reference)).filter(Boolean))]
+  if (!refs.length) return
+  let byRef = new Map<string, string>()
+  try {
+    const rows = (await sql`
+      SELECT c.restaurant_reference::text AS ref,
+             to_char(COALESCE(o.created_at, c.cached_at), 'YYYY-MM-DD') AS registered
+        FROM disco_restaurant_cache c
+        LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+       WHERE c.restaurant_reference = ANY(${refs})
+    `) as { ref: string; registered: string | null }[]
+    byRef = new Map(rows.filter(r => r.registered).map(r => [r.ref, r.registered as string]))
+  } catch (e) {
+    // A date is cosmetic; the list is not. Degrade to no dates rather than 500.
+    console.error('[admin/system-admins] onboarded-date lookup failed:', e instanceof Error ? e.message : e)
+    return
+  }
+  for (const a of admins) {
+    const dates = (a.managedRestaurants || []).map(m => byRef.get(m.reference)).filter(Boolean) as string[]
+    a.onboardedAt = dates.length ? dates.sort()[0] : null
+  }
+}
+
+/**
+ * Newest first, by onboarding date.
+ *
+ * AN ADMIN WITH NO DATE SORTS LAST, NEVER FIRST. 19 admins hold no locations at
+ * all and so have no date; a plain descending sort on a null would float them to
+ * the top and read as "newest", which is exactly backwards. They are bucketed
+ * behind everyone dated and keep their existing relative order (_order), which
+ * is also what the Primary/Regional column is derived from — so the two cannot
+ * tell different stories about who came first.
+ */
+function sortByOnboardedDesc(admins: FmSystemAdmin[]): void {
+  admins.sort((a, b) => {
+    const da = a.onboardedAt || '', db = b.onboardedAt || ''
+    if (da && db && da !== db) return db.localeCompare(da)
+    if (da && !db) return -1
+    if (!da && db) return 1
+    const [ab, ai] = a._order ?? [9, 0]
+    const [bb, bi] = b._order ?? [9, 0]
+    return ab !== bb ? ab - bb : ai - bi
+  })
+}
+
 export async function GET(req: NextRequest) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch {
@@ -177,6 +254,12 @@ export async function GET(req: NextRequest) {
     // is only reconstructable from every admin who shares its restaurants, and a
     // 25-row page would fragment it and relabel people differently per page.
     deriveTiers(merged)
+    // Chronological, newest first (Peter's ruling) — replacing the alphabetical
+    // order mergeAdminLists applies. Done over the FULL population, before the
+    // search filter and the page slice, so page 2 continues page 1 rather than
+    // re-sorting a subset.
+    await resolveOnboardedAt(merged)
+    sortByOnboardedDesc(merged)
 
     const matches = !search ? merged : merged.filter(a =>
       `${a.firstName || ''} ${a.lastName || ''}`.toLowerCase().includes(search) ||
