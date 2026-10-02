@@ -89,6 +89,17 @@ export type OrderableReason =
   // actually happened, and the withhold branch remains unexercised and
   // deliberately unmodified.
   | 'payment-not-configured'
+  // Disco-native WITH a connected account that Stripe has stopped.
+  //
+  // DISTINCT FROM 'payment-not-configured' ON PURPOSE. Telling a restaurant
+  // that has connected Stripe to "go connect Stripe" sends them to do a thing
+  // they already did; what is actually wrong is a requirement Stripe is waiting
+  // on. Realmuto Pasticceria has been past due on an identity document since
+  // 2026-07-29 and read as never-connected the whole time.
+  //
+  // It refuses just as hard. Linking a restricted account must never make it
+  // look orderable — the account is on file, the charge would still fail.
+  | 'payment-restricted'
   // No cache row for this reference at all. Treated as NOT orderable: an
   // unknown restaurant is not a restaurant we can take money on behalf of.
   | 'unknown-restaurant'
@@ -105,6 +116,7 @@ const MESSAGES: Record<OrderableReason, string> = {
   archived: 'This restaurant is no longer available on Disco Cater.',
   'ordering-disabled': 'This restaurant is not accepting online orders right now.',
   'payment-not-configured': 'This restaurant is not set up to take online payments yet. Please contact them directly to place an order.',
+  'payment-restricted': 'This restaurant cannot take online payments at the moment. Please contact them directly to place an order.',
   'unknown-restaurant': 'We could not find this restaurant.',
 }
 
@@ -117,6 +129,8 @@ const MESSAGES: Record<OrderableReason, string> = {
 const STAFF_MESSAGES: Partial<Record<OrderableReason, string>> = {
   'payment-not-configured':
     'This location can’t take payments yet, so orders can’t be created here. Disco Cater still needs to finish setting up your payouts — email concierge@discocater.com and we’ll take care of it.',
+  'payment-restricted':
+    'Stripe has paused payments on this location’s account, so orders can’t be taken until it is resolved. Check the Stripe dashboard for the outstanding requirement, or email concierge@discocater.com and we’ll help.',
   'ordering-disabled': 'Online ordering is switched off for this location.',
   archived: 'This location is no longer active on Disco Cater. Email concierge@discocater.com if that’s not right.',
   'unknown-restaurant': 'We couldn’t find this location. Email concierge@discocater.com and we’ll look into it.',
@@ -138,6 +152,8 @@ interface OrderableState {
    *  native payment path routes funds to. NOT stripe_connected, which is a
    *  stale readiness flag; see the header. */
   stripeAccountId: string | null
+  stripeChargesEnabled?: boolean | null
+  stripeStatus?: string | null
 }
 
 // ONE read, shared by both policies below, so there is a single place that
@@ -147,7 +163,12 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     SELECT COALESCE(c.is_disco_native, false) AS is_disco_native,
            (o.archived_at IS NOT NULL) AS archived,
            o.online_ordering_enabled,
-           o.stripe_account_id
+           o.stripe_account_id,
+           -- CAPABILITY, not just presence. A linked account Stripe has
+           -- restricted cannot take the charge, and a restaurant whose account
+           -- is merely ATTACHED is not a restaurant that can be paid.
+           o.stripe_charges_enabled,
+           o.stripe_status
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE c.restaurant_reference = ${ref}
@@ -157,6 +178,8 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     archived: boolean
     online_ordering_enabled: boolean | null
     stripe_account_id: string | null
+    stripe_charges_enabled: boolean | null
+    stripe_status: string | null
   }[]
 
   const r = rows[0]
@@ -166,6 +189,8 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     archived: r.archived,
     onlineOrderingEnabled: r.online_ordering_enabled,
     stripeAccountId: r.stripe_account_id,
+    stripeChargesEnabled: r.stripe_charges_enabled,
+    stripeStatus: r.stripe_status,
   }
 }
 
@@ -176,6 +201,23 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
 // well today.
 function nativePaymentUnconfigured(s: OrderableState): boolean {
   return s.isDiscoNative && !s.stripeAccountId
+}
+
+/**
+ * Linked, but Stripe will not let the charge through.
+ *
+ * Reads the stored capability snapshot (refreshed hourly by
+ * cron/refresh-stripe-capabilities), never Stripe itself — this is on the
+ * page-level gate for every ordering page.
+ *
+ * NULL is NOT treated as restricted. A linked account whose snapshot has not
+ * been taken yet is unknown, not broken, and refusing on unknown would close
+ * ordering for every restaurant linked between two cron runs.
+ */
+function nativePaymentRestricted(s: OrderableState): boolean {
+  if (!s.isDiscoNative || !s.stripeAccountId) return false
+  if (s.stripeChargesEnabled === false) return true
+  return s.stripeStatus === 'restricted'
 }
 
 /**
@@ -201,6 +243,7 @@ export async function assertRestaurantOrderable(ref: string): Promise<OrderableR
   // Native with no connected account: refuse BEFORE the customer reaches
   // payment. Without this the charge succeeds platform-only and silently.
   if (nativePaymentUnconfigured(s)) return result('payment-not-configured')
+  if (nativePaymentRestricted(s)) return result('payment-restricted')
 
   return result('ok')
 }
@@ -230,6 +273,7 @@ export async function assertRestaurantAcceptsDirectEntry(ref: string): Promise<O
   // than the customer gate, so it would otherwise be an unguarded route to the
   // same PaymentIntent.
   if (nativePaymentUnconfigured(s)) return staffResult('payment-not-configured')
+  if (nativePaymentRestricted(s)) return staffResult('payment-restricted')
   return staffResult('ok')
 }
 

@@ -94,7 +94,16 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
           AND o.visible = true
           AND COALESCE(o.online_ordering_enabled, true) = true
           AND (o.stripe_account_id IS NOT NULL
-               OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
+               OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true))
+          -- AND STRIPE WILL ACTUALLY TAKE THE CHARGE. A restricted account is
+          -- CONNECTED (so the portal says "Restricted" rather than the useless
+          -- "Not connected") but cannot be paid, so the restaurant does not
+          -- belong on the marketplace. NULL is left alone deliberately: a
+          -- snapshot not yet taken is unknown, not broken, and refusing on
+          -- unknown would unlist every restaurant linked between two runs of
+          -- cron/refresh-stripe-capabilities.
+          AND COALESCE(o.stripe_charges_enabled, true) = true
+          AND COALESCE(o.stripe_status, '') <> 'restricted')
       )
   `, runMigrations)) as {
     restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
