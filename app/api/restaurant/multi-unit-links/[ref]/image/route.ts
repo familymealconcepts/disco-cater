@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { canBrandLink } from '../../../../../../lib/locations/link-branding-scope'
 import { upsertLocationLinkImage, imageUrlFromRef } from '../../../../../../lib/location-links'
 
 // PATCH .../multi-unit-links/[ref]/image — set just the image_url for a link's
@@ -9,10 +10,10 @@ import { upsertLocationLinkImage, imageUrlFromRef } from '../../../../../../lib/
 // legacy, expanded to FM's CDN URL). Either field empty clears the image. The
 // [ref] segment is for routing only — the row is keyed by slug.
 export async function PATCH(req: NextRequest) {
-  // Gate on a valid restaurant session (same as the sibling link routes).
-  try { await getRestaurantAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
+  // Authentication only — the scope check needs the slug, so it happens once
+  // the body is parsed below.
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   let slug = ''
   let rawImage = ''
@@ -25,6 +26,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
   }
   if (!slug) return NextResponse.json({ error: 'slug is required.' }, { status: 400 })
+
+  // ── WHOSE PAGE IS THIS? ───────────────────────────────────────────────────
+  // The slug comes from the REQUEST, so without this any authenticated session
+  // could rebrand any chain's locations page. See lib/locations/
+  // link-branding-scope.ts — refuses on an unresolvable scope rather than
+  // proceeding with a wider one.
+  const decision = await canBrandLink(ctx, slug)
+  if (!decision.allowed) {
+    return NextResponse.json({ error: decision.reason }, { status: 403 })
+  }
 
   try {
     // imageUrlFromRef passes full URLs through and expands bare refs; '' → null.
