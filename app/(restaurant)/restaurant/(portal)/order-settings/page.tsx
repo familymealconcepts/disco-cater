@@ -129,6 +129,8 @@ export default function OrderSettingsPage() {
   const [notifications, setNotifications] = useState<Notifications | null>(null)
   const [feesAndTips, setFeesAndTips] = useState<FeesAndTips | null>(null)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
+  // Converted restaurants read and write their settings in Disco, not FamilyMeal.
+  const [nativeRestaurant, setNativeRestaurant] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -151,18 +153,43 @@ export default function OrderSettingsPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const [rest, notif, fees, closed] = await Promise.all([
+    // ── FEES & TIPS COMES FROM DISCO FOR A CONVERTED RESTAURANT ─────────────
+    // /api/restaurant/fees-and-tips authenticates with the user's OWN FamilyMeal
+    // token (getRestaurantAuthHeader), so it 401s for a staff member holding a
+    // Disco Cater password — which is now the intended state. The page degraded
+    // to {} and silently lost the announcement, the menu-search toggle, the
+    // delivery time window and the Disco Cater URL, and every save to them
+    // failed without saying so.
+    //
+    // disco_restaurant_overrides already holds all four, and
+    // /api/restaurant/disco-settings already reads and writes them. So a native
+    // restaurant reads them from there and never calls FamilyMeal; an FM-backed
+    // restaurant is unchanged, because FamilyMeal owns its settings.
+    const [rest, notif, fees, closed, native, discoSettings] = await Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : {}) as Promise<typeof restaurant>,
       fetch('/api/restaurant/notifications').then(r => r.ok ? r.json() : null) as Promise<Notifications | null>,
       fetch('/api/restaurant/fees-and-tips').then(r => r.ok ? r.json() : {}) as Promise<FeesAndTips>,
       fetch('/api/restaurant/closed-days').then(r => r.ok ? r.json() : []) as Promise<ClosedDay[]>,
+      fetch('/api/restaurant/is-native').then(r => r.ok ? r.json() : { native: false }).catch(() => ({ native: false })),
+      fetch('/api/restaurant/disco-settings').then(r => r.ok ? r.json() : null).catch(() => null),
     ])
+    const isNativeRestaurant = native?.native === true
+    setNativeRestaurant(isNativeRestaurant)
+    const ds = discoSettings?.settings || {}
+    const effectiveFees: FeesAndTips = isNativeRestaurant
+      ? {
+          announcement: (ds.announcement as string) ?? undefined,
+          enableMenuSearch: ds.enable_menu_search === true,
+          deliveryOrderTimeWindows: (ds.delivery_order_time_windows as FeesAndTips['deliveryOrderTimeWindows']) ?? 'exact',
+          businessNameWithoutSpaces: discoSettings?.slug ?? undefined,
+        }
+      : fees
     setRestaurant(rest)
     setNotifications(notif)
-    setFeesAndTips(fees)
+    setFeesAndTips(effectiveFees)
     setClosedDays(Array.isArray(closed) ? closed : [])
-    if (fees?.announcement) setAnnouncement(fees.announcement)
-    if (fees?.businessNameWithoutSpaces) setUrlSlug(fees.businessNameWithoutSpaces)
+    if (effectiveFees?.announcement) setAnnouncement(effectiveFees.announcement)
+    if (effectiveFees?.businessNameWithoutSpaces) setUrlSlug(effectiveFees.businessNameWithoutSpaces)
 
     if (rest?.reference) {
       fetch(`/api/restaurant/stripe-status?ref=${rest.reference}`)
@@ -202,9 +229,25 @@ export default function OrderSettingsPage() {
 
   async function saveFeesAndTips(patch: Partial<FeesAndTips>) {
     const merged = { ...feesAndTips, ...patch }
-    await fetch('/api/restaurant/fees-and-tips', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged) })
+    // Same split as the read above: Disco owns a converted restaurant's
+    // settings, FamilyMeal owns an FM-backed one's. The slug is deliberately
+    // NOT sent to disco-settings — it lives on disco_restaurant_cache and is
+    // not one of the columns that endpoint upserts, so it is left to the
+    // FamilyMeal path it already belongs to.
+    const ok = nativeRestaurant
+      ? (await fetch('/api/restaurant/disco-settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            announcement: merged.announcement ?? '',
+            enableMenuSearch: merged.enableMenuSearch === true,
+            deliveryOrderTimeWindows: merged.deliveryOrderTimeWindows ?? 'exact',
+          }),
+        })).ok
+      : (await fetch('/api/restaurant/fees-and-tips', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(merged),
+        })).ok
     setFeesAndTips(merged)
-    showToast('Saved')
+    showToast(ok ? 'Saved' : 'Could not save — please try again')
   }
 
   async function toggleOnlineOrdering(val: boolean) {
