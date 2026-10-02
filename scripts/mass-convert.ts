@@ -21,6 +21,7 @@ import { readFileSync } from 'fs'
 import { readProgress, appendProgress, importLegacyMap } from '../lib/run-progress'
 import { sql } from '../lib/db'
 import { convertToNative, importRestaurantStripeAccount } from '../lib/native-conversion'
+import { resolveStripeAccountForConversion } from '../lib/stripe-link-resolver'
 import { importFmMenuFaithfully } from '../lib/menu-import/fm-faithful-import'
 
 const PROGRESS = 'data/mass-convert-progress.jsonl'
@@ -105,6 +106,7 @@ async function main() {
   })
   console.log(`queue ${queue.length} | already recorded ${Object.keys(done).length} | this run ${Math.min(limit, todo.length)}`)
   const unresolvedStripe: string[] = []
+  const needsManualLink: string[] = []
 
   // Tripwire budget — see the check after each restaurant is recorded.
   const MAX_FAILURES = 5
@@ -120,26 +122,42 @@ async function main() {
     const t0 = Date.now()
     const rec: Record<string, unknown> = { name: q.name, ref: q.ref, ordersFm: q.orders }
     try {
-      if (q.acct) {
-        const imp = await importRestaurantStripeAccount(q.ref, q.acct, { stripe }) as unknown as Record<string, unknown>
+      // ── RESOLVE STRIPE AT CONVERSION TIME, NOT FROM A FILE ──────────────
+      // The static file is still consulted first (it is correct where it
+      // resolved), but it is no longer the only source and no longer the last
+      // word. lib/stripe-link-resolver.ts asks Disco, then Stripe's own
+      // metadata, then FamilyMeal — live, now, for this restaurant.
+      //
+      // The file resolves accounts by TRANSFER HISTORY, so an account that has
+      // never been paid out cannot appear in it at all. That is precisely the
+      // population being converted: 212 restaurants have an account in
+      // FamilyMeal and NOT ONE of them is in the file's resolved bucket.
+      const resolved = q.acct
+        ? { accountId: q.acct, needsManualLink: false, fmHasAccount: null as boolean | null, note: 'from data/stripe-account-resolutions.json' }
+        : await resolveStripeAccountForConversion(q.ref, { stripe })
+      if (resolved.accountId) {
+        const imp = await importRestaurantStripeAccount(q.ref, resolved.accountId, { stripe }) as unknown as Record<string, unknown>
         rec.stripe = (imp.capability as { reusable?: boolean } | undefined)?.reusable ?? imp.reusable ?? null
+        rec.stripeSource = resolved.note
+      } else if (resolved.needsManualLink) {
+        // ── THE CASE THAT USED TO CONVERT SILENTLY ──────────────────────────
+        // FamilyMeal holds an account and will not say which. Converting anyway
+        // is what put 122 restaurants on the marketplace refusing every order,
+        // so the restaurant is converted with ONLINE ORDERING OFF: its data is
+        // intact, its menu is intact, and it simply is not offered to customers
+        // until a human links the account. Turning it back on is one toggle.
+        rec.stripe = 'NEEDS-MANUAL-LINK'
+        needsManualLink.push(q.name)
+        await sql`
+          INSERT INTO disco_restaurant_overrides (restaurant_reference, online_ordering_enabled, updated_at)
+          VALUES (${q.ref}, false, NOW())
+          ON CONFLICT (restaurant_reference) DO UPDATE SET online_ordering_enabled = false, updated_at = NOW()
+        `.catch(() => {})
+        console.warn(`  ⚠ ${q.name}: FamilyMeal holds a Stripe account but does not expose which one. Converted with ONLINE ORDERING OFF so it cannot take an order it would refuse — link the account, then turn ordering on.`)
       } else {
-        // ── SAY SO WHEN THERE IS NOTHING TO LINK ────────────────────────────
-        // Stripe is resolved ONLY from data/stripe-account-resolutions.json. A
-        // restaurant absent from that file gets no Stripe link at all, and until
-        // now that happened silently: the 2026-09-24 batch converted 54, of which
-        // exactly the 42 present in that file got an account id and the other 12
-        // got nothing. Seven of those twelve had a perfectly good account waiting
-        // in FamilyMeal.
-        //
-        // The resolutions file is a point-in-time artifact and will always lag a
-        // batch it was not built for, so this cannot be fixed by regenerating it
-        // once. What it can stop being is INVISIBLE: the gap is now recorded per
-        // restaurant and counted at the end, so the next run reports its own
-        // blind spot instead of leaving it to be discovered in an audit.
-        rec.stripe = 'UNRESOLVED'
+        rec.stripe = 'NO-ACCOUNT-ANYWHERE'
         unresolvedStripe.push(q.name)
-        console.warn(`  ⚠ ${q.name}: no Stripe account resolved — not in data/stripe-account-resolutions.json. Converted WITHOUT a payout path; check FamilyMeal for an account to link.`)
+        console.warn(`  ⚠ ${q.name}: no Stripe account in Disco Cater or FamilyMeal — converted without a payout path.`)
       }
       // ── ALREADY-IMPORTED GUARD ────────────────────────────────────────────
       // importFmMenuFaithfully used to run unconditionally, which made a failed
@@ -225,6 +243,12 @@ async function main() {
   }
   const all = Object.values(done) as { converted?: boolean }[]
   console.log(`\nrecorded ${all.length} | converted ${all.filter(x => x.converted).length} | failed ${all.filter(x => !x.converted).length}`)
+  if (needsManualLink.length) {
+    console.log(`\n⚠ ${needsManualLink.length} restaurant(s) have a Stripe account in FamilyMeal that it will not name.`)
+    console.log('  Each was converted with ONLINE ORDERING OFF so it cannot receive an order it would refuse.')
+    console.log('  Find the account in the Stripe dashboard, link it, then turn ordering on:')
+    for (const n of needsManualLink) console.log(`   - ${n}`)
+  }
   if (unresolvedStripe.length) {
     console.log(`\n⚠ ${unresolvedStripe.length} restaurant(s) converted with NO Stripe account resolved — they cannot pay out until one is linked:`)
     for (const n of unresolvedStripe) console.log(`   - ${n}`)

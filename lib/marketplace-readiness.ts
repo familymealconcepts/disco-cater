@@ -20,6 +20,9 @@ export async function checkMarketplaceReadiness(ref: string): Promise<Marketplac
   const rows = (await sql`
     SELECT c.name, c.is_disco_native, o.visible, o.stripe_connected, o.online_ordering_enabled,
            (o.archived_at IS NOT NULL) AS is_archived,
+           -- The checkout gate's own test, so readiness and orderability cannot
+           -- disagree about whether this restaurant can take a payment.
+           (o.stripe_account_id IS NOT NULL) AS has_native_stripe_account,
            (${sql.unsafe(stripeReadySql('o'))}) OR EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
              JOIN disco_restaurant_overrides o2 ON o2.restaurant_reference = a.restaurant_reference
@@ -33,7 +36,7 @@ export async function checkMarketplaceReadiness(ref: string): Promise<Marketplac
   `) as {
     name: string | null; is_disco_native: boolean | null; visible: boolean | null
     stripe_connected: boolean | null; online_ordering_enabled: boolean | null
-    is_archived: boolean
+    is_archived: boolean; has_native_stripe_account: boolean
     has_completed_native_stripe: boolean
   }[]
 
@@ -45,6 +48,7 @@ export async function checkMarketplaceReadiness(ref: string): Promise<Marketplac
     stripeConnected: row?.stripe_connected === true,
     onlineOrderingEnabled: row?.online_ordering_enabled ?? null,
     hasCompletedNativeStripeAccount: row?.has_completed_native_stripe === true,
+    hasNativeStripeAccount: row?.has_native_stripe_account === true,
     isArchived: row?.is_archived === true,
   })
 

@@ -40,6 +40,13 @@ export interface MarketplaceVisibilityInput {
   // A disco_restaurant_accounts row with a stripe_account_id AND
   // stripe_onboarding_complete = true (native Stripe branch of the feed).
   hasCompletedNativeStripeAccount: boolean
+  /**
+   * A Disco connected account is on file for this restaurant — an id present on
+   * disco_restaurant_overrides.stripe_account_id, which is EXACTLY the test the
+   * customer checkout gate applies. This is the native payout signal; see the
+   * note on stripeOkNative below for why stripeConnected is not.
+   */
+  hasNativeStripeAccount?: boolean
   // disco_restaurant_overrides.archived_at IS NOT NULL. The fourth, STRONGEST
   // gate — short-circuits every other check below, exactly as the SQL feed's
   // `o.archived_at IS NULL` short-circuits there. Optional so existing callers
@@ -102,7 +109,21 @@ export function evaluateMarketplaceReadiness(i: MarketplaceVisibilityInput): Mar
     }
   }
 
-  const stripeOkNative = i.stripeConnected === true || i.hasCompletedNativeStripeAccount === true
+  // ── THE 2026-08-13 GAP, NOW CLOSED ────────────────────────────────────────
+  // The comment above predicted this exactly: stripeConnected is FamilyMeal's
+  // answer, every converted restaurant inherits it, and "this OR will misfire
+  // again as more restaurants convert with a stale inherited true and no real
+  // account imported yet." At the time one test fixture was affected, so the
+  // decision was deferred. It is now 122 real restaurants, visible on the
+  // marketplace and failing at checkout, so the decision is taken: for a NATIVE
+  // restaurant the signal is a Disco connected account, never FM's flag.
+  //
+  // hasNativeStripeAccount is "an account id is on file" — deliberately the SAME
+  // test the customer checkout gate applies (lib/restaurant-orderable.ts), so a
+  // restaurant is listed exactly when it can take the order it would receive.
+  // Requiring completed onboarding instead would hide 7 restaurants whose
+  // accounts are restricted for PAYOUTS only and can still trade.
+  const stripeOkNative = i.hasNativeStripeAccount === true || i.hasCompletedNativeStripeAccount === true
   // COALESCE(online_ordering_enabled, true): null/unset defaults ON; only false gates.
   const onlineOk = i.onlineOrderingEnabled !== false
   const visibleOk = i.visible === true

@@ -37,9 +37,10 @@ export interface MarketplaceRestaurantRow {
 //     restaurants and doesn't reflect FM's real state (a real FM
 //     online-ordering mirror is a tracked follow-up).
 //   • Disco-native: FULL 3-part rule — marketplace toggle ON (o.visible) AND
-//     online ordering ON (COALESCE(o.online_ordering_enabled,true)) AND Stripe
-//     connected (o.stripe_connected OR the Disco account finished Stripe
-//     onboarding).
+//     online ordering ON (COALESCE(o.online_ordering_enabled,true)) AND a Disco
+//     connected account on file (o.stripe_account_id, or one attached to the
+//     account row during onboarding). NOT o.stripe_connected — see the comment
+//     on that branch below.
 //
 // is_live is deliberately NOT part of this filter, despite reading like it
 // should be. Checked live in production: 30 of 32 disco-native restaurants
@@ -72,10 +73,27 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
         (COALESCE(c.is_disco_native, false) = false
           AND o.visible = true AND o.stripe_connected = true)
         OR
+        -- ── NATIVE: THE SAME ACCOUNT CHECKOUT REQUIRES ─────────────────────
+        -- o.stripe_connected is NOT a payout signal for a native restaurant. It
+        -- is set by probing FamilyMeal's /api/stripe/{ref} and answers "does
+        -- FamilyMeal hold an account", which is the right question for the
+        -- FM-backed branch above and the wrong one here: Disco charges the card
+        -- itself and needs its OWN connected account.
+        --
+        -- Listing on that flag put 122 native restaurants on the marketplace
+        -- that refuse every order at checkout — findable, orderable, and
+        -- failing on the payment step. The customer gate
+        -- (lib/restaurant-orderable.ts) reads disco_restaurant_overrides
+        -- .stripe_account_id, so this now reads exactly the same column: a
+        -- restaurant appears on the marketplace only if it can actually take
+        -- the order it would receive.
+        --
+        -- The accounts-table bridge stays for restaurants whose account was
+        -- attached there during onboarding rather than onto overrides.
         (c.is_disco_native = true
           AND o.visible = true
           AND COALESCE(o.online_ordering_enabled, true) = true
-          AND (o.stripe_connected = true
+          AND (o.stripe_account_id IS NOT NULL
                OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
       )
   `, runMigrations)) as {
