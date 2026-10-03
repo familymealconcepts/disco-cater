@@ -146,15 +146,51 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
           .admin-sidebar {
             transform: translateX(-100%);
             transition: transform 0.25s ease;
+            /* NO SHADOW WHILE CLOSED. translateX moves the panel off-screen but
+               its shadow still paints, leaving a grey gutter down the left of
+               every page that reads as the content not reaching the edge. */
+            box-shadow: none;
+          }
+          .admin-sidebar.open {
+            transform: translateX(0);
             box-shadow: 4px 0 28px rgba(0,0,0,0.4);
           }
-          .admin-sidebar.open { transform: translateX(0); }
           .admin-backdrop.show {
             display: block; position: fixed; inset: 0;
             background: rgba(0,0,0,0.5); z-index: 95;
           }
           .admin-content { margin-left: 0 !important; }
           .admin-close { display: flex; }
+        }
+
+        /* ── MOBILE LAYOUT GUARDS ──────────────────────────────────────────
+           Screen sizing only, and entirely inside a max-width query, so the
+           desktop rendering is unchanged.
+
+           Measured on an iPhone 13 (390px) against Super Admin > Orders: the
+           filter row and the orders table are both wider than the screen and
+           sit in containers carrying overflow:hidden for their rounded
+           corners. The columns past Customer -- order number, total, type,
+           source, status -- were not merely off-screen, they were unreachable.
+           Chromium then expands the layout viewport to fit the widest content
+           (window.innerWidth read 598 on a 390px device), which is what makes
+           the dark header bar stop short and leaves dead space to the right.
+
+           Horizontal scroll rather than stacked cards or hidden columns: the
+           brief is layout only, and both alternatives change what the page
+           shows. Hiding a column removes data someone came to read; stacking
+           into cards is a redesign. Scrolling keeps every column exactly as it
+           is on desktop, in one shared rule. */
+        @media (max-width: 900px) {
+          .dc-xscroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+          .dc-filter-row {
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
+            flex-wrap: nowrap !important; padding-bottom: 4px;
+          }
+          .dc-filter-row > * { flex-shrink: 0; }
+          /* No child may widen the viewport itself -- that re-scales the page
+             and is what leaves the header short of the screen edge. */
+          .dc-shell-guard { overflow-x: hidden; max-width: 100vw; }
         }
       `}</style>
 
@@ -246,7 +282,7 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
         </aside>
 
         {/* Main */}
-        <div className="admin-content" style={{ marginLeft: SW, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div className="admin-content dc-shell-guard" style={{ marginLeft: SW, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           {/* Mobile top bar — ADMIN tag left, hamburger right */}
           <div className="admin-topbar">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>

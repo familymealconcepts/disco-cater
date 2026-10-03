@@ -786,7 +786,7 @@ function AdminOrdersContent() {
       </div>
 
       {/* Filter bar — client-side over the loaded page */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+      <div className="dc-filter-row" style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
         <span style={chipLabel}>Type</span>
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as TypeFilter)} style={selectSt} aria-label="Type filter">
           <option value="all">All</option>

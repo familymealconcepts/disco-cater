@@ -1284,7 +1284,7 @@ function OrderCountsTab() {
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
       <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Items</h3>
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', marginBottom: 24, overflow: 'hidden' }}>
+      <div className="dc-xscroll" style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', marginBottom: 24, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#F7F8FC' }}>
             <th style={colHead}>Items</th>
@@ -1317,7 +1317,7 @@ function OrderCountsTab() {
 
       <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Modifiers</h3>
       <p style={{ fontSize: 12, color: '#6B6EF9', margin: '0 0 12px' }}>{MODIFIER_NOTE}</p>
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+      <div className="dc-xscroll" style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#F7F8FC' }}>
             <th style={colHead}>Modifier</th>
@@ -1794,7 +1794,7 @@ function OrdersContent() {
               </button>
             </div>
           )}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+          <div className="dc-xscroll" style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>

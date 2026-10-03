@@ -426,6 +426,7 @@ export default function LocationsPage() {
         ref={containerRef}
         onDragOver={dragging || draggedRef ? e => e.preventDefault() : undefined}
         onDrop={draggedRef ? handleContainerDrop : undefined}
+        className="dc-xscroll"
         style={{ position: 'relative', background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}
       >
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -95,7 +95,7 @@ export default function AdminsPage() {
 
       {error && <div style={{ padding: 12, background: '#fdecea', border: '1px solid #f5c6c2', borderRadius: 8, color: '#8a2a21', fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
-      <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+      <div className="dc-xscroll" style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
