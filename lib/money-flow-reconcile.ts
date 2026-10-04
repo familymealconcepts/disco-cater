@@ -23,21 +23,45 @@ import { alertOps } from './ops-alert'
 // lib/online-ordering-mirror.ts): a column FM is authoritative for, with
 // nothing carrying it.
 //
-// NULL rows are now included, but ONLY for FM-BACKED restaurants. Per the
-// standing rule (FM authoritative pre-conversion, Disco after), filling an
-// FM-backed NULL from FM is a mirror correction rather than a judgment. A NULL
-// on a DISCO-NATIVE row is a different question: Disco owns that value, most of
-// those restaurants have no FM record to read at all, and inventing one is not
-// this job's call. Those are counted and returned as `nativeNulls` for a human
-// to decide, never written.
+// ── CONVERTED RESTAURANTS ARE NOT THIS JOB'S BUSINESS, FIXED 2026-10-04 ────
+// This job used to select `money_flow IS NOT NULL OR NOT is_disco_native`,
+// which skipped a native row ONLY when it had no value at all. That protected
+// 25 rows and overwrote 786 — every converted restaurant that had a money_flow
+// was still being driven by FamilyMeal.
 //
-// Alerts (never silently corrects without saying so) on every flip found —
-// DIRECT → FAMILY_MEAL is the dangerous direction: it's what
-// app/api/promo/validate/route.ts and lib/promo-apply.ts's preview path read
-// to gate restaurant-funded (DIRECT-only) promos, and neither has a live
-// fallback the way charge-time settlement does — a stale FAMILY_MEAL value
-// silently blocks a legitimate promo at validate time, which nobody would
-// report as a bug, they'd just think the promo code doesn't work.
+// It did real damage. On 2026-10-02 15:47-15:48 an admin set seven converted
+// restaurants (Colonial Ranch Market, Local Smoke BBQ x4, Apollo Bagels - Kips
+// Bay, Son del North - LES) from FAMILY_MEAL to DIRECT. Because they are
+// native, the "Hold Payments on FamilyMeal" toggle writes Neon ONLY and
+// deliberately never calls FM (app/api/admin/restaurants/[ref]/money-flow/
+// route.ts) — Disco owns the value after conversion. FM therefore still held
+// the pre-conversion FAMILY_MEAL, and the 06:00 run on 2026-10-03 reverted all
+// seven, then alerted about its own revert as "the dangerous direction".
+// Westwoods BBQ & Spice Co. was the mirror image the next day: set to
+// FAMILY_MEAL in Disco on 10-03, reverted to FM's DIRECT on 10-04.
+//
+// So the selection is now simply "FM-backed rows", which keeps BOTH legs of the
+// Hold-Payments sync pointing the same way:
+//   FM-backed  → outbound PUT to FM + Neon mirror (the toggle), inbound (this
+//                job). A genuine two-way sync; unchanged, NULL fills included.
+//   native     → outbound is already disabled by design, so the inbound leg is
+//                removed to match. Disco is the source of truth after
+//                conversion; a difference from FM is a DECISION, not drift.
+// Native rows with NO value at all are still COUNTED and returned as
+// `nativeNulls` for a human to decide, and still never written.
+//
+// Alerts (never silently corrects without saying so) on every flip found.
+// DIRECT → FAMILY_MEAL is still called out separately because it is the
+// direction that changes who is merchant-of-record on an FM-backed order.
+//
+// It no longer gates promo codes: the restaurant-funded promo path used to read
+// this column and decline on FAMILY_MEAL, which is how a stale value silently
+// killed legitimate codes. Per Peter's ruling 2026-10-04 a restaurant-funded
+// code works whenever it is inside its start/end dates, so that check is gone
+// from validate, lib/promo-native.ts and lib/promo-apply.ts. What still guards
+// the money on an FM-backed order is lib/promo-apply.ts's PaymentIntent check:
+// no transfer_data means FM really is merchant-of-record, proven against Stripe
+// in real time rather than against this mirror.
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const CONCURRENCY = 20
@@ -48,7 +72,7 @@ export interface MoneyFlowFlip {
   /** null = the row had NO value and is being FILLED, not corrected. */
   before: string | null
   after: string
-  dangerous: boolean // DIRECT -> FAMILY_MEAL: the direction that can block a legitimate promo
+  dangerous: boolean // DIRECT -> FAMILY_MEAL: changes who is merchant-of-record on an FM-backed order
   /** true when `before` was NULL — a fill of the former blind spot. */
   filled: boolean
 }
@@ -69,7 +93,7 @@ export interface MoneyFlowReconcileResult {
   filled: number
   errored: number
   flips: MoneyFlowFlip[]
-  /** Disco-native rows left NULL on purpose. Never written by this job. */
+  /** Disco-native rows with no value at all. Native rows are excluded wholesale; these are surfaced because nothing anywhere has set them. Never written by this job. */
   nativeNulls: NativeNullRow[]
   durationMs: number
 }
@@ -78,12 +102,14 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
   const startedAt = Date.now()
   const auth = await getFmServiceAuthHeader()
 
+  // FM-BACKED ROWS ONLY. A converted restaurant's money_flow belongs to Disco,
+  // so FM must not drive it — see the header. NULL FM-backed rows stay included:
+  // for them a NULL is a missing mirror, not a decision.
   const rows = (await sql`
     SELECT o.restaurant_reference, o.money_flow, c.name
     FROM disco_restaurant_overrides o
     LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
-    WHERE o.money_flow IS NOT NULL
-       OR COALESCE(c.is_disco_native, false) = false
+    WHERE COALESCE(c.is_disco_native, false) = false
   `) as { restaurant_reference: string; money_flow: string | null; name: string | null }[]
 
   // Reported, not touched. Read from the admin-list cache rather than a per-row FM
@@ -141,13 +167,13 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
     const dangerousCount = flips.filter(f => f.dangerous).length
     const filledCount = flips.filter(f => f.filled).length
     const lines = flips.map(f =>
-      `• ${f.name || f.restaurantReference} (${f.restaurantReference}): ${f.before ?? 'NULL'} → ${f.after}${f.filled ? ' (fill — row had no value)' : ''}${f.dangerous ? ' ⚠ dangerous direction — blocks restaurant-funded promos at validate until this correction' : ''}`,
+      `• ${f.name || f.restaurantReference} (${f.restaurantReference}): ${f.before ?? 'NULL'} → ${f.after}${f.filled ? ' (fill — row had no value)' : ''}${f.dangerous ? ' ⚠ DIRECT→FAMILY_MEAL' : ''}`,
     ).join('\n')
     await alertOps(
       `money-flow-reconcile: wrote ${flips.length} money_flow value(s) out of ${rows.length} checked` +
       `${filledCount ? ` — ${filledCount} were FILLS of previously-NULL FM-backed rows` : ''}` +
       `${dangerousCount ? ` (${dangerousCount} were the dangerous DIRECT→FAMILY_MEAL direction)` : ''}` +
-      `${nativeNulls.length ? `. ${nativeNulls.length} disco-native row(s) left NULL on purpose — Disco owns those` : ''}:\n${lines}`,
+      `${nativeNulls.length ? `. Disco-native restaurants are excluded entirely (Disco owns money_flow after conversion); ${nativeNulls.length} of them hold no value at all and may want one set by hand` : ''}:\n${lines}`,
     )
   }
 

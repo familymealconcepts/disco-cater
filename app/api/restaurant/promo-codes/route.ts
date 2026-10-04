@@ -175,16 +175,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'confirm_high_discount', requiresConfirmation: true }, { status: 409 })
     }
 
-    // Restaurant-funded codes are DIRECT-only (permanent). Under FAMILY_MEAL money-
-    // flow, FM is the merchant of record and pays the restaurant out-of-band, so a
-    // discount can't be made to come off the restaurant — it would hit FamilyMeal's
-    // balance. Block creation for FAMILY_MEAL locations. (NULL money_flow = FM
-    // default DIRECT → allowed.)
-    const mfRows = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { money_flow: string | null }[]
-    if (mfRows[0]?.money_flow === 'FAMILY_MEAL') {
-      return NextResponse.json({ error: 'This location holds payments on FamilyMeal (money-flow), so restaurant-funded promo codes can’t settle here — the discount would come off FamilyMeal, not the restaurant. Not supported.' }, { status: 409 })
-    }
-
+    // NO money_flow CHECK — removed 2026-10-04 per Peter's ruling (a restaurant-funded
+    // code works if it is inside its start and end dates). Creation used to 409 on a
+    // FAMILY_MEAL money_flow, which left a restaurant unable to create a code at one
+    // location while the identical code worked at its sibling locations, purely
+    // because the mirror of FamilyMeal's value had gone stale after conversion.
+    // Leaving this in while the redemption gates come out would be the worse of both
+    // worlds: the code would be allowed to redeem but not to exist.
     // Restaurant-LOCAL day boundaries, not UTC midnight — a bare date cast
     // straight to ::timestamptz is read as UTC, which cuts a US-timezone promo
     // off hours early (a restaurant setting "end Aug 31" got shut off at 8pm

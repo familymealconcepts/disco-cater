@@ -225,8 +225,11 @@ export async function previewRestaurantFundedDiscount(args: {
   const resolved = await resolveCode(code, restaurantRef, subtotal, userEmail)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
+  // NO money_flow CHECK — removed 2026-10-04, same ruling as the apply path above.
+  // This is a PREVIEW: it moves no money, so the mirror was gating a display number
+  // on a value that could be stale. Settlement still refuses an FM-backed charge
+  // that has no transfer_data.
   const mirror = await getTaxRatesMirror(restaurantRef)
-  if (mirror.moneyFlow === 'FAMILY_MEAL') return { applied: false, reason: 'FAMILY_MEAL money-flow — restaurant-funded promos are DIRECT-only' }
   const tax = mirror.taxRates
   if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
 
@@ -235,7 +238,7 @@ export async function previewRestaurantFundedDiscount(args: {
 
   const result = computeRestaurantFundedBreakdown({
     fmCheckout, serviceChargePct, orderType, taxRates: tax, discountPct: resolved.pct,
-    moneyFlow: 'DIRECT', // preview never sees FAMILY_MEAL past the gate above
+    moneyFlow: 'DIRECT', // preview computes the DIRECT shape; settlement re-derives it from the PI
     fullPriceTotalCents: fullTotalCents, fullPriceTransferCents: null,
   })
   if (!result.ok) return { applied: false, reason: result.reason }
@@ -260,18 +263,17 @@ export async function applyRestaurantFundedDiscount(args: {
   const resolved = await resolveCode(code, restaurantRef, subtotal, userEmail)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
-  // DIRECT-only gate. Restaurant-funded promo codes can ONLY settle where the
-  // restaurant is the merchant of record (FM moneyFlow=DIRECT: a destination charge
-  // whose transfer we reduce so the restaurant absorbs the discount). Under
-  // FAMILY_MEAL, FamilyMeal is the MoR (plain platform charge, no transfer_data)
-  // and the restaurant is paid OUT-OF-BAND from FM's own undiscounted saleTransaction
-  // — so reducing the charge would make FamilyMeal, NOT the restaurant, absorb the
-  // discount. There is no FM-side lever to fix that (Revyrie gone). So decline.
-  // This is a PERMANENT constraint, not a temporary gap.
+  // NO money_flow CHECK — removed 2026-10-04 per Peter's ruling (a restaurant-funded
+  // code works if it is inside its start and end dates). The merchant-of-record
+  // constraint itself is NOT relaxed; it is now enforced only where it can be proven,
+  // against Stripe, a few lines below: an FM-created PaymentIntent with no
+  // transfer_data means FamilyMeal is the MoR (plain platform charge, restaurant paid
+  // out-of-band from FM's own undiscounted saleTransaction), so reducing the charge
+  // would make FamilyMeal absorb the discount — still declined, see below.
+  // What's gone is the duplicate check against the money_flow MIRROR, which could be
+  // stale against FamilyMeal and was declining valid codes at restaurants whose
+  // charges really were destination charges.
   const mirror = await getTaxRatesMirror(restaurantRef)
-  if (mirror.moneyFlow === 'FAMILY_MEAL') {
-    return { applied: false, reason: 'restaurant is FAMILY_MEAL money-flow (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
-  }
   const tax = mirror.taxRates
   if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
 

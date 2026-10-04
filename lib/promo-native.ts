@@ -93,10 +93,13 @@ export async function resolveNativeRestaurantPromo(code: string, restaurantRef: 
   const maxDiscountCap = p.max_discount_cap == null ? null : Number(p.max_discount_cap)
   const pct = resolveEffectiveDiscountPct(subtotal, p.discount_type, discountValue, maxDiscountCap)
   if (!(pct > 0 && pct <= 100)) return { resolution: null, reason: 'invalid discount value' }
-  // Defense-in-depth: an explicit FAMILY_MEAL money-flow means the restaurant is not
-  // merchant-of-record — decline (restaurant-funded is DIRECT-only, permanent rule).
-  const mf = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as { money_flow: string | null }[]
-  if (mf[0]?.money_flow === 'FAMILY_MEAL') return { resolution: null, reason: 'restaurant is FAMILY_MEAL money-flow (DIRECT-only)' }
+  // NO money_flow CHECK — removed 2026-10-04 per Peter's ruling (a restaurant-funded
+  // code works if it is inside its start and end dates). It was never load-bearing
+  // here anyway: this resolver only ever runs for a NATIVE order, and a native order
+  // is always a DIRECT destination charge with the restaurant as merchant-of-record
+  // (see the header), so the DIRECT-only condition is satisfied by construction. All
+  // the check could do was decline a valid code whenever the money_flow mirror had
+  // gone stale against FamilyMeal — which is exactly what happened to five live codes.
   return { resolution: { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }, reason: null }
 }
 

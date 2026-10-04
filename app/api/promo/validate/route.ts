@@ -116,19 +116,26 @@ export async function POST(req: NextRequest) {
 
   // (9) restaurant-funded codes discount the SUBTOTAL pre-charge (Path B): the
   // customer is charged the discounted total and the restaurant's transfer is
-  // naturally smaller — no refund/reversal. Two prerequisites, both DIRECT-only:
-  //  (1) the restaurant must be on FM moneyFlow=DIRECT — under FAMILY_MEAL, FM is
-  //      the merchant of record and pays the restaurant out-of-band, so a discount
-  //      would be absorbed by FamilyMeal, not the restaurant (PERMANENT constraint,
-  //      Revyrie gone — restaurant-funded is DIRECT-only, full stop).
-  //  (2) the restaurant's tax rates must be mirrored into Neon (FM exposes them only
+  // naturally smaller — no refund/reversal. One prerequisite:
+  //      the restaurant's tax rates must be mirrored into Neon (FM exposes them only
   //      to the restaurant's own admin token) so checkout can recompute tax to the cent.
+  //
+  // NO money_flow CHECK. This branch used to also require money_flow = DIRECT.
+  // That column is a mirror of FamilyMeal's moneyFlow, and for CONVERTED
+  // restaurants it went stale the moment Disco took ownership — the daily
+  // reconcile job was overwriting deliberate Disco-side settings with FM's
+  // pre-conversion value, which silently declined five live codes (FIFTYOFF at
+  // Apollo Bagels - Kips Bay, CATERING10 at Atlanta Bread - Smyrna, LOVEBAGELS
+  // at Bagel Point - Brooklyn, FRAN10 at Francesca - Glen Rock, PETES25 at
+  // Pete's Bagels - Ybor) while the SAME codes worked at sibling locations.
+  // Peter's ruling 2026-10-04: a restaurant-funded code works if it is inside
+  // its start and end dates. The real merchant-of-record guard has not been
+  // weakened — it lives at charge time in lib/promo-apply.ts, which refuses an
+  // FM-backed PaymentIntent that carries no transfer_data (real-time proof from
+  // Stripe, not from this mirror).
   if (promo.funded_by === 'RESTAURANT') {
     const ref = promo.restaurant_ref || restaurantRef
-    const trows = (await sql`SELECT tax_rates, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { tax_rates: unknown; money_flow: string | null }[]
-    if (trows[0]?.money_flow === 'FAMILY_MEAL') {
-      return NextResponse.json({ valid: false, message: 'This promo code can’t be applied for this restaurant.' })
-    }
+    const trows = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { tax_rates: unknown }[]
     if (!trows[0]?.tax_rates) {
       return NextResponse.json({ valid: false, message: 'This promo code can’t be applied for this restaurant right now.' })
     }
