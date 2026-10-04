@@ -18,6 +18,7 @@ import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/r
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
+import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition } from '../../../../lib/attribution'
 
 export const runtime = 'nodejs'
 
@@ -408,6 +409,15 @@ export async function POST(req: NextRequest) {
         )
       }
 
+      // How the customer found us. The order row already exists here
+      // (placeNativeCheckout is awaited above), so this can fire immediately.
+      // Best-effort by design: attribution is reporting metadata and must never
+      // be able to fail or delay a placement.
+      waitUntil(
+        recordOrderAcquisition(sql, result.orderReference, parseAcquisitionCookie(req.cookies.get(ACQUISITION_COOKIE)?.value))
+          .catch((e) => console.error('[order/place] acquisition capture failed (non-fatal):', e instanceof Error ? e.message : e)),
+      )
+
       return NextResponse.json({
         native: true,
         orderReference: result.orderReference,
@@ -570,7 +580,15 @@ export async function POST(req: NextRequest) {
     // Mirror into Neon only after FM accepted the order. Fire-and-forget via
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
-      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge, companyName: typeof companyName === 'string' ? companyName : null, taxExemptState: typeof taxExemptState === 'string' ? taxExemptState : null, note: typeof note === 'string' ? note : null }))
+      // CHAINED, not parallel: mirrorOrderToNeon is what INSERTs the
+      // disco_orders row, so the acquisition UPDATE has to wait for it or it
+      // would match zero rows and lose the capture silently. Still entirely
+      // off the response path, and a mirror failure skips it rather than
+      // surfacing a second error.
+      const acq = parseAcquisitionCookie(req.cookies.get(ACQUISITION_COOKIE)?.value)
+      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge, companyName: typeof companyName === 'string' ? companyName : null, taxExemptState: typeof taxExemptState === 'string' ? taxExemptState : null, note: typeof note === 'string' ? note : null })
+        .then(() => recordOrderAcquisition(sql, orderRef, acq))
+        .catch((e) => console.error('[order/place] mirror/acquisition failed (non-fatal):', e instanceof Error ? e.message : e)))
 
       // Funnel capture: ORDER_PLACED, linked via order_reference (orderRef is
       // the FM order reference — same value mirrorOrderToNeon persists onto

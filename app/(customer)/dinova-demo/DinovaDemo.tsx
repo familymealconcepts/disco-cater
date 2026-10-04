@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Script from 'next/script'
+import { markAcquisitionSource, markAiAssisted } from '../../../lib/utils/acquisition'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import FavoriteHeart from '../account/components/FavoriteHeart'
@@ -120,6 +121,19 @@ export default function DinovaDemo() {
   const [filtered, setFiltered] = useState<Restaurant[]>([])
   const [restaurantsLoaded, setRestaurantsLoaded] = useState(false)
   const [search, setSearch] = useState('')
+
+// ── ACQUISITION SOURCE TAGGING ──────────────────────────────────────────────
+// The map, the search box and the AI chat all live on this one page and all
+// link to a bare /restaurants/{slug}, so nothing downstream could tell them
+// apart — not the database, and not GA either (every one of them fired the same
+// `restaurant_click` event with the same params). These mark the path actually
+// taken, on the click that leaves the page, so an order can be attributed to it.
+//
+// `listSource` resolves a list/sidebar click to 'search' when the search box has
+// text and 'browse' when it does not: clicking the third result of a query is a
+// search outcome, scrolling the list is not.
+  const listSource = () => (search.trim() ? 'search' : 'browse') as 'search' | 'browse'
+
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -562,7 +576,7 @@ export default function DinovaDemo() {
     setIntakeStep('finding')
     setTreeLoading(true)
     const intake = buildIntake(finalCuisines)
-    trackEvent('ai_intake_submitted', { occasion, headcount, cuisines: finalCuisines.join(',') })
+    markAiAssisted(); trackEvent('ai_intake_submitted', { occasion, headcount, cuisines: finalCuisines.join(',') })
     try {
       const res = await fetch('/api/disco-chat', {
         method: 'POST',
@@ -911,7 +925,7 @@ export default function DinovaDemo() {
               {href ? (
                 <a
                   href={href}
-                  onClick={stashIntakeForHandoff}
+                  onClick={() => { markAcquisitionSource('chat'); stashIntakeForHandoff() }}
                   {...(internalHref ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
                   style={{ display: 'block', textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: DK, color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: compact ? 12 : 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}
                 >
@@ -1141,7 +1155,7 @@ export default function DinovaDemo() {
                                 ))}
                               </div>
                               {r.orderUrl ? (
-                                <a href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl} onClick={e => e.stopPropagation()}
+                                <a href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl} onClick={e => { e.stopPropagation(); markAcquisitionSource('map') }}
                                   style={{ display: 'block', textAlign: 'center', padding: '8px 0', background: ORANGE, color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
                                   Order Catering →
                                 </a>
@@ -1196,7 +1210,7 @@ export default function DinovaDemo() {
                     const now = Date.now()
                     const last = (lastTapTimes.current[r._id] ?? 0)
                     if (now - last < 350) {
-                      if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer')
+                      if (r.orderUrl) { markAcquisitionSource(listSource()); window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }
                       lastTapTimes.current[r._id] = 0
                     } else {
                       lastTapTimes.current[r._id] = now
@@ -1237,7 +1251,7 @@ export default function DinovaDemo() {
                           href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); markAcquisitionSource(listSource()) }}
                           style={{ fontSize: 12, color: '#fff', fontWeight: 700, background: ORANGE, padding: '4px 12px', borderRadius: 20, textDecoration: 'none' }}
                         >
                           Order →
@@ -1365,7 +1379,7 @@ export default function DinovaDemo() {
                 </div>
               )}
               {filtered.map((r, i) => (
-                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? ORANGE : 'transparent'}`, borderBottom: i < filtered.length - 1 ? '1px solid #f0f0f0' : 'none', background: activeId === r._id ? TINT : hoveredId === r._id ? TINT_SOFT : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
+                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) { markAcquisitionSource(listSource()); window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') } }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? ORANGE : 'transparent'}`, borderBottom: i < filtered.length - 1 ? '1px solid #f0f0f0' : 'none', background: activeId === r._id ? TINT : hoveredId === r._id ? TINT_SOFT : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
                   <FavoriteHeart
                     authGate
                     size={16}
@@ -1398,7 +1412,7 @@ export default function DinovaDemo() {
                           href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); markAcquisitionSource(listSource()) }}
                           style={{ fontSize: 11, color: ORANGE_DARK, fontWeight: 600, textDecoration: 'none', flexShrink: 0, fontFamily: "'DM Sans',sans-serif" }}
                         >
                           Order →

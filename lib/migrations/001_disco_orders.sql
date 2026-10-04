@@ -871,3 +871,45 @@ UPDATE disco_restaurant_accounts
      created_by = 'fm-authorized-users-sync'
      AND updated_at <= created_at + INTERVAL '5 seconds'
    );
+
+-- ── ACQUISITION: HOW THE CUSTOMER FOUND US (added 2026-10-05) ──────────────
+-- Nothing recorded this. A column sweep for referrer/utm/campaign/landing/
+-- channel/medium/attribution returned zero hits fleet-wide, and the only
+-- source-ish column was source_of_order, which splits 1P (/order/[slug]) from
+-- 3P (/restaurants/[slug]) and nothing more.
+--
+-- disco_checkout_funnel_sessions could not answer it: its first stage is
+-- DATE_TIME_SELECTED, which fires ON the restaurant page, so it begins AFTER
+-- arrival — and it is purged at 90 days. These columns live on the order
+-- itself so the answer is durable and shows up in reports.
+--
+-- Captured client-side into the first-party `disco_acq` cookie (see
+-- lib/attribution.ts + lib/utils/acquisition.ts) and copied here at placement.
+-- Forward-only: every existing row stays NULL, deliberately — there is no way
+-- to reconstruct acquisition for an order already placed, and a guessed value
+-- would be worse than an honest NULL.
+--
+-- NOT HERE, ON PURPOSE:
+--   · organic search term — Google strips it (GA reports "(not provided)");
+--     Search Console has queries only in aggregate, never per order.
+--   · a "direct" channel — "direct" is the bucket for UNKNOWN (pasted link,
+--     app open, QR code, privacy browser), not a marketing channel. It is the
+--     ABSENCE of these columns, which is why they are nullable rather than
+--     defaulted.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_source TEXT;          -- map | search | chat | browse | direct
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_referrer TEXT;        -- document.referrer at first touch
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_landing_path TEXT;    -- the page they landed on
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_source TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_medium TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_campaign TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_term TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_content TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_click_id TEXT;        -- gclid / fbclid / msclkid value
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_click_id_type TEXT;   -- which of the three it was
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_ai_assisted BOOLEAN;  -- went through the AI discovery intake
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_captured_at TIMESTAMPTZ; -- first touch, not order time
+
+-- The marketplace reporting page filters on source and on "has any acquisition
+-- data at all"; both are tiny scans today (46 3P orders all-time) but this
+-- keeps them honest as volume grows.
+CREATE INDEX IF NOT EXISTS idx_disco_orders_acq_source ON disco_orders (acq_source) WHERE acq_source IS NOT NULL;
