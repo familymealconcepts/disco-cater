@@ -916,15 +916,55 @@ export async function cleanupOrphanedDraftMirrors(): Promise<{ deleted: number }
   return { deleted: ids.length }
 }
 
+// ── WHY THIS RUN IS TIME-BOUNDED (added 2026-10-05) ───────────────────────
+// Without a budget this function ran past the cron's 300s maxDuration and the
+// platform killed it BEFORE app/api/cron/sync-fm-orders/route.ts could write
+// the rotation cursor. The next hour then re-read the same offset and died the
+// same way, so the rotation froze — measured at offset 900 from 2026-10-01
+// 13:01 to 2026-10-05 23:11, four and a half days, ~106 missed advances. The
+// one measured casualty was Maciel's FM order 34045722 (placed 09-30 for
+// 10-17), which a human had to notice and report.
+//
+// Two things made it silent. The cron's catch logs and returns 500 but never
+// called alertOps (it does now), and the CONVERTED-RESTAURANT SWEEP below is
+// sliced by this same `offset` — so a frozen cursor also pins that sweep to a
+// fixed 60 of 394 converted restaurants, disabling the very mechanism built to
+// catch orders at converted restaurants quickly.
+//
+// Same pattern and the same reasoning as NON_CACHE_TIME_BUDGET_MS further
+// down: partial progress is fine here, an uncontrolled platform timeout
+// mid-write is not. The caller advances the cursor by `processed`, so a run
+// that stops early still moves the rotation forward instead of retrying a
+// batch it can never finish.
+const ROTATION_TIME_BUDGET_MS = 200_000
+
 export async function syncAllRestaurantOrders(
-  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean; reconcile?: boolean } = {},
+  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean; reconcile?: boolean; timeBudgetMs?: number;
+    /** Called after each rotation restaurant completes, with the running
+     *  processed count. The cron persists the cursor here, so progress survives
+     *  a platform kill mid-run — a time budget alone cannot guarantee that,
+     *  because one slow restaurant can outlast the whole window. */
+    onProgress?: (processedSoFar: number) => Promise<void> } = {},
 ): Promise<{
-  restaurants: number; results: SyncResult[]
+  restaurants: number
+  /** Restaurants in the rotation loop actually completed this run. The caller
+   *  advances the cursor by THIS, not by the batch size. */
+  processed: number
+  /** True only when the batch ran off the end of the table AND finished it, so
+   *  the caller may wrap the cursor to 0. A budget stop is never exhaustion. */
+  exhausted: boolean
+  /** True when the budget stopped the run early — surfaced so a persistently
+   *  slow batch is visible rather than looking like a quiet success. */
+  budgetStopped: boolean
+  results: SyncResult[]
   mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[]
   bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[]
 }> {
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
+  const deadline = Date.now() + (opts.timeBudgetMs ?? ROTATION_TIME_BUDGET_MS)
+  let processed = 0
+  let budgetStopped = false
   const rows = (await sql`
     SELECT restaurant_reference FROM disco_restaurant_cache
     ORDER BY restaurant_reference LIMIT ${limit} OFFSET ${offset}
@@ -975,6 +1015,16 @@ export async function syncAllRestaurantOrders(
 
   const urgentDone = new Set<string>()
   for (const u of urgentRows) {
+    // Budgeted like every other loop in this function. This pre-pass runs FIRST,
+    // so without a stop here it can consume the whole window on its own and the
+    // rotation never runs — which is how the cursor stops advancing even with
+    // the budget checks further down. A quarter of the window is plenty: the
+    // list is capped at 25 and is usually empty.
+    if (Date.now() > deadline - (opts.timeBudgetMs ?? ROTATION_TIME_BUDGET_MS) * 0.75) {
+      budgetStopped = true
+      console.warn('[fm-orders-sync] urgent bare-order pre-pass hit its quarter-budget — yielding to the converted sweep and rotation')
+      break
+    }
     if (!isUuid(u.ref)) continue
     const res = await repairBareOrderDetail(u.ref)
     urgentDone.add(u.ref)
@@ -1022,6 +1072,14 @@ export async function syncAllRestaurantOrders(
       : [...convertedAll, ...convertedAll].slice(start, start + CONVERTED_CAP)
     for (const ref of slice) {
       if (convertedDone.has(ref)) continue
+      // Half the budget at most: this sweep runs BEFORE the rotation, so
+      // letting it spend everything is how the rotation starves and the cursor
+      // stops advancing — the exact failure this budget exists to prevent.
+      if (Date.now() > deadline - (opts.timeBudgetMs ?? ROTATION_TIME_BUDGET_MS) / 2) {
+        budgetStopped = true
+        console.warn('[fm-orders-sync] converted-restaurant sweep hit its half-budget — yielding the rest of the run to the rotation')
+        break
+      }
       convertedDone.add(ref)
       // REPAIR, THEN SYNC — the same order the rotation loop below uses.
       // This sweep originally called syncRestaurantOrders alone and then had the
@@ -1043,8 +1101,19 @@ export async function syncAllRestaurantOrders(
   }
 
   for (const ref of refs) {
+    // Stop cleanly rather than being killed mid-write. The caller advances the
+    // cursor by `processed`, so what was done this run is not repeated and the
+    // rotation keeps moving even if this batch can never finish in one window.
+    if (Date.now() > deadline) {
+      budgetStopped = true
+      console.warn(`[fm-orders-sync] time budget reached at offset=${offset} after ${processed}/${refs.length} restaurants — stopping early; cursor advances by ${processed}`)
+      break
+    }
     // Already swept above this run — the rotation must not pay for it twice.
-    if (convertedDone.has(ref)) continue
+    // Still counts as processed: it IS done for this run, and not counting it
+    // would make the cursor advance by less than the batch it actually covered,
+    // so the next run would re-walk ground already synced.
+    if (convertedDone.has(ref)) { processed++; continue }
     let stopAtKnownDate = opts.stopAtKnownDate
     let maxPages = opts.maxPages ?? 3
 
@@ -1088,8 +1157,18 @@ export async function syncAllRestaurantOrders(
       maxPages,
       stopAtKnownDate,
     }))
+    processed++
+    // Persist progress as we go. Best-effort: a failed cursor write must not
+    // abort a sync that is otherwise working, and the next tick will try again.
+    if (opts.onProgress) {
+      try { await opts.onProgress(processed) } catch { /* cron logs its own failure */ }
+    }
   }
-  return { restaurants: refs.length, results, mismatches, bareRepairs }
+  // Exhaustion means "this batch was the tail AND we finished it" — a budget
+  // stop on a short final batch must NOT wrap the cursor back to 0, or the
+  // rotation would restart from the beginning having skipped the tail.
+  const exhausted = refs.length < limit && processed >= refs.length
+  return { restaurants: refs.length, processed, exhausted, budgetStopped, results, mismatches, bareRepairs }
 }
 
 // Cache-independent history sync for restaurants disco_restaurant_cache's own

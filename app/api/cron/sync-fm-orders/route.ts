@@ -99,9 +99,33 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // after page 0 as before; this only pages further when a restaurant has
     // genuinely accumulated more than a page's worth of orders since the last
     // hourly pass.
-    const { restaurants, results, mismatches, bareRepairs } = await syncAllRestaurantOrders({ withItems: true, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true })
-    // Advance the cursor; wrap to 0 when this batch was the tail.
-    await writeCursor(restaurants < BATCH ? 0 : offset + BATCH)
+    const { restaurants, processed, exhausted, budgetStopped, results, mismatches, bareRepairs } =
+      await syncAllRestaurantOrders({
+        withItems: true, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true,
+        // Persist the cursor AS THE RUN PROGRESSES, not only at the end. The
+        // time budget stops a run cleanly, but it is checked BETWEEN
+        // restaurants and a single slow one can outlast the whole window — so
+        // a budget alone still leaves a path where the platform kills the
+        // function before the final write. Writing per restaurant means a kill
+        // loses at most the one in flight, and the rotation always moves.
+        onProgress: async (done) => { await writeCursor(offset + done) },
+      })
+
+    // ── THE CURSOR MUST ALWAYS MOVE ───────────────────────────────────────
+    // This previously advanced by the full BATCH, which is only correct if the
+    // whole batch finished — and it was reached only if the run finished at
+    // all. When syncAllRestaurantOrders ran past maxDuration the platform
+    // killed the function here, so the cursor was never written and the next
+    // hour re-read the same offset and died identically. Measured frozen at
+    // offset 900 for four and a half days (2026-10-01 → 2026-10-05), which is
+    // how Maciel's FM order 34045722 went missing.
+    //
+    // So: advance by what was ACTUALLY processed, and never by zero. A batch
+    // whose very first restaurant cannot finish inside the budget would
+    // otherwise pin the rotation forever — the same failure in a smaller
+    // window. Stepping past it costs that restaurant one rotation; the next
+    // pass picks it up with its backlog already partly drained.
+    await writeCursor(exhausted ? 0 : offset + Math.max(1, processed))
 
     // Global, not scoped to this run's restaurant batch — cheap enough to run
     // every hour regardless. Best-effort: a failure here must never fail the
@@ -116,10 +140,18 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, offset, mismatches, bareRepairs, orphansDeleted, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, orphansDeleted, duration_ms })
   } catch (e) {
-    console.error('[cron/sync-fm-orders] failed:', e instanceof Error ? e.message : e)
+    const error = e instanceof Error ? e.message : String(e)
+    console.error('[cron/sync-fm-orders] failed:', error)
+    // ALERT, don't just log. This catch used to return 500 silently, so an
+    // hourly job that failed every run for four and a half days produced no
+    // signal anywhere — the stall was found only because a human noticed one
+    // missing order. A platform timeout kills the function outright and never
+    // reaches here, which is exactly why the time budget above matters more
+    // than this alert does; this covers every other failure mode.
+    await alertOps(`sync-fm-orders FAILED (rotation may be stalled): ${error}`)
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }
