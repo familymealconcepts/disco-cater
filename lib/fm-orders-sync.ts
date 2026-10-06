@@ -30,6 +30,20 @@ function isUpcomingIso(iso: string | null | undefined): boolean {
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// FM rows that are NOT orders. normalizeFmOrder refuses them (a CART is a
+// basket nobody has placed; FM hard-deletes CART after 20 minutes and SELECTED
+// after 10), so Neon never holds one — and any count that compares Neon against
+// FM must subtract them or it is comparing two different populations.
+//
+// Exported as ONE set because that comparison used to get it wrong.
+// checkFmSyncComplete read FM's totalElements, which COUNTS carts, against
+// Neon's row count, which cannot. Every restaurant with a single abandoned cart
+// therefore showed a permanent gap, and the hourly reconcile responded by
+// setting stopAtKnownDate=false and maxPages=500 — a deep re-page, every hour,
+// forever, hunting orders that do not exist. Three restaurants were reported as
+// "missing 31 orders" on 2026-10-06 when the real figure was three.
+export const NON_ORDER_FM_STATUSES = new Set(['CART', 'SELECTED'])
+
 // Statuses this sync will actually persist (disco_orders.order_status CHECK
 // set minus CART/SELECTED, which normalizeFmOrder skips before this is ever
 // consulted — see that early return for why).
@@ -120,7 +134,7 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
   // ALLOWED_STATUS fallback below) matters: that fallback coerces an
   // unrecognized status to 'DUE', which would have mislabeled a still-live
   // draft as paid-and-owed instead of just skipping it.
-  if (statusRaw0 === 'CART' || statusRaw0 === 'SELECTED') return null
+  if (NON_ORDER_FM_STATUSES.has(statusRaw0)) return null
 
   // Normalize FM's singular 'VOID' to Disco's canonical 'VOIDED' so Neon uses one
   // value everywhere.
@@ -690,14 +704,53 @@ async function fetchFmOrderTotalCount(restaurantReference: string, auth: Record<
 // exact-tie-or-over as "still incomplete" would retry it forever for no reason.
 // Returns null (unknown) if the FM call fails — callers must treat unknown as
 // "try again next run," never as proof of either complete or incomplete.
+// Count FM rows that are not orders, newest-first, stopping the moment enough
+// have been found to explain the apparent gap. FM cannot do this server-side:
+// probed 2026-10-06 against orderStatus / status / orderStatuses /
+// excludeStatuses and every one was IGNORED — totalElements came back 8 each
+// time for a restaurant with 8 rows of which 1 is a CART. A silently-unfiltered
+// response is indistinguishable from a filtered one, so the count has to be
+// done here.
+//
+// Bounded twice over: it runs ONLY when the naive comparison shows a gap (so
+// never on a healthy restaurant), and it early-exits as soon as the gap is
+// explained — the common case is one cart, found on the first page.
+async function countFmNonOrders(
+  restaurantReference: string,
+  auth: Record<string, string>,
+  needed: number,
+  maxPages = 15,
+): Promise<number> {
+  let found = 0
+  for (let page = 0; page < maxPages; page++) {
+    const rows = await fetchFmOrdersPage(restaurantReference, auth, page, 200)
+    if (!rows || rows.length === 0) break
+    for (const r of rows) {
+      const st = String((r as Record<string, unknown>).orderStatus ?? '').toUpperCase()
+      if (NON_ORDER_FM_STATUSES.has(st)) found++
+    }
+    if (found >= needed) break      // gap fully explained; stop paging
+    if (rows.length < 200) break    // ran out of orders
+  }
+  return found
+}
+
 export async function checkFmSyncComplete(
   restaurantReference: string,
   neonCount: number,
   auth: Record<string, string>,
-): Promise<{ complete: boolean; fmTotal: number } | null> {
+): Promise<{ complete: boolean; fmTotal: number; nonOrderCount: number } | null> {
   const fmTotal = await fetchFmOrderTotalCount(restaurantReference, auth)
   if (fmTotal == null) return null
-  return { complete: neonCount >= fmTotal, fmTotal }
+
+  // No apparent gap — nothing to explain, and no extra FM calls made.
+  if (neonCount >= fmTotal) return { complete: true, fmTotal, nonOrderCount: 0 }
+
+  // FM's total counts carts; Neon's cannot. Subtract them before concluding
+  // anything is missing.
+  const gap = fmTotal - neonCount
+  const nonOrderCount = await countFmNonOrders(restaurantReference, auth, gap)
+  return { complete: neonCount + nonOrderCount >= fmTotal, fmTotal, nonOrderCount }
 }
 
 // Repairs "bare" FAMILYMEAL orders for one restaurant — a header row with no
@@ -1151,14 +1204,17 @@ export async function syncAllRestaurantOrders(
         const neonCount = neonRows[0]?.n ?? 0
         const check = await checkFmSyncComplete(ref, neonCount, auth)
         if (check && !check.complete) {
-          const delta = check.fmTotal - neonCount
+          const delta = check.fmTotal - neonCount - check.nonOrderCount
           // Log only, deliberately no alertOps here: this fires for every restaurant with a
           // historical gap across the 21-hour rotation, and the sweep repairs it automatically
           // in the same run (stopAtKnownDate/maxPages widened below) — posting each one to
           // Slack turned into per-restaurant maintenance noise in the orders channel. The
           // per-run summary line in cron/sync-fm-orders/route.ts (mismatches.length) is the
           // aggregate signal; this line is what stays for a human to grep in Vercel logs.
-          console.warn(`[fm-orders-sync] reconciliation mismatch: restaurant=${ref} neonCount=${neonCount} fmTotal=${check.fmTotal} delta=${delta}`)
+          // `delta` is now the gap AFTER carts are accounted for, so a restaurant
+          // whose only shortfall is an abandoned basket no longer reaches here at
+          // all — and no longer triggers the maxPages=500 re-page below.
+          console.warn(`[fm-orders-sync] reconciliation mismatch: restaurant=${ref} neonCount=${neonCount} fmTotal=${check.fmTotal} nonOrders=${check.nonOrderCount} delta=${delta}`)
           mismatches.push({ restaurantReference: ref, neonCount, fmTotal: check.fmTotal })
           stopAtKnownDate = false
           maxPages = 500
