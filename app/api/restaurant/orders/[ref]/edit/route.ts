@@ -519,7 +519,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const timeStr = fmtTime(effTime)
     if (customerEmail) {
       sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta }).catch(() => {})
-      if (paymentAction === 'refund' && delta < 0) {
+      // GATED ON paymentStatus, NOT paymentAction. This used to read
+      // `paymentAction === 'refund'`, which is set BEFORE the refund is
+      // attempted — so a refund that failed still told the customer their money
+      // was on its way. Order #900000303 (Apollo Bagels - Kips Bay, 2026-10-06)
+      // was an UNPAID invoice order edited downward: there was no PaymentIntent
+      // to refund, the route correctly recorded payment_status='failed', and
+      // Roxana was emailed "A refund of $172.29 has been issued... allow 5-10
+      // business days" against an invoice that had never been paid.
+      if (paymentStatus === 'refunded' && delta < 0) {
         sendOrderEditRefundIssued({ to: customerEmail, firstName, orderNumber, businessName, refundAmount: Math.abs(delta) }).catch(() => {})
       }
     }
