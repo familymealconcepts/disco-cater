@@ -127,6 +127,10 @@ export interface DiscoOrderRow {
   tips_type: string
   edit_count: number
   edit_status: string | null
+  /** Read by the edit route to tell an UNPAID invoice order from a paid one, so
+   *  a reduction voids-and-reissues instead of attempting an impossible refund. */
+  stripe_invoice_id: string | null
+  stripe_invoice_status: string | null
 }
 
 // Look up a Disco order by either its FM reference or its Disco reference.
@@ -141,7 +145,8 @@ export async function getDiscoOrder(ref: string): Promise<DiscoOrderRow | null> 
              restaurant_reference, restaurant_name, restaurant_email,
              customer_email, customer_first_name, customer_last_name,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, tips, tips_type,
-             COALESCE(edit_count, 0) AS edit_count, edit_status, tax_exempt_id
+             COALESCE(edit_count, 0) AS edit_count, edit_status, tax_exempt_id,
+             stripe_invoice_id, stripe_invoice_status
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1

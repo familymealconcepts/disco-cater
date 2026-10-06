@@ -39,6 +39,9 @@ import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../.
 import { assertFiniteMoney } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
+import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
+import { alertOps } from '../../../../../../lib/ops-alert'
+import { decideEditPaymentAction } from '../../../../../../lib/order/edit-payment-action'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
 import { formatTime12 } from '../../../../../../lib/utils/time'
@@ -355,7 +358,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     && req.headers.get('x-stripe-test') === 'true'
     && !!process.env.STRIPE_TEST_SECRET_KEY
   const stripe = stripeClient(useTestStripe)
-  let paymentAction: 'charge' | 'refund' | 'invoice' | 'none' = 'none'
+  let paymentAction: 'charge' | 'refund' | 'invoice' | 'void-reissue' | 'none' = 'none'
   let paymentStatus: 'succeeded' | 'refunded' | 'invoiced' | 'pending' | 'failed' | 'none' = 'none'
   let stripePaymentIntentId = ''
   let stripeRefundId = ''
@@ -725,6 +728,85 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       return await goPending() // no card on file → invoice
     }
 
+    // ── UNPAID INVOICE ORDER, REDUCED → VOID AND REISSUE, NEVER REFUND ──────
+    // Decided by lib/order/edit-payment-action.ts so the rule is testable
+    // without firing a Stripe call or an email. Nothing has been collected on
+    // this order, so there is no payment to refund — the stale invoice is
+    // withdrawn and the correct one issued for the NEW TOTAL (not the delta;
+    // the original invoice billed the whole order, so its replacement must).
+    if (decideEditPaymentAction({
+      delta, orderStatus: discoOrder?.order_status ?? null,
+      invoiceId: discoOrder?.stripe_invoice_id ?? null,
+      invoiceStatus: discoOrder?.stripe_invoice_status ?? null,
+    }) === 'void-reissue') {
+      paymentAction = 'void-reissue'
+      const voided = await voidUnpaidOrderInvoice(discoOrder?.reference || ref, stripe)
+      if (voided.action === 'failed') {
+        // Do NOT proceed: leaving the old invoice payable while Neon shows the
+        // reduced total is exactly the state this fix exists to remove — the
+        // customer could pay the higher, stale amount.
+        console.error('[orders/edit] void failed, not reissuing:', voided.error)
+        await alertOps('order-edit void-and-reissue FAILED — stale invoice may still be payable', {
+          orderNumber, orderReference: discoOrder?.reference || ref, error: voided.error,
+        })
+        return NextResponse.json({ error: 'Unable to update the invoice for this edit. Please try again.' }, { status: 502 })
+      }
+
+      let reissuedUrl = ''
+      if (stripe && customerEmail) {
+        try {
+          let customerId = pmRow?.stripe_customer_id || ''
+          if (!customerId) {
+            const cust = await stripe.customers.create({ email: customerEmail, name: [firstName, discoOrder?.customer_last_name].filter(Boolean).join(' ') || undefined })
+            customerId = cust.id
+          }
+          const inv = await stripe.invoices.create({
+            customer: customerId, collection_method: 'send_invoice', days_until_due: 7, auto_advance: false,
+            metadata: {
+              orderReference: discoOrder?.reference || ref, fmOrderReference: ref, orderNumber, kind: 'order_edit_reissue',
+              ...(isNative && nativePay ? {
+                // The payout for the WHOLE reduced order, not a delta — this
+                // invoice replaces the original, so the webhook must transfer
+                // the restaurant's share of the new total when it is paid.
+                transferDollars: String(nativeBreakdown?.transfer ?? 0),
+                connectedAccountId: nativePay.connectedAccountId ?? '',
+                withholdPayouts: nativePay.withholdPayouts ? '1' : '0',
+              } : {}),
+            },
+          })
+          await stripe.invoiceItems.create({
+            customer: customerId, invoice: inv.id, amount: Math.round(newTotal * 100), currency: 'usd',
+            description: `Order #${orderNumber} — updated total`,
+          })
+          const finalized = await stripe.invoices.finalizeInvoice(inv.id)
+          await stripe.invoices.sendInvoice(inv.id).catch(() => {})
+          stripeInvoiceId = inv.id
+          reissuedUrl = (finalized.hosted_invoice_url as string) || ''
+          paymentStatus = 'invoiced'
+          await sql`
+            UPDATE disco_orders SET stripe_invoice_id = ${inv.id}, stripe_invoice_status = 'open', updated_at = NOW()
+            WHERE reference = ${discoOrder?.reference || ref}::uuid
+          `.catch(e => console.error('[orders/edit] reissue invoice id update:', e))
+        } catch (e) {
+          console.error('[orders/edit] reissue failed after void:', e instanceof Error ? e.message : e)
+          paymentStatus = 'failed'
+          await alertOps('order-edit invoice VOIDED but reissue FAILED — customer has no invoice to pay', {
+            orderNumber, orderReference: discoOrder?.reference || ref,
+            voidedInvoice: voided.action === 'voided' ? voided.invoiceId : null,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
+      // An updated-invoice email, never a refund email. Nothing was refunded.
+      if (customerEmail && paymentStatus === 'invoiced') {
+        sendOrderEditPaymentRequired({
+          to: customerEmail, firstName, orderNumber, businessName,
+          amountDue: newTotal, invoiceUrl: reissuedUrl,
+        }).catch(() => {})
+      }
+      return await confirmEdit()
+    }
+
     // delta < 0 → refund against the original payment intent. Native: reuse
     // refundNativeOrder (the same helper the dedicated full-refund routes use) so
     // a transfer_data-backed charge gets reverse_transfer:true — the restaurant's
@@ -751,8 +833,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         paymentStatus = 'failed'
       }
     } else {
+      // ALERT, not a console.warn. This is the state that produced the false
+      // refund email on #900000303 and it was invisible: the route logged a
+      // warning nobody reads, recorded payment_status='failed', and the
+      // customer was told money was coming. Reaching here now means an order
+      // that is NOT an unpaid invoice order still has no PaymentIntent to
+      // refund — genuinely anomalous, and worth waking someone.
       console.warn('[orders/edit] refund requested but no original payment intent / Stripe — recording as failed')
       paymentStatus = 'failed'
+      await alertOps('order-edit REFUND IMPOSSIBLE — no PaymentIntent on a reduced order; customer NOT emailed, money NOT moved', {
+        orderNumber, orderReference: discoOrder?.reference || ref,
+        delta, orderStatus: discoOrder?.order_status ?? null,
+        stripeInvoiceId: discoOrder?.stripe_invoice_id ?? null,
+        stripeInvoiceStatus: discoOrder?.stripe_invoice_status ?? null,
+      })
     }
     return await confirmEdit()
   } catch (e) {
