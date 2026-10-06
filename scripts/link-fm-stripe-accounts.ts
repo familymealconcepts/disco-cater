@@ -211,6 +211,16 @@ async function main() {
           stripe_status_reason = NULL,
           stripe_status_checked_at = NOW(),
           updated_at = NOW()
+        -- NEVER OVERWRITE AN ACCOUNT DISCO ALREADY HOLDS. The target list is
+        -- already stripe_account_id IS NULL, but that was read minutes ago and
+        -- the portal's own Stripe connect flow can land in between — One Lev was
+        -- linked that way mid-investigation on 2026-10-05. Repeating the
+        -- predicate here makes "never overwrite" a property of the WRITE rather
+        -- than of the read that preceded it. Taim is why it matters: two
+        -- accounts existed and DISCO'S WAS THE CORRECT ONE, so a write that won
+        -- a race would have moved a live restaurant's payouts to the wrong
+        -- account.
+        WHERE disco_restaurant_overrides.stripe_account_id IS NULL
       `
       n++
     }

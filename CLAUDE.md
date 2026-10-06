@@ -94,6 +94,59 @@ works.** That is worse than saying nothing.
 money, to customer orders, and to data integrity — loudly, and early. The rule is
 about VERIFYING before escalating, not about lowering the bar for what matters.
 
+## WHAT MAKES A RESTAURANT VISIBLE, AND HOW TO MEASURE EXPOSURE
+
+**Peter's rule, plainly: a restaurant is visible on the marketplace if Stripe is
+connected, online ordering is on, and the map toggle is on. Nothing else gates
+it.**
+
+In the code that is `lib/marketplace-restaurants.ts`, and the three parts map to
+`disco_restaurant_overrides.stripe_account_id`, `.online_ordering_enabled` and
+`.visible` (the map toggle). Two things in that query are part of "Stripe is
+connected" rather than extra gates, and must not be read as a fourth condition:
+a `restricted` account or `stripe_charges_enabled = false` is an account that
+cannot take the charge, so it is not connected in any sense a customer benefits
+from; and an archived restaurant is gone, not hidden. FM-BACKED rows take a
+2-part version of the same rule (visible + `stripe_connected`) because
+FamilyMeal takes their money, not Disco.
+
+**EXPOSURE IS MEASURED AGAINST THE FEED AND THE CUSTOMER PATH — NEVER FROM A
+TOGGLE COLUMN.** `online_ordering_enabled = true` does not mean a customer can
+reach checkout. It is one of three conditions, it defaults to true, and
+conversion carries that default onto every restaurant it converts. So a row can
+read `ordering = true` while being absent from the marketplace, absent from
+search, and showing "ordering isn't available" to anyone who opens its page.
+
+To answer "is this restaurant exposed", in this order:
+
+- **Is its slug in `/api/restaurants`?** That is the feed the map and search
+  read. Not in the feed means not findable.
+- **What does `/restaurants/<slug>` actually render?** Fetch it. A restaurant
+  with no Stripe account returns HTTP 200 and tells the customer up front that
+  ordering is unavailable — it does not open a cart and fail at the payment
+  step. "Told up front" and "refused at checkout" are different outcomes and
+  must not be reported as the same one.
+- **Only then** quote a count, and say which of those two things it counted.
+
+**THIS HAS GONE WRONG TWICE, BOTH TIMES IN THE SAME SESSION AND BOTH TIMES BY
+READING THE TOGGLE:**
+
+- **"18 of those 26 have ordering ON"** — the 18 came from all 220 unlinked
+  native restaurants, not from the 26. Two different populations, one number.
+- **"8 refusing checkout today"** — measured `online_ordering_enabled = true`
+  and called it exposure. All 8 were absent from the 386-restaurant feed, every
+  one returned "ordering isn't available", and 7 of them had never been switched
+  on at all: their only audit event is `CONVERTED_TO_NATIVE` with
+  `stripeMode: "not-linked"` and a failed `stripe-ready` advisory. The real
+  count of findable-and-failing was **zero**.
+
+**NOT EXPOSED IS NOT THE SAME AS CORRECT, AND THAT CUTS BOTH WAYS.** A missing
+Stripe link on a converted restaurant is still a real defect that must be fixed
+before anyone turns ordering on — the feed rule is what stops it reaching a
+customer, not a reason to leave it broken. Report the defect accurately AND
+report the exposure accurately; they are two separate numbers and conflating
+them in either direction is the error.
+
 ## THERE ARE NO TRANSACTIONS IN THIS REPO — read before any write to a live table
 
 `lib/db.ts` uses `neon()` in **HTTP mode**. Every statement is its own HTTP request and
