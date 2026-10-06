@@ -948,8 +948,12 @@ export async function syncAllRestaurantOrders(
 ): Promise<{
   restaurants: number
   /** Restaurants in the rotation loop actually completed this run. The caller
-   *  advances the cursor by THIS, not by the batch size. */
+   *  advances the cursor by THIS, not by the batch size. When the whole batch
+   *  finished, the caller should advance by `rowsRead` instead so the unusable
+   *  slug rows are stepped over rather than re-read every run. */
   processed: number
+  /** How many TABLE ROWS this batch read, usable or not. */
+  rowsRead: number
   /** True only when the batch ran off the end of the table AND finished it, so
    *  the caller may wrap the cursor to 0. A budget stop is never exhaustion. */
   exhausted: boolean
@@ -970,6 +974,26 @@ export async function syncAllRestaurantOrders(
     ORDER BY restaurant_reference LIMIT ${limit} OFFSET ${offset}
   `.catch(() => [])) as { restaurant_reference: string }[]
 
+  // ── WHY rows.length AND refs.length ARE BOTH TRACKED ──────────────────────
+  // 6 rows in disco_restaurant_cache carry a SLUG where a UUID belongs —
+  // '502-baking-company', 'katz-s-deli', 'scrumptious-events-atlanta',
+  // 'slate-cafe-2nd-ave', 'the-dancing-blender-smoothie-co'. isUuid drops them,
+  // so a full 50-row batch containing one yields fewer than 50 refs.
+  //
+  // The cursor logic used to read that as "fewer restaurants came back than I
+  // asked for, so this must be the end of the table" and wrap to 0. The first
+  // such batch starts at OFFSET 1300, so the rotation could never get past it:
+  // it cycled 0 → 1300 → 0 forever and the 2,950 restaurants beyond were
+  // unreachable — 69% of the fleet. Apollo Bagels - Kips Bay sits at position
+  // 3418, which is why FM order 58705233 (Caroline Fuentes, $452.38, delivery
+  // 10/06 08:45) never arrived and a driver turned up for an order the kitchen
+  // had never seen.
+  //
+  // This was masked until 2026-10-05: the cursor was frozen at 900 by the
+  // maxDuration stall, so it never reached 1300. Fixing the stall made the
+  // cursor advance and exposed this immediately. Exhaustion is a fact about how
+  // many ROWS the table returned; it must never be inferred from how many of
+  // them happened to be usable.
   const refs = rows.map(r => r.restaurant_reference).filter(isUuid)
   const results: SyncResult[] = []
   const mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] = []
@@ -1164,11 +1188,12 @@ export async function syncAllRestaurantOrders(
       try { await opts.onProgress(processed) } catch { /* cron logs its own failure */ }
     }
   }
-  // Exhaustion means "this batch was the tail AND we finished it" — a budget
-  // stop on a short final batch must NOT wrap the cursor back to 0, or the
-  // rotation would restart from the beginning having skipped the tail.
-  const exhausted = refs.length < limit && processed >= refs.length
-  return { restaurants: refs.length, processed, exhausted, budgetStopped, results, mismatches, bareRepairs }
+  // Exhaustion is measured on ROWS, not on usable refs — see the block above.
+  // It also still requires that the batch was finished: a budget stop on a short
+  // final batch must not wrap the cursor, or the rotation restarts having
+  // skipped the tail.
+  const exhausted = rows.length < limit && processed >= refs.length
+  return { restaurants: refs.length, processed, exhausted, budgetStopped, results, mismatches, bareRepairs, rowsRead: rows.length }
 }
 
 // Cache-independent history sync for restaurants disco_restaurant_cache's own

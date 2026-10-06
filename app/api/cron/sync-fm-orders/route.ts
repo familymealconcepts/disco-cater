@@ -99,7 +99,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // after page 0 as before; this only pages further when a restaurant has
     // genuinely accumulated more than a page's worth of orders since the last
     // hourly pass.
-    const { restaurants, processed, exhausted, budgetStopped, results, mismatches, bareRepairs } =
+    const { restaurants, processed, exhausted, budgetStopped, rowsRead, results, mismatches, bareRepairs } =
       await syncAllRestaurantOrders({
         withItems: true, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true,
         // Persist the cursor AS THE RUN PROGRESSES, not only at the end. The
@@ -125,7 +125,11 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // otherwise pin the rotation forever — the same failure in a smaller
     // window. Stepping past it costs that restaurant one rotation; the next
     // pass picks it up with its backlog already partly drained.
-    await writeCursor(exhausted ? 0 : offset + Math.max(1, processed))
+    // Advance by ROWS READ when the batch finished, so the six slug-reference
+    // rows isUuid drops are stepped over rather than re-read every run; fall
+    // back to `processed` when a budget stop cut the batch short.
+    const advanceBy = budgetStopped ? Math.max(1, processed) : Math.max(1, rowsRead)
+    await writeCursor(exhausted ? 0 : offset + advanceBy)
 
     // Global, not scoped to this run's restaurant batch — cheap enough to run
     // every hour regardless. Best-effort: a failure here must never fail the
@@ -140,7 +144,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
+    console.log(`[cron/sync-fm-orders] offset=${offset} rowsRead=${rowsRead} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
     return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, orphansDeleted, duration_ms })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
