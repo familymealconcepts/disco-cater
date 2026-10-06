@@ -12,6 +12,7 @@
 // untouched.
 
 import { layout, button } from './layout'
+import { INVITE_TOKEN_TTL_DAYS } from '../disco-restaurant-auth'
 import { fulfillmentTag } from '../order/fulfillment-label'
 import { sendEmail, type SendResult } from './send'
 import { isThirdPartyFulfillment, isDeliveryFulfillment, customerFulfillmentLabel } from '../order/fulfillment-label'
@@ -671,7 +672,7 @@ export async function sendTeamMemberInvite(params: {
 <p>Hello,</p>
 <p>You've been invited to Disco Cater. Click below to set your password, then sign in to manage your locations.</p>
 ${button('Set your password', params.inviteUrl)}
-<p style="color:#888;font-size:13px;">This link expires in 14 days. If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
+<p style="color:#888;font-size:13px;">This link expires in ${INVITE_TOKEN_TTL_DAYS} days. If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
 <p>Thanks,<br/>The Disco Cater Team</p>
 `
     return await sendEmail({

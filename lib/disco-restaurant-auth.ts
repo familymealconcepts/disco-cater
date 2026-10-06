@@ -61,12 +61,19 @@ export interface InviteAccount {
 // columns with a deliberate 1-hour window; the two are separate functions
 // precisely so they can diverge, and a password reset must never inherit this.
 // Returns the raw token to embed in the invite link.
+// ONE DEFINITION, because the email copy drifted off it. The window went 72h →
+// 14d → 30d, and lib/email/notifications.ts's invite body was still telling
+// recipients "This link expires in 14 days" after the last bump — understating
+// a live token by 16 days. The template now renders this constant, so the next
+// change to the window carries the copy with it.
+export const INVITE_TOKEN_TTL_DAYS = 30
+
 export async function setInviteToken(email: string): Promise<string> {
   const token = randomBytes(32).toString('hex')
   await sql`
     UPDATE disco_restaurant_accounts
     SET invite_token = ${token},
-        invite_token_expires_at = NOW() + INTERVAL '30 days',
+        invite_token_expires_at = NOW() + (${INVITE_TOKEN_TTL_DAYS} * INTERVAL '1 day'),
         updated_at = NOW()
     WHERE email = ${email}
   `
