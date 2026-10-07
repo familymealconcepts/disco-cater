@@ -49,19 +49,32 @@ export const HOUR_OPTIONS: { value: string; label: string }[] =
 // system will discard is an interface that lies, so it stops being offered.
 // An existing off-grid value is still shown (rounded down, with a note in the
 // form) rather than silently blanked.
-export function TimeSelect({ value, onChange, style, hourOnly }: {
+export function TimeSelect({ value, onChange, style, hourOnly, allowNone, noneLabel }: {
   value: string
   onChange: (v: string) => void
   style?: React.CSSProperties
   hourOnly?: boolean
+  allowNone?: boolean
+  noneLabel?: string
 }) {
   const v = normalizeTime(value)
   const BASE = hourOnly ? HOUR_OPTIONS : TIME_OPTIONS
-  const opts = !v || BASE.some(o => o.value === v)
+  const grid = !v || BASE.some(o => o.value === v)
     ? BASE
     // An off-grid legacy value keeps its slot, but is LABELLED in 12-hour form
     // like every other option rather than shown raw as "11:20".
     : [{ value: v, label: formatTime12(v) }, ...BASE]
+  // OPT-IN ONLY. Without it the empty value matches no option, and a browser
+  // renders such a <select> showing its FIRST option — "12:00 AM" — while the
+  // bound state is still "". So an unset daily cutoff READ as a midnight
+  // deadline on screen, for all 1,124 menus that have none. The two are not the
+  // same thing: "" is no cutoff at all, while "00:00" is a real cutoff that
+  // closes same-day ordering from 00:01 onward (lib/scheduling/cutoffs.ts).
+  //
+  // Every other caller — menu windows, skipped days, report and order times —
+  // requires a time, so an empty option there would offer a value their callers
+  // cannot act on. They keep the old list untouched.
+  const opts = allowNone ? [{ value: '', label: noneLabel ?? 'None' }, ...grid] : grid
   return (
     <select value={v} onChange={e => onChange(e.target.value)} style={style}>
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
