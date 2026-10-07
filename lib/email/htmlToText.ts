@@ -36,7 +36,16 @@ export function htmlToText(html: string): string {
     // carry simple markup (e.g. <strong>), so it's tag-stripped separately, not assumed plain.
     .replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
       const label = inner.replace(/<[^>]+>/g, '').trim()
-      return label ? `${label} (${href})` : href
+      if (!label) return href
+      // When the visible label IS the same URL, "label (url)" prints it twice —
+      // "discocater.com (https://www.discocater.com/)". Collapse to the bare URL
+      // so the plain-text part reads as one readable address. Compared with
+      // scheme, leading www. and any trailing slash removed, so this fires only
+      // on a label that genuinely is the link and never on real link text like
+      // "Pay invoice" or "Set your password".
+      const bare = (u: string) => u.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').toLowerCase()
+      if (bare(label) === bare(href)) return href
+      return `${label} (${href})`
     })
     // Table cells: a tab-ish gap between columns, not a newline -- a line item's name and its
     // price belong on the same line.

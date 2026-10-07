@@ -128,14 +128,19 @@ async function main() {
   }
 
   // ONE address, through the real send path. Not paced — there is nothing to
-  // pace against — and deliberately NOT written to the send log, so it cannot
-  // consume a real recipient's slot.
+  // pace against — and logged under a key that is UNIQUE PER RUN.
+  //
+  // Unique because claim() is the campaign's duplicate guard: a fixed test key
+  // means the second test of the day returns "skipped-already-sent" and silently
+  // sends nothing, which is exactly what happened on the first copy revision.
+  // The real campaign key is never touched, so a test can never consume a real
+  // recipient's slot.
   const testTo = val('--test')
   if (testTo) {
     const sample = recipients.find(r => r.greetingName !== 'there')
     const out = await runCampaign(
       [{ email: testTo, restaurantName: '', greetingName: sample?.greetingName ?? 'there' }],
-      { profile: DINER_PROFILE, campaign: `${DINER_CAMPAIGN}-test`, pace: false },
+      { profile: DINER_PROFILE, campaign: `${DINER_CAMPAIGN}-test-${Date.now()}`, pace: false },
     )
     console.log(JSON.stringify(out, null, 2))
     return

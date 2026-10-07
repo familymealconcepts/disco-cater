@@ -89,11 +89,12 @@ export const DINER_REPLY_TO = 'concierge@discocater.com'
 
 export function renderDinerCampaignHtml(greetingName: string): string {
   const body = `<p>Hi ${greetingName},</p>
-<p>If you've ordered catering with us before, you may have noticed a new name: FamilyMeal is now Disco Cater.</p>
+<p>If you've ordered catering through one of our restaurant partners before, you may have noticed a new name: FamilyMeal is now Disco Cater.</p>
 <p>Nothing else changed. Your login is the same &mdash; same username, same password. Your past orders, saved addresses and payment details all carried over.</p>
 <p>Same restaurants, same ordering, same team behind it.</p>
-<p>Next time you're planning something, come find us at <a href="https://www.discocater.com">discocater.com</a>.</p>
-<p>Thanks for ordering with us,<br/>The Disco Cater Team</p>`
+<p>Next time you're planning something, come find us at <a href="https://www.discocater.com/">discocater.com</a>.</p>
+<p>Thanks for ordering with us,</p>
+<p>The Disco Cater Team</p>`
   return layout(body, { showFooter: false })
 }
 
