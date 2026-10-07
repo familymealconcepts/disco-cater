@@ -165,15 +165,30 @@ export function isOrderingClosed(now: Date, cfg: CutoffConfig): boolean {
 }
 
 /**
- * A slot is bookable iff ordering isn't closed, the slot is at/after the
- * earliest pickup, and (when a hard cutoff exists) at/before it. The hard
- * cutoff therefore acts as an upper bound on pickup datetimes, which is what
- * makes "hard cutoff before the earliest valid slot → nothing bookable" work.
+ * A slot is bookable iff ordering isn't closed and the slot is at/after the
+ * earliest pickup.
+ *
+ * ── THE HARD CUTOFF BOUNDS WHEN YOU MAY ORDER, NOT WHEN YOU MAY COLLECT ────
+ * This used to carry a third test — `slot > cfg.hardCutoff → false` — which
+ * treated the cutoff as an upper bound on the PICKUP datetime. That is the
+ * opposite of what the field means. The portal labels it "Ordering closes
+ * after this date", and parseHardCutoff resolves a date-only value to
+ * 23:59:59 precisely so the whole of that day is still orderable — both read
+ * it as a deadline for placing the order.
+ *
+ * Read as a pickup bound it makes a pre-order menu impossible, which is the
+ * entire point of a seasonal menu: Black Bear BBQ's Thanksgiving Menu is
+ * "order by 11/21, collect 11/24-11/25", and every slot on both collection
+ * days was disabled because they fall after the ordering deadline. The menu
+ * showed "Ordering for this menu has closed" on 2026-10-07, six weeks early.
+ *
+ * isOrderingClosed on the line above is the correct and sufficient enforcement:
+ * once now is past the cutoff, nothing is bookable. The removed line could only
+ * ever reject slots the restaurant had deliberately scheduled.
  */
 export function isSlotEnabled(now: Date, cfg: CutoffConfig, slot: Date): boolean {
   if (isOrderingClosed(now, cfg)) return false
   if (slot.getTime() < earliestPickup(now, cfg).getTime()) return false
-  if (cfg.hardCutoff && slot.getTime() > cfg.hardCutoff.getTime()) return false
   return true
 }
 
@@ -588,11 +603,19 @@ export function runSelfTests(): void {
   isFalse('6 not closed', isOrderingClosed(wed3pm, { leadTimeMinutes: 1440, hardCutoff: farHard }))
   isTrue('6 slot', isSlotEnabled(wed3pm, { leadTimeMinutes: 1440, hardCutoff: farHard }, new Date(2026, 5, 4, 16, 0)))
 
-  // 7. Hard cutoff in the future but BEFORE the earliest valid slot → nothing bookable
+  // 7. PRE-ORDER: hard cutoff in the future but BEFORE the pickup date.
+  // This asserted the opposite until 2026-10-07 — it required the slot to be
+  // bookable=false, which is what made every seasonal pre-order menu close
+  // itself weeks early. Ordering is open (the deadline has not passed) and the
+  // slot the restaurant scheduled beyond it is bookable, which is what
+  // "order by the 21st, collect on the 24th" means.
   const earliest = earliestPickup(wed3pm, { leadTimeMinutes: 1440 }) // Thu 3pm
   const hardBeforeEarliest = new Date(earliest.getTime() - 60 * MIN) // Thu 2pm (future vs now, before earliest)
   isFalse('7 not closed', isOrderingClosed(wed3pm, { leadTimeMinutes: 1440, hardCutoff: hardBeforeEarliest }))
-  isFalse('7 slot', isSlotEnabled(wed3pm, { leadTimeMinutes: 1440, hardCutoff: hardBeforeEarliest }, earliest))
+  isTrue('7 slot bookable beyond the ordering deadline', isSlotEnabled(wed3pm, { leadTimeMinutes: 1440, hardCutoff: hardBeforeEarliest }, earliest))
+  // …and once the deadline itself passes, everything closes.
+  const deadlinePassed = new Date(wed3pm.getTime() - 1 * MIN)
+  isFalse('7 closed after the deadline', isSlotEnabled(wed3pm, { leadTimeMinutes: 1440, hardCutoff: deadlinePassed }, earliest))
 
   // 8. A window where from === to is a single seating, not zero-width — one slot, not none.
   const farPast = new Date(2026, 4, 1)
