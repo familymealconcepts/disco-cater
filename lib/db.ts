@@ -88,6 +88,18 @@ export async function runMigrations(): Promise<void> {
     // re-processed the same first 150 restaurants forever — ~520 qualifying
     // restaurants were never synced at all. Dedicated table, integer offset.
     `CREATE TABLE IF NOT EXISTS fm_sanity_sync_cursor (key TEXT PRIMARY KEY, offset_value INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+    // Which restaurants reconcile-stripe-links has ALREADY reported as needing
+    // the restaurant to reconnect Stripe. One row per restaurant, so the job can
+    // alert when one ENTERS the set and when one LEAVES it, and stay quiet about
+    // the ones it has already named — the alternative was the same 26 names every
+    // night, which is how an alert gets filtered to a folder.
+    //
+    // ITS OWN TABLE, NOT sync_state, DELIBERATELY. sync_state has silently
+    // stalled two crons (see CLAUDE.md), and a stalled state row HERE would be
+    // worse than a stalled cursor: it would suppress every alert forever,
+    // including the one that matters. Keeping it separate also means a failure
+    // reading it is attributable to this job rather than shared with others.
+    `CREATE TABLE IF NOT EXISTS disco_stripe_link_reported (restaurant_reference TEXT PRIMARY KEY, reason TEXT NOT NULL, first_reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     // Disco-owned per-restaurant overrides layered on top of the FM restaurant
     // record: Premium (isDisco) flag + an order-URL override, set in the super
     // admin edit dialog and read by the public /api/restaurants (fullmap).
