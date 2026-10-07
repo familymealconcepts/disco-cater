@@ -70,6 +70,55 @@ export const CAMPAIGN_SUBJECT = 'FamilyMeal is becoming Disco Cater'
 // failure above. It matches the one contact address the body copy shows.
 export const CAMPAIGN_REPLY_TO = 'kealoha@discocater.com'
 
+// ── THE DINER ANNOUNCEMENT (diner-announce-oct) ────────────────────────────
+// A SECOND campaign, with its own From, Subject, Reply-To and body. These are
+// deliberately a separate profile rather than new defaults: the restaurant copy
+// says "same payouts" and "your customers won't see a change", which is
+// addressed to a partner and would be visibly wrong sent to a diner.
+//
+// Same domain and From as the August diner blast (mg.familymeal.com), because
+// that domain is warm and its DKIM/SPF/DMARC alignment is already proven —
+// see the block at the top of this file for why a @discocater.com From over
+// this signing domain fails DMARC and lands in spam.
+//
+// Reply-To is NEW. The August blast set none, so every reply went to
+// noreply@. 3,026 sends with nowhere to reply is the gap this closes.
+export const DINER_CAMPAIGN = 'diner-announce-oct'
+export const DINER_SUBJECT = 'FamilyMeal is now Disco Cater'
+export const DINER_REPLY_TO = 'concierge@discocater.com'
+
+export function renderDinerCampaignHtml(greetingName: string): string {
+  const body = `<p>Hi ${greetingName},</p>
+<p>If you've ordered catering with us before, you may have noticed a new name: FamilyMeal is now Disco Cater.</p>
+<p>Nothing else changed. Your login is the same &mdash; same username, same password. Your past orders, saved addresses and payment details all carried over.</p>
+<p>Same restaurants, same ordering, same team behind it.</p>
+<p>Next time you're planning something, come find us at <a href="https://www.discocater.com">discocater.com</a>.</p>
+<p>Thanks for ordering with us,<br/>The Disco Cater Team</p>`
+  return layout(body, { showFooter: false })
+}
+
+/** Everything that differs between campaigns, so runCampaign carries no
+ *  per-campaign copy of its own and a new campaign cannot silently inherit
+ *  another's body. */
+export interface CampaignProfile {
+  campaign: string
+  subject: string
+  from: string
+  domain: string
+  replyTo: string
+  render: (greetingName: string) => string
+}
+
+export const REBRAND_PROFILE: CampaignProfile = {
+  campaign: REBRAND_CAMPAIGN, subject: CAMPAIGN_SUBJECT, from: CAMPAIGN_FROM,
+  domain: CAMPAIGN_DOMAIN, replyTo: CAMPAIGN_REPLY_TO, render: renderCampaignHtml,
+}
+
+export const DINER_PROFILE: CampaignProfile = {
+  campaign: DINER_CAMPAIGN, subject: DINER_SUBJECT, from: CAMPAIGN_FROM,
+  domain: CAMPAIGN_DOMAIN, replyTo: DINER_REPLY_TO, render: renderDinerCampaignHtml,
+}
+
 // Floor, not a target. 30s is the minimum; the jitter only ever adds.
 const MIN_GAP_MS = 30_000
 const JITTER_MS = 15_000
@@ -176,9 +225,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  */
 export async function runCampaign(
   recipients: CampaignRecipient[],
-  opts?: { campaign?: string; pace?: boolean; onProgress?: (o: SendOutcome) => void },
+  opts?: { campaign?: string; pace?: boolean; profile?: CampaignProfile; onProgress?: (o: SendOutcome) => void },
 ): Promise<SendOutcome[]> {
-  const campaign = opts?.campaign ?? REBRAND_CAMPAIGN
+  const profile = opts?.profile ?? REBRAND_PROFILE
+  const campaign = opts?.campaign ?? profile.campaign
   const pace = opts?.pace !== false
   await runMigrations()
 
@@ -200,16 +250,16 @@ export async function runCampaign(
       continue
     }
 
-    const html = renderCampaignHtml(r.greetingName)
+    const html = profile.render(r.greetingName)
     // text is intentionally NOT passed — sendEmail derives it via htmlToText so
     // the plain part cannot drift from the HTML.
     const res = await sendEmail({
       to: r.email,
-      subject: CAMPAIGN_SUBJECT,
+      subject: profile.subject,
       html,
-      from: CAMPAIGN_FROM,
-      replyTo: CAMPAIGN_REPLY_TO,
-      domain: CAMPAIGN_DOMAIN,
+      from: profile.from,
+      replyTo: profile.replyTo,
+      domain: profile.domain,
       skipStandingBcc: true,
     })
 
