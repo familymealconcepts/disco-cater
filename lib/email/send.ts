@@ -48,6 +48,18 @@ export interface SendEmailParams {
    *  copy by accident. Does NOT affect params.bcc, which a caller sets
    *  explicitly and presumably means. */
   skipStandingBcc?: boolean
+  /** Mailgun `o:tag` values for THIS send.
+   *
+   *  Tags are how a bulk campaign is aggregated downstream: mg.familymeal.com's
+   *  delivered / complained / unsubscribed / temporary_fail / permanent_fail
+   *  webhooks all post to dashboard.discocater.com/api/webhooks/mailgun, which
+   *  writes noise-machine's `mailgun_events.tag`, and the Campaigns card groups
+   *  on that column. An untagged blast still delivers — it just lands in the
+   *  "(untagged)" bucket and cannot be told apart from any other send.
+   *
+   *  Mailgun caps a message at 3 tags and rejects an over-long one, so callers
+   *  should pass a single short kebab-case tag. Transactional mail passes none. */
+  tags?: string[]
 }
 
 export interface SendResult {
@@ -235,6 +247,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     form.append('html', params.html)
     form.append('text', text)
     if (replyTo) form.append('h:Reply-To', replyTo)
+    for (const t of params.tags || []) form.append('o:tag', t)
     // See "THE `Sender:` HEADER" above. Null for an already-aligned From (the
     // campaign path), in which case the parameter is not sent at all.
     const senderHeader = senderHeaderFor(from, domain)

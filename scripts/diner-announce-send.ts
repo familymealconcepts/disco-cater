@@ -8,6 +8,8 @@
  *
  *   npx tsx scripts/diner-announce-send.ts --status
  *   npx tsx scripts/diner-announce-send.ts --test peter@discocater.com
+ *   npx tsx scripts/diner-announce-send.ts --only /tmp/diner-canary.txt --dry-run
+ *   npx tsx scripts/diner-announce-send.ts --only /tmp/diner-canary.txt
  *   npx tsx scripts/diner-announce-send.ts --canary 50 --dry-run
  *   npx tsx scripts/diner-announce-send.ts --canary 50
  *   npx tsx scripts/diner-announce-send.ts --count 500
@@ -28,6 +30,8 @@ import {
   runCampaign, isCampaignHalted, DINER_PROFILE, DINER_CAMPAIGN,
   type CampaignRecipient, type SendOutcome,
 } from '../lib/marketing/campaign-send'
+import { CampaignHealth } from '../lib/marketing/campaign-health'
+import { inSendWindow } from '../lib/marketing/send-window'
 import { dinerGreeting } from '../lib/marketing/diner-greeting'
 import { sql, runMigrations } from '../lib/db'
 
@@ -66,8 +70,14 @@ function deliverable(email: string): boolean {
  * caller rather than guessed at.
  */
 async function buildRecipients(excluded: Set<string>): Promise<CampaignRecipient[]> {
+  // OLDEST REGISTRATION FIRST. The de-dup picks each address's EARLIEST
+  // fm_customers row (created_at ASC inside DISTINCT ON), so someone who
+  // registered in 2021 and again in 2025 is placed by their first registration
+  // rather than their most recent — otherwise a duplicate row would silently
+  // move a long-standing diner to the back of a ten-day queue.
   const rows = (await sql`
-    SELECT DISTINCT ON (lower(f.email)) lower(f.email) AS email, f.first_name
+    SELECT d.email, d.first_name FROM (
+    SELECT DISTINCT ON (lower(f.email)) lower(f.email) AS email, f.first_name, f.created_at
     FROM fm_customers f
     WHERE f.email IS NOT NULL AND f.email <> ''
       -- never a restaurant or system admin, even if they have also ordered as a
@@ -83,7 +93,9 @@ async function buildRecipients(excluded: Set<string>): Promise<CampaignRecipient
       AND f.email NOT ILIKE 'test%'
       AND f.email NOT ILIKE '%@example.%'
       AND f.email NOT ILIKE '%@test.%'
-    ORDER BY lower(f.email), f.id
+    ORDER BY lower(f.email), f.created_at ASC, f.id
+    ) d
+    ORDER BY d.created_at ASC, d.email
   `) as { email: string; first_name: string | null }[]
 
   return rows
@@ -146,12 +158,37 @@ async function main() {
     return
   }
 
+  const only = val('--only')
   const canary = val('--canary')
   const count = val('--count')
   const take = canary ? Number(canary) : count ? Number(count) : 0
-  if (!take) { console.error('Specify --status, --test <email>, --canary <n> or --count <n>.'); process.exit(1) }
+  if (!only && !take) { console.error('Specify --status, --test <email>, --only <file>, --canary <n> or --count <n>.'); process.exit(1) }
 
-  const batch = recipients.slice(0, take)
+  // A CURATED batch, for a canary picked by hand rather than by list order.
+  //
+  // It NARROWS the eligible list and can never widen it: every address is
+  // looked up in `recipients`, so the opt-out, restaurant-admin, disabled,
+  // already-sent, internal/test and undeliverable-domain exclusions all still
+  // apply. An address in the file that is not eligible is REPORTED and skipped
+  // rather than sent — the file is a selection, not an override, and a curated
+  // list is exactly where an override would do the most damage.
+  let batch: CampaignRecipient[]
+  if (only) {
+    const { readFileSync } = await import('fs')
+    const wanted = readFileSync(only, 'utf8').split('\n').map(s => s.trim().toLowerCase()).filter(Boolean)
+    const byEmail = new Map(recipients.map(r => [r.email, r]))
+    const missing: string[] = []
+    batch = []
+    for (const w of wanted) {
+      const hit = byEmail.get(w)
+      if (hit) batch.push(hit)
+      else missing.push(w)
+    }
+    console.log(`curated list ${only}: ${wanted.length} requested, ${batch.length} eligible, ${missing.length} skipped`)
+    for (const m of missing) console.log(`   skipped (not in the eligible set): ${m}`)
+  } else {
+    batch = recipients.slice(0, take)
+  }
   console.log(`${has('--dry-run') ? 'DRY RUN' : 'SENDING'}: ${batch.length}`)
   if (has('--dry-run')) {
     for (const r of batch) console.log(`   ${r.email.padEnd(42)} Hi ${r.greetingName},`)
@@ -159,13 +196,37 @@ async function main() {
   }
 
   const started = Date.now()
-  await runCampaign(batch, {
+
+  // The automatic halts. Measured against THIS run's events only, via the
+  // profile's o:tag, so yesterday's numbers cannot mask today's problem.
+  const key = process.env.MAILGUN_API_KEY
+  if (!key) { console.error('MAILGUN_API_KEY is not set — refusing to run without the health checks.'); process.exit(1) }
+  const health = new CampaignHealth(
+    DINER_PROFILE.tag!, DINER_PROFILE.domain, Math.floor(started / 1000),
+  )
+
+  console.log(`send window is currently ${inSendWindow(new Date()) ? 'OPEN' : 'CLOSED (the run will wait)'}`)
+
+  const out = await runCampaign(batch, {
     profile: DINER_PROFILE,
+    window: true,
+    health,
+    healthEvery: 20,
+    mailgunKey: key,
     onProgress: (o: SendOutcome) => {
       const n = Math.round((Date.now() - started) / 1000)
-      console.log(`[${n}s] ${o.status.padEnd(20)} ${o.email}`)
+      const extra = o.status === 'auto-halted' ? ` :: ${(o as { reason: string }).reason}` : ''
+      console.log(`[${n}s] ${o.status.padEnd(20)} ${o.email}${extra}`)
     },
   })
+
+  const sent = out.filter(o => o.status === 'sent').length
+  const failed = out.filter(o => o.status === 'failed').length
+  const halted = out.find(o => o.status === 'auto-halted') as { reason: string } | undefined
+  console.log(`\n--- run summary ---`)
+  console.log(`sent: ${sent}  failed: ${failed}  elapsed: ${Math.round((Date.now() - started) / 60000)} min`)
+  console.log(`health: ${JSON.stringify(health.snapshot())}`)
+  if (halted) console.log(`AUTO-HALTED: ${halted.reason}`)
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1) })

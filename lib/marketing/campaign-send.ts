@@ -1,6 +1,9 @@
 import { sql, runMigrations } from '../db'
 import { sendEmail } from '../email/send'
 import { layout } from '../email/layout'
+import { inSendWindow, msUntilWindowOpen, describeWindow } from './send-window'
+import { CampaignHealth } from './campaign-health'
+import { alertOps } from '../ops-alert'
 
 // The ONE code path every rebrand-announcement email goes through, draft or
 // real. A draft that bypasses this proves nothing about the real send, so the
@@ -108,6 +111,9 @@ export interface CampaignProfile {
   domain: string
   replyTo: string
   render: (greetingName: string) => string
+  /** Mailgun o:tag for aggregation downstream. Optional so the rebrand profile,
+   *  which was already sent untagged, keeps its historical behaviour. */
+  tag?: string
 }
 
 export const REBRAND_PROFILE: CampaignProfile = {
@@ -118,6 +124,12 @@ export const REBRAND_PROFILE: CampaignProfile = {
 export const DINER_PROFILE: CampaignProfile = {
   campaign: DINER_CAMPAIGN, subject: DINER_SUBJECT, from: CAMPAIGN_FROM,
   domain: CAMPAIGN_DOMAIN, replyTo: DINER_REPLY_TO, render: renderDinerCampaignHtml,
+  // <audience>-<purpose>-<YYYYMMDD>, the convention already in noise-machine's
+  // mailgun_events (diner-unsub-test-20260805, restaurant-pipeline-test-20260713).
+  // mg.familymeal.com's delivered/complained/unsubscribed/temporary_fail/
+  // permanent_fail webhooks all post to dashboard.discocater.com, so this tag is
+  // what makes the campaign a row in the Campaigns card instead of "(untagged)".
+  tag: 'diner-announce-20261007',
 }
 
 // Floor, not a target. 30s is the minimum; the jitter only ever adds.
@@ -134,6 +146,7 @@ export type SendOutcome =
   | { email: string; status: 'sent'; messageId: string | null }
   | { email: string; status: 'skipped-already-sent' }
   | { email: string; status: 'halted' }
+  | { email: string; status: 'auto-halted'; reason: string }
   | { email: string; status: 'failed'; error: string }
 
 // APPROVED COPY. The only substitution is the greeting. Do not reword: this
@@ -226,16 +239,56 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  */
 export async function runCampaign(
   recipients: CampaignRecipient[],
-  opts?: { campaign?: string; pace?: boolean; profile?: CampaignProfile; onProgress?: (o: SendOutcome) => void },
+  opts?: {
+    campaign?: string; pace?: boolean; profile?: CampaignProfile
+    onProgress?: (o: SendOutcome) => void
+    /** Confine sending to the 8:45am-11:00pm ET window, pausing in between. */
+    window?: boolean
+    /** Stop the run automatically on a deliverability problem. */
+    health?: CampaignHealth
+    /** How often, in messages, to re-poll Mailgun for the health checks. */
+    healthEvery?: number
+    mailgunKey?: string
+  },
 ): Promise<SendOutcome[]> {
   const profile = opts?.profile ?? REBRAND_PROFILE
   const campaign = opts?.campaign ?? profile.campaign
   const pace = opts?.pace !== false
+  const health = opts?.health
+  const healthEvery = opts?.healthEvery ?? 20
   await runMigrations()
 
   const results: SendOutcome[] = []
+  let sentThisRun = 0
+
+  // Stop sending AND trip the kill flag, so neither this process nor a later
+  // one resumes without a person clearing it.
+  async function autoHalt(email: string, reason: string): Promise<SendOutcome> {
+    await haltCampaign('auto-halt', reason, campaign)
+    await alertOps(`CAMPAIGN AUTO-HALT (${campaign}): ${reason}` +
+      (health ? ` | ${JSON.stringify(health.snapshot())}` : ''))
+    const out: SendOutcome = { email, status: 'auto-halted', reason }
+    results.push(out); opts?.onProgress?.(out)
+    return out
+  }
+
   for (let i = 0; i < recipients.length; i++) {
     const r = recipients[i]
+
+    // THE WINDOW GATE SITS BEFORE THE CLAIM, deliberately. Claiming and then
+    // waiting hours would leave a row marked 'claimed' for a message not yet
+    // sent, and a crash during the pause would make a re-run skip it — the one
+    // way this loop could silently LOSE a recipient rather than merely repeat
+    // work. Nothing is claimed until sending is actually about to happen.
+    if (opts?.window) {
+      while (!inSendWindow(new Date())) {
+        const waitMs = msUntilWindowOpen(new Date())
+        console.log(`[campaign] outside the send window at ${describeWindow(new Date())} ET — pausing ${Math.round(waitMs / 60000)} min`)
+        // Jittered, and capped per iteration so a long pause re-checks the clock
+        // rather than trusting one computation made before a DST shift.
+        await sleep(Math.min(waitMs, 5 * 60_000) + Math.floor(Math.random() * 30_000))
+      }
+    }
 
     // Re-read before every send, so a halt takes effect on the next message
     // rather than the next run.
@@ -243,6 +296,18 @@ export async function runCampaign(
       const out: SendOutcome = { email: r.email, status: 'halted' }
       results.push(out); opts?.onProgress?.(out)
       break
+    }
+
+    // Deliverability checks run BETWEEN MESSAGES, not at the end of the day.
+    // Polled on a cadence because each poll is a paged API read; the counters
+    // that need no network (consecutive failures, auth errors) are evaluated
+    // every single time regardless.
+    if (health) {
+      if (sentThisRun > 0 && sentThisRun % healthEvery === 0 && opts?.mailgunKey) {
+        await health.poll(opts.mailgunKey)
+      }
+      const verdict = health.evaluate()
+      if (verdict.halt) { await autoHalt(r.email, verdict.reason ?? 'unspecified'); break }
     }
 
     if (!(await claim(r, campaign))) {
@@ -262,9 +327,13 @@ export async function runCampaign(
       replyTo: profile.replyTo,
       domain: profile.domain,
       skipStandingBcc: true,
+      tags: profile.tag ? [profile.tag] : undefined,
     })
 
+    health?.recordSend(res.success, res.error ?? null)
+
     if (res.success) {
+      sentThisRun++
       await recordResult(r.email, campaign, 'sent', res.id ?? null, null)
       const out: SendOutcome = { email: r.email, status: 'sent', messageId: res.id ?? null }
       results.push(out); opts?.onProgress?.(out)
@@ -272,6 +341,14 @@ export async function runCampaign(
       await recordResult(r.email, campaign, 'failed', null, res.error ?? 'unknown')
       const out: SendOutcome = { email: r.email, status: 'failed', error: res.error ?? 'unknown' }
       results.push(out); opts?.onProgress?.(out)
+    }
+
+    // An auth error or a failure streak must stop the run on the spot rather
+    // than waiting for the next polling interval — both mean every further
+    // message is wasted, and one of them means we are not authenticated at all.
+    if (health) {
+      const verdict = health.evaluate()
+      if (verdict.halt) { await autoHalt(r.email, verdict.reason ?? 'unspecified'); break }
     }
 
     if (pace && i < recipients.length - 1) {
