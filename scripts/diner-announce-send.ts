@@ -201,8 +201,13 @@ async function main() {
   // profile's o:tag, so yesterday's numbers cannot mask today's problem.
   const key = process.env.MAILGUN_API_KEY
   if (!key) { console.error('MAILGUN_API_KEY is not set — refusing to run without the health checks.'); process.exit(1) }
+  // LOOK BACK 24 HOURS, not to this process's start. The bounce rule measures
+  // the last 200 sends, and a run that began its own window at zero would need
+  // 100 fresh sends before the rule could fire again — so every restart would
+  // disarm the protection for the first 100 messages. At ~1,300 a day, 24 hours
+  // comfortably covers 200 sends while bounding what the poll has to page.
   const health = new CampaignHealth(
-    DINER_PROFILE.tag!, DINER_PROFILE.domain, Math.floor(started / 1000),
+    DINER_PROFILE.tag!, DINER_PROFILE.domain, Math.floor(started / 1000) - 24 * 3600,
   )
 
   console.log(`send window is currently ${inSendWindow(new Date()) ? 'OPEN' : 'CLOSED (the run will wait)'}`)

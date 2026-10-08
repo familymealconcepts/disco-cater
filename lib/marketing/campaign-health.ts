@@ -16,6 +16,14 @@
 export interface HealthThresholds {
   maxHardBouncePct: number      // once minSendsForBounce have gone out
   minSendsForBounce: number
+  /** Hard bounces are measured over the LAST N sends, not cumulatively from the
+   *  run start. Recipients go oldest-registration-first, which deliberately
+   *  front-loads the staleest addresses: day one measured 5.00% on 100 sends,
+   *  all dead 2021-era domains and mailboxes, against 96% delivery and zero
+   *  complaints. Cumulatively that cohort stays in the denominator forever and
+   *  can trip a halt days later on a known artifact rather than a live problem.
+   *  Rolling keeps the rule measuring what is happening NOW. */
+  bounceWindowSize: number
   maxConsecutiveFailures: number
   minDeliveryPct: number        // once minMaturedForDelivery have matured
   minMaturedForDelivery: number
@@ -27,6 +35,7 @@ export interface HealthThresholds {
 export const DEFAULT_THRESHOLDS: HealthThresholds = {
   maxHardBouncePct: 5,
   minSendsForBounce: 100,
+  bounceWindowSize: 200,
   maxConsecutiveFailures: 5,
   minDeliveryPct: 90,
   minMaturedForDelivery: 200,
@@ -40,8 +49,13 @@ export interface HealthSnapshot {
   hardBounces: number
   complaints: number
   consecutiveFailures: number
+  /** Cumulative, for REPORTING only — the halt rule reads the rolling figures. */
   hardBouncePct: number | null
   deliveryPct: number | null
+  /** How many sends the rolling bounce window actually covers (<= bounceWindowSize). */
+  rollingWindow: number
+  rollingHardBounces: number
+  rollingBouncePct: number | null
 }
 
 export interface HaltDecision { halt: boolean; reason?: string }
@@ -52,6 +66,7 @@ export class CampaignHealth {
   private snap: HealthSnapshot = {
     accepted: 0, acceptedMatured: 0, delivered: 0, hardBounces: 0,
     complaints: 0, consecutiveFailures: 0, hardBouncePct: null, deliveryPct: null,
+    rollingWindow: 0, rollingHardBounces: 0, rollingBouncePct: null,
   }
 
   constructor(
@@ -82,6 +97,11 @@ export class CampaignHealth {
       `https://api.mailgun.net/v3/${this.domain}/events?begin=${this.sinceSec}&ascending=yes&limit=300&tags=${encodeURIComponent(this.tag)}`
     let accepted = 0, acceptedMatured = 0, delivered = 0, hardBounces = 0, complaints = 0
     const cutoff = (Date.now() - this.thresholds.maturityMs) / 1000
+    // Accepted recipients IN SEND ORDER, and the set that hard-bounced, so the
+    // rolling window can be taken off the tail. Events are requested
+    // ascending=yes, so push order IS send order.
+    const acceptedOrder: string[] = []
+    const bouncedSet = new Set<string>()
 
     while (page) {
       const res: Response = await fetch(page, { headers: { Authorization: auth } })
@@ -96,19 +116,29 @@ export class CampaignHealth {
       for (const e of items) {
         const ev = String(e.event)
         const ts = Number(e.timestamp)
-        if (ev === 'accepted') { accepted++; if (ts < cutoff) acceptedMatured++ }
+        const who = String(e.recipient ?? '').toLowerCase()
+        if (ev === 'accepted') { accepted++; acceptedOrder.push(who); if (ts < cutoff) acceptedMatured++ }
         else if (ev === 'delivered') delivered++
         else if (ev === 'complained') complaints++
-        else if (ev === 'failed' && String(e.severity) === 'permanent') hardBounces++
+        else if (ev === 'failed' && String(e.severity) === 'permanent') { hardBounces++; bouncedSet.add(who) }
       }
       page = j.paging?.next ?? null
     }
+
+    // THE ROLLING WINDOW: the last N accepted recipients, and how many of those
+    // bounced. Counted per RECIPIENT rather than per event so a retried address
+    // cannot be counted twice and inflate the rate.
+    const windowRecipients = acceptedOrder.slice(-this.thresholds.bounceWindowSize)
+    const rollingHardBounces = windowRecipients.filter(r => bouncedSet.has(r)).length
 
     this.snap = {
       accepted, acceptedMatured, delivered, hardBounces, complaints,
       consecutiveFailures: this.consecutiveFailures,
       hardBouncePct: accepted > 0 ? (hardBounces / accepted) * 100 : null,
       deliveryPct: acceptedMatured > 0 ? (delivered / acceptedMatured) * 100 : null,
+      rollingWindow: windowRecipients.length,
+      rollingHardBounces,
+      rollingBouncePct: windowRecipients.length > 0 ? (rollingHardBounces / windowRecipients.length) * 100 : null,
     }
   }
 
@@ -131,8 +161,14 @@ export class CampaignHealth {
       return { halt: true, reason: `${s.complaints} spam complaint(s) — any complaint halts the run` }
     }
 
-    if (s.accepted >= t.minSendsForBounce && s.hardBouncePct !== null && s.hardBouncePct > t.maxHardBouncePct) {
-      return { halt: true, reason: `hard bounces ${s.hardBouncePct.toFixed(2)}% of ${s.accepted} sent (limit ${t.maxHardBouncePct}%)` }
+    // ROLLING, not cumulative. The floor is unchanged: at least
+    // minSendsForBounce must sit inside the window before the rule can fire.
+    if (s.rollingWindow >= t.minSendsForBounce && s.rollingBouncePct !== null && s.rollingBouncePct > t.maxHardBouncePct) {
+      return {
+        halt: true,
+        reason: `hard bounces ${s.rollingBouncePct.toFixed(2)}% over the last ${s.rollingWindow} sends ` +
+                `(${s.rollingHardBounces} of ${s.rollingWindow}, limit ${t.maxHardBouncePct}%)`,
+      }
     }
 
     if (s.acceptedMatured >= t.minMaturedForDelivery && s.deliveryPct !== null && s.deliveryPct < t.minDeliveryPct) {
