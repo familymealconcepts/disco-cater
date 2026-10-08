@@ -5,8 +5,8 @@
 Disco Cater is a two-sided catering marketplace connecting corporate and event clients with hand-vetted premium restaurants. The platform serves enterprise clients including Amazon, Meta, IBM, J.P. Morgan, Coca-Cola, and the New York Giants. Average catering order value is $450.
 
 ## Key Differentiators
-- No commission fees for customers (3% convenience fee only)
-- Restaurant-friendly economics: 0% for direct orders, 5-15% for marketplace lead generation
+- Customers pay a 3% convenience fee
+- Restaurant fees: 0% on first-party orders; marketplace orders are 15% on a customer's first order and 5% on that customer's repeat orders; restaurants pay card processing (2.90% + $0.30)
 - Proprietary catering menus exclusive to the Disco Cater marketplace
 - Disco AI: an AI-powered catering assistant built on Claude (Anthropic) for personalized restaurant discovery
 - Recurring office catering subscription programs

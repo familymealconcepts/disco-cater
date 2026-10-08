@@ -47,7 +47,6 @@ export default function MealPrepPage() {
 
       <Section heading="Why Teams Choose Disco Cater for Meal Prep">
         <TagGrid items={[
-          'No commission fees',
           'Premium restaurants (not chains)',
           'Disco AI for menu variety recommendations',
           'Easy rescheduling and management',

@@ -13,7 +13,7 @@ const BLUE = '#586CE1'
 
 // Compact value props — emoji + title + description, no borders/shadows.
 const VALUE_PROPS: { emoji: string; title: string; desc: string }[] = [
-  { emoji: '🪩', title: 'Lower Commissions', desc: 'Keep more of what you earn. Our rates beat every major competitor.' },
+  { emoji: '🪩', title: 'Lower Repeat-Order Fees', desc: '5% on repeat customers, 0% on your own first-party orders.' },
   { emoji: '📦', title: 'Catering-Specific Tools', desc: 'Menus, scheduling, and delivery built for catering.' },
   { emoji: '🤖', title: 'AI-Powered Discovery', desc: 'Get found by corporate and social customers looking for catering.' },
 ]

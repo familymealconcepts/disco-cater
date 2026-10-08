@@ -17,8 +17,8 @@ type Row = {
 const rows: Row[] = [
   {
     feature: 'Commission fees',
-    disco: 'Zero commission to restaurants',
-    ez: 'Up to 15% per order — passed on to you',
+    disco: '15% flat on first orders, 5% repeat, 0% first-party, plus card processing',
+    ez: '15% and higher, plus payment processing',
     winner: 'disco',
   },
   {
@@ -86,8 +86,8 @@ const rows: Row[] = [
 const differentiators = [
   {
     icon: '🚫',
-    title: 'Zero commission. Full stop.',
-    body: 'ezCater charges restaurants up to 40% per order. That cost doesn\'t disappear — it gets buried in your menu prices. Disco Cater charges restaurants nothing, which means the restaurants that join us are here because they want to be, not because they have to pay to play. You get better quality and honest pricing.',
+    title: 'Lower fees on repeat business.',
+    body: 'On marketplace orders, ezCater charges restaurants a 15% commission plus a 2.99% payment transaction fee, higher with optional marketing programs. Disco Cater charges 15% on a customer\'s first order, 5% on that customer\'s repeat orders, and 0% on orders through a restaurant\'s own first-party link.',
   },
   {
     icon: '🎄',
@@ -140,7 +140,7 @@ export default function CompareClient() {
           </span>
         </h1>
         <p style={{ fontSize: 16, color: '#666', lineHeight: 1.7, fontFamily: "'DM Sans', sans-serif", maxWidth: 560, margin: '0 auto 32px' }}>
-          ezCater built a big marketplace. We built a better one — with no commission fees,
+          ezCater built a big marketplace. We built a better one — with lower fees on repeat orders,
           menus you can't get anywhere else, and AI that actually helps you decide.
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -171,7 +171,7 @@ export default function CompareClient() {
           {[
             { stat: '700+', label: 'Hand-vetted restaurants' },
             { stat: '40,000+', label: 'Customers served' },
-            { stat: '$0', label: 'Commission fees' },
+            { stat: '5%', label: 'Repeat-order rate' },
           ].map(({ stat, label }) => (
             <div key={label} style={{ background: '#fff', padding: '24px 20px', textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 700, backgroundImage: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontFamily: "'DM Sans', sans-serif" }}>
@@ -283,7 +283,7 @@ export default function CompareClient() {
             Ready to make the switch?
           </h2>
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', fontFamily: "'DM Sans', sans-serif", marginBottom: 28, lineHeight: 1.6 }}>
-            No commissions. No monthly fees. Menus built for the occasion.{' '}
+            No monthly fees. Menus built for the occasion.{' '}
             Powered by AI that actually helps.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>

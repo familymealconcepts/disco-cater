@@ -71,7 +71,7 @@ export default async function RestaurantsPage() {
           All Restaurants on Disco Cater
         </h1>
         <p style={{ fontSize: 14, color: '#666', lineHeight: 1.7, marginBottom: 8 }}>
-          Disco Cater is a nationwide premium restaurant catering marketplace with {restaurants.length}+ hand-vetted restaurants available for corporate catering, holiday events, social gatherings, and meal prep programs. Every restaurant below is available for catering orders. Disco Cater charges zero commission and zero monthly fees to restaurants.
+          Disco Cater is a nationwide premium restaurant catering marketplace with {restaurants.length}+ hand-vetted restaurants available for corporate catering, holiday events, social gatherings, and meal prep programs. Every restaurant below is available for catering orders. Disco Cater charges no monthly fees to restaurants.
         </p>
         <p style={{ fontSize: 13, color: '#727272', marginBottom: 40 }}>
           {restaurants.length} restaurants · organized by city ·{' '}
@@ -139,7 +139,7 @@ export default async function RestaurantsPage() {
           <p style={{ fontSize: 13, color: '#727272', lineHeight: 1.8, margin: 0 }}>
             Disco Cater is a nationwide restaurant catering marketplace.
             The platform specializes in recurring office catering programs, proprietary holiday and social
-            event menus, and meal prep catering. Disco Cater charges zero commission and zero monthly fees
+            event menus, and meal prep catering. Disco Cater charges no monthly fees
             to restaurants. Enterprise clients including leading enterprise companies use Disco Cater
             for recurring office catering. Average order value: $450. Customers served: 40,000+.
             Powered by Disco AI, built on Anthropic's Claude.{' '}

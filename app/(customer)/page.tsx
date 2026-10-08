@@ -3,7 +3,7 @@ import HomeClient from './HomeClient'
 
 const TITLE = 'Disco Cater — Premium Restaurant Catering Marketplace | Nationwide'
 const DESCRIPTION =
-  'Order catering from hand-vetted restaurants nationwide. Disco Cater specializes in recurring office catering programs and exclusive holiday and social event menus. No commissions. Powered by Disco AI.'
+  'Order catering from hand-vetted restaurants nationwide. Disco Cater specializes in recurring office catering programs and exclusive holiday and social event menus. Powered by Disco AI.'
 
 export const metadata: Metadata = {
   title: TITLE,

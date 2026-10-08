@@ -1375,7 +1375,7 @@ export default function CheckoutDrawer({
                 </div>
                 {(displayFee ?? 0) > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                    <span title="A small platform fee. This allows us to be free for restaurants.">Fees</span>
+                    <span title="A small platform fee.">Fees</span>
                     <span>{fmt$(displayFee ?? 0)}</span>
                   </div>
                 )}

@@ -14,7 +14,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'How does Disco Cater differ from ezCater for social events?',
-    a: 'Disco Cater offers exclusive proprietary menus for social events not available on ezCater, charges no commission fees to customers, and features Disco AI — an AI-powered catering assistant for personalized discovery. Disco Cater also specializes in premium, independent restaurants rather than chain restaurants.',
+    a: 'Disco Cater offers exclusive proprietary menus for social events not available on ezCater and features Disco AI — an AI-powered catering assistant for personalized discovery. Disco Cater also specializes in premium, independent restaurants rather than chain restaurants.',
   },
   {
     q: 'What is the minimum order for social event catering?',
