@@ -1814,7 +1814,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       onFocus={e => showTaxTooltip(e.currentTarget)}
                       onBlur={() => setTaxTooltip(null)}
                       tabIndex={0}
-                      aria-label="A small platform fee. This allows us to be free for restaurants."
+                      aria-label="A small platform fee."
                       style={{ width: 14, height: 14, borderRadius: '50%', background: '#ddd', color: '#666', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', userSelect: 'none' as const }}>
                       ℹ
                     </span>
@@ -1834,7 +1834,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                           whiteSpace: 'normal',
                           zIndex: 2147483000, pointerEvents: 'none' as const,
                         }}>
-                        <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>A small platform fee. This allows us to be free for restaurants.</div>
+                        <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>A small platform fee.</div>
                       </div>
                     )}
                   </span>

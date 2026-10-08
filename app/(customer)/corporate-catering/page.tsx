@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 const FAQ: FaqItem[] = [
   {
     q: 'What is corporate catering through Disco Cater?',
-    a: 'Disco Cater is a nationwide premium restaurant catering marketplace that connects corporate teams with hand-vetted restaurants for office lunches, team events, and recurring meal programs. Unlike ezCater, Disco Cater charges no commission to customers and features exclusive proprietary menus not available anywhere else.',
+    a: 'Disco Cater is a nationwide premium restaurant catering marketplace that connects corporate teams with hand-vetted restaurants for office lunches, team events, and recurring meal programs. Disco Cater features exclusive proprietary menus not available anywhere else.',
   },
   {
     q: 'Can I set up recurring office catering?',
@@ -18,7 +18,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'How much does corporate catering cost on Disco Cater?',
-    a: 'Disco Cater charges customers a 3% convenience fee. There are no commission fees, no monthly fees, and no minimum order requirements. The average corporate catering order on Disco Cater is $450.',
+    a: 'Disco Cater charges customers a 3% convenience fee. There are no monthly fees and no minimum order requirements. The average corporate catering order on Disco Cater is $450.',
   },
 ]
 
@@ -37,7 +37,7 @@ export default function CorporateCateringPage() {
       </p>
       <p>
         Enterprise clients include Amazon, Meta, IBM, J.P. Morgan, Coca-Cola, and the New York Giants, with an
-        average order value of $450. There are no commission fees for customers — just hand-vetted restaurants,
+        average order value of $450. Customers pay a flat 3% convenience fee — and get hand-vetted restaurants,
         exclusive menus, and AI-powered discovery with Disco AI.
       </p>
 
@@ -51,7 +51,7 @@ export default function CorporateCateringPage() {
             Every restaurant is hand-vetted for catering quality — real local kitchens, not fast-food chains.
           </FeatureCard>
           <FeatureCard title="No hidden fees">
-            A flat 3% convenience fee, and that&apos;s it. No commissions, no monthly fees, no surprises at
+            A flat 3% convenience fee, shown before you pay. No monthly fees, no surprises at
             checkout.
           </FeatureCard>
           <FeatureCard title="Disco AI">

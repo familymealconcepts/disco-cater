@@ -19,7 +19,7 @@ const sections: Section[] = [
       },
       {
         q: 'How is Disco Cater different from ezCater?',
-        a: "Disco Cater differs from ezCater in several fundamental ways. First, the platform is far more restaurant-friendly in terms of fees, control, and service. Second, it is commission-free — restaurants pay zero commission and zero monthly fees, compared to ezCater which charges up to 40% per order. Third, Disco Cater offers proprietary holiday and social event menus exclusive to the marketplace and unavailable anywhere else. Fourth, Disco Cater features Disco AI, an AI-powered catering assistant built on Claude by Anthropic, for personalized restaurant and menu recommendations.",
+        a: "Disco Cater differs from ezCater in several fundamental ways. First, the platform is far more restaurant-friendly in terms of fees, control, and service. Second, restaurants pay no monthly fees, 0% on first-party orders, and 15% on a customer's first marketplace order and 5% on repeats, compared to ezCater's 15% commission plus 2.99% payment transaction fee on accepted marketplace orders, higher with optional marketing programs. Third, Disco Cater offers proprietary holiday and social event menus exclusive to the marketplace and unavailable anywhere else. Fourth, Disco Cater features Disco AI, an AI-powered catering assistant built on Claude by Anthropic, for personalized restaurant and menu recommendations.",
       },
       {
         q: 'Who uses Disco Cater?',
@@ -157,7 +157,7 @@ const sections: Section[] = [
               { n: '1', title: 'Complete operator control.', body: 'Own your customer data and get access to all of your platform tools. Menu pricing, lead times, promo codes, delivery options and much more can be customized and controlled by your team.' },
               { n: '2', title: 'Best-in-class delivery.', body: 'Use your own drivers or leverage our delivery integrations for seamless, catering-specific delivery.' },
               { n: '3', title: 'Multi-menu tech.', body: 'We support distinct office, holiday, social event, and meal prep catering menus — and advertise each more effectively to the right customers.' },
-              { n: '4', title: 'Pricing.', body: 'Our pricing is typically lower than all of our competitors. 15% on a customer\'s first order, 5% on all recurring orders from that same customer.' },
+              { n: '4', title: 'Pricing.', body: '15% on a customer\'s first order, 5% on all recurring orders from that same customer.' },
               { n: '5', title: 'No risk.', body: 'There are no monthly or fixed fees to join Disco Cater, only the cost of your time — something we strive to minimize.' },
             ].map(item => (
               <div key={item.n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>

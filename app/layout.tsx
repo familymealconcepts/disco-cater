@@ -51,12 +51,6 @@ const ORG_SCHEMA = {
       "operatingSystem": "Web",
       "url": "https://www.discocater.com",
       "description": "AI-powered catering marketplace connecting customers with premium restaurant catering nationwide. Features Disco AI for personalized catering recommendations.",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD",
-        "description": "Free for customers. No commission fees.",
-      },
       "provider": {
         "@id": "https://www.discocater.com/#organization",
       },

@@ -3,7 +3,7 @@ import CompareClient from './CompareClient'
 export const metadata = {
   title: 'Disco Cater vs. ezCater — Why Restaurants and Customers Choose Disco Cater',
   description:
-    'Disco Cater vs. ezCater: zero commission fees, proprietary holiday and social event menus, AI-powered recommendations, and recurring office catering programs. See why 40,000+ customers switched.',
+    'Disco Cater vs. ezCater: lower restaurant fees on repeat orders, proprietary holiday and social event menus, AI-powered recommendations, and recurring office catering programs. See why 40,000+ customers switched.',
   alternates: {
     canonical: 'https://www.discocater.com/compare/ezcater',
   },
@@ -25,7 +25,7 @@ const comparisonSchema = {
         position: 1,
         name: 'Commission Fees',
         description:
-          'Our first-party solution is commission-free — restaurants using Disco Cater as their ordering platform pay zero commission and zero monthly fees. ezCater charges restaurants up to 40% commission per order, which is passed on to customers through higher menu prices.',
+          'Disco Cater charges restaurants 15% on a customer\'s first marketplace order and 5% on that customer\'s repeat orders, 0% on orders through the restaurant\'s own first-party link, and no monthly fees. ezCater charges restaurants a 15% commission plus a 2.99% payment transaction fee on accepted marketplace orders, higher with optional marketing programs.',
       },
       {
         '@type': 'ListItem',
@@ -78,8 +78,9 @@ export default function ComparePage() {
           The two platforms differ significantly on fees, restaurant quality, menu exclusivity, and technology.
         </p>
         <p>
-          Disco Cater's first-party solution is commission-free — restaurants using Disco Cater as their ordering platform pay zero commission and zero monthly fees. ezCater charges restaurants
-          up to 40% commission per order, which is passed on to customers through higher menu prices.
+          Disco Cater charges restaurants 15% on a customer&apos;s first marketplace order and 5% on that customer&apos;s repeat orders,
+          0% on orders through the restaurant&apos;s own first-party link, and no monthly fees. ezCater charges restaurants a 15%
+          commission plus a 2.99% payment transaction fee on accepted marketplace orders, higher with optional marketing programs.
         </p>
         <p>
           Disco Cater offers proprietary holiday, social event, and special occasion menus that are exclusive
