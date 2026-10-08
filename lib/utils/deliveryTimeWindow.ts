@@ -2,8 +2,10 @@ import { formatTime12 } from './time'
 // Delivery Order Time Windows — mirrors FM's `timeRangeFormat` pipe
 // (familymeal-platform time-range-format-pipe.ts).
 //
-// FM's restaurant-level `deliveryOrderTimeWindows` setting (valid values:
-// 'exact' | '30_min' | '1_hour') controls how the order time is DISPLAYED for
+// FM's restaurant-level `deliveryOrderTimeWindows` setting (FM's own valid
+// values: 'exact' | '30_min' | '1_hour'; Disco adds '15_min', which FM never
+// sends and the FM importer therefore still rejects) controls how the order
+// time is DISPLAYED for
 // DELIVERY orders: a range "start - (start + window)" instead of an exact time.
 // PICKUP orders always show the exact start time. The stored order time is
 // always the START time — the range is display-only.
@@ -13,7 +15,11 @@ import { formatTime12 } from './time'
 // — defaulting it to 'exact' (as before) meant delivery orders never actually
 // showed a range. An explicit 'exact' or '1_hour' windowKey (e.g. once synced
 // from FM) still overrides this default.
-const WINDOW_MINUTES: Record<string, number> = { exact: 0, '30_min': 30, '1_hour': 60 }
+// '15_min' is Disco's own addition. It is the only option that lines up exactly
+// with the 15-minute booking grid (SLOT_MINUTES in lib/scheduling/cutoffs.ts):
+// adjacent slots produce contiguous windows rather than the overlapping ones
+// 30_min and 1_hour give (12:00-12:30 beside 12:15-12:45).
+const WINDOW_MINUTES: Record<string, number> = { exact: 0, '15_min': 15, '30_min': 30, '1_hour': 60 }
 
 // Delegates to the shared formatter so the window range and every other
 // 12-hour label in the app cannot drift apart.
@@ -21,7 +27,7 @@ function to12h(h: number, m: number): string {
   return formatTime12(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
 }
 
-// startTime: "HH:mm" (24h). windowKey: 'exact' | '30_min' | '1_hour' | null.
+// startTime: "HH:mm" (24h). windowKey: 'exact' | '15_min' | '30_min' | '1_hour' | null.
 // isDelivery: only DELIVERY orders get the range (FM's `deliveryType` guard).
 export function formatTimeWindow(
   startTime: string,

@@ -43,7 +43,7 @@ export default function RestaurantSettingsPage() {
   const [orderReminders, setOrderReminders] = useState(false)       // customer
   const [adminReminders, setAdminReminders] = useState(false)       // restaurant
   const [enableMenuSearch, setEnableMenuSearch] = useState(false)
-  const [deliveryWindow, setDeliveryWindow] = useState<'exact' | '30_min' | '1_hour'>('exact')
+  const [deliveryWindow, setDeliveryWindow] = useState<'exact' | '15_min' | '30_min' | '1_hour'>('exact')
   const [announcement, setAnnouncement] = useState('')
 
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
@@ -321,8 +321,8 @@ export default function RestaurantSettingsPage() {
       <div style={card}>
         <div style={h2}>Delivery Order Time Windows</div>
         <label style={label}>Delivery time shown to customers as</label>
-        <select value={deliveryWindow} onChange={e => setDeliveryWindow(e.target.value as 'exact' | '30_min' | '1_hour')} style={{ ...input, maxWidth: 220 }}>
-          <option value="exact">Exact time</option><option value="30_min">30-minute window</option><option value="1_hour">1-hour window</option>
+        <select value={deliveryWindow} onChange={e => setDeliveryWindow(e.target.value as 'exact' | '15_min' | '30_min' | '1_hour')} style={{ ...input, maxWidth: 220 }}>
+          <option value="exact">Exact time</option><option value="15_min">15-minute window</option><option value="30_min">30-minute window</option><option value="1_hour">1-hour window</option>
         </select>
       </div>
 

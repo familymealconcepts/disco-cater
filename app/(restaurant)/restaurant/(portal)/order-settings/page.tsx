@@ -26,7 +26,7 @@ interface Notifications {
 interface FeesAndTips {
   businessNameWithoutSpaces?: string
   announcement?: string
-  deliveryOrderTimeWindows?: 'exact' | '30_min' | '1_hour'
+  deliveryOrderTimeWindows?: 'exact' | '15_min' | '30_min' | '1_hour'
   enableMenuSearch?: boolean
 }
 
@@ -503,10 +503,11 @@ export default function OrderSettingsPage() {
           <Row label="Delivery Order Time Windows">
             <select
               value={feesAndTips.deliveryOrderTimeWindows || 'exact'}
-              onChange={e => saveFeesAndTips({ deliveryOrderTimeWindows: e.target.value as 'exact' | '30_min' | '1_hour' })}
+              onChange={e => saveFeesAndTips({ deliveryOrderTimeWindows: e.target.value as 'exact' | '15_min' | '30_min' | '1_hour' })}
               style={{ ...inputStyle, cursor: 'pointer' }}
             >
               <option value="exact">Exact</option>
+              <option value="15_min">15 Minutes</option>
               <option value="30_min">30 Minutes</option>
               <option value="1_hour">1 Hour</option>
             </select>

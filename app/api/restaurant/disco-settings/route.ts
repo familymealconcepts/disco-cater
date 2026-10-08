@@ -40,7 +40,9 @@ export async function GET() {
   return NextResponse.json({ restaurant_reference: ref, settings: rows[0] || {}, slug: cacheRows[0]?.slug || null })
 }
 
-const WINDOWS = new Set(['exact', '30_min', '1_hour'])
+// Anything not in here is coerced to 'exact' at line ~98, silently — so a new
+// option MUST be added here or it can never be saved.
+const WINDOWS = new Set(['exact', '15_min', '30_min', '1_hour'])
 
 // Exactly the columns the PUT below upserts — the before/after set for the
 // audit row. Keep in step with the INSERT if a column is ever added there.
