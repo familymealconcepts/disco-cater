@@ -232,6 +232,42 @@ async function recordResult(
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * Retry a DATABASE operation through a transient fault.
+ *
+ * WHY THIS EXISTS: day one died after 37 messages on a Neon `ECONNRESET`. The
+ * laptop had gone to idle sleep at 16:27 and dark-woke at 16:43 (confirmed in
+ * pmset), which killed the HTTP connection under the next query. Over eleven
+ * days on a laptop, a dropped connection is an EXPECTED event, not an
+ * exceptional one, and it must not end a run.
+ *
+ * ONLY DATABASE CALLS GO THROUGH THIS. sendEmail is deliberately NOT retried:
+ * a failed send has an AMBIGUOUS outcome — Mailgun may have accepted the
+ * message and lost the response — so retrying it risks delivering the same
+ * announcement twice, which cannot be taken back. A DB write is idempotent
+ * here (claim is ON CONFLICT DO NOTHING; recordResult is an UPDATE), so
+ * repeating one is safe in a way repeating a send is not.
+ */
+const TRANSIENT = /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network|Connection terminated|timeout/i
+
+export async function withDbRetry<T>(label: string, fn: () => Promise<T>, attempts = 6): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastErr = e
+      const msg = e instanceof Error ? `${e.message} ${String((e as { sourceError?: unknown }).sourceError ?? '')}` : String(e)
+      if (!TRANSIENT.test(msg)) throw e          // a real error is not a blip
+      if (i === attempts - 1) break
+      const backoff = Math.min(1000 * 2 ** i, 30_000) + Math.floor(Math.random() * 1000)
+      console.warn(`[campaign] ${label} failed (${msg.slice(0, 90)}) — retry ${i + 1}/${attempts - 1} in ${Math.round(backoff / 1000)}s`)
+      await sleep(backoff)
+    }
+  }
+  throw lastErr
+}
+
+/**
  * Send the campaign to `recipients`, in order, one at a time.
  *
  * `opts.pace` defaults to true. It is set false ONLY for a single-recipient
@@ -292,7 +328,7 @@ export async function runCampaign(
 
     // Re-read before every send, so a halt takes effect on the next message
     // rather than the next run.
-    if (await isCampaignHalted(campaign)) {
+    if (await withDbRetry('halt-check', () => isCampaignHalted(campaign))) {
       const out: SendOutcome = { email: r.email, status: 'halted' }
       results.push(out); opts?.onProgress?.(out)
       break
@@ -310,7 +346,7 @@ export async function runCampaign(
       if (verdict.halt) { await autoHalt(r.email, verdict.reason ?? 'unspecified'); break }
     }
 
-    if (!(await claim(r, campaign))) {
+    if (!(await withDbRetry('claim', () => claim(r, campaign)))) {
       const out: SendOutcome = { email: r.email, status: 'skipped-already-sent' }
       results.push(out); opts?.onProgress?.(out)
       continue
@@ -334,11 +370,11 @@ export async function runCampaign(
 
     if (res.success) {
       sentThisRun++
-      await recordResult(r.email, campaign, 'sent', res.id ?? null, null)
+      await withDbRetry('record-sent', () => recordResult(r.email, campaign, 'sent', res.id ?? null, null))
       const out: SendOutcome = { email: r.email, status: 'sent', messageId: res.id ?? null }
       results.push(out); opts?.onProgress?.(out)
     } else {
-      await recordResult(r.email, campaign, 'failed', null, res.error ?? 'unknown')
+      await withDbRetry('record-failed', () => recordResult(r.email, campaign, 'failed', null, res.error ?? 'unknown'))
       const out: SendOutcome = { email: r.email, status: 'failed', error: res.error ?? 'unknown' }
       results.push(out); opts?.onProgress?.(out)
     }
