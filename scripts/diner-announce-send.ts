@@ -13,6 +13,7 @@
  *   npx tsx scripts/diner-announce-send.ts --canary 50 --dry-run
  *   npx tsx scripts/diner-announce-send.ts --canary 50
  *   npx tsx scripts/diner-announce-send.ts --count 500
+ *   npx tsx scripts/diner-announce-send.ts --until-close
  *
  * RESUME IS THE DEFAULT. Every mode subtracts anyone already in
  * marketing_send_log for this campaign before doing anything, and claim() writes
@@ -161,8 +162,21 @@ async function main() {
   const only = val('--only')
   const canary = val('--canary')
   const count = val('--count')
+  // SEND UNTIL THE WINDOW CLOSES, rather than to a per-day number.
+  //
+  // The batch becomes every remaining recipient and the 8:45am-11:00pm ET gate
+  // decides when sending happens: at 11:00pm the loop pauses, at 8:45am it
+  // resumes, and it keeps going until the list is exhausted. A day's output is
+  // therefore however many messages the window holds at the unchanged pace,
+  // not a cap chosen in advance.
+  //
+  // THIS CHANGES HOW LONG WE SEND FOR, NEVER HOW FAST. MIN_GAP_MS (30s) and
+  // JITTER_MS (15s) are untouched, so a longer day means more messages, never
+  // quicker ones. Every halt condition is likewise untouched and still read
+  // between messages.
+  const untilClose = has('--until-close')
   const take = canary ? Number(canary) : count ? Number(count) : 0
-  if (!only && !take) { console.error('Specify --status, --test <email>, --only <file>, --canary <n> or --count <n>.'); process.exit(1) }
+  if (!only && !take && !untilClose) { console.error('Specify --status, --test <email>, --only <file>, --canary <n>, --count <n> or --until-close.'); process.exit(1) }
 
   // A CURATED batch, for a canary picked by hand rather than by list order.
   //
@@ -186,10 +200,12 @@ async function main() {
     }
     console.log(`curated list ${only}: ${wanted.length} requested, ${batch.length} eligible, ${missing.length} skipped`)
     for (const m of missing) console.log(`   skipped (not in the eligible set): ${m}`)
+  } else if (untilClose) {
+    batch = recipients
   } else {
     batch = recipients.slice(0, take)
   }
-  console.log(`${has('--dry-run') ? 'DRY RUN' : 'SENDING'}: ${batch.length}`)
+  console.log(`${has('--dry-run') ? 'DRY RUN' : 'SENDING'}: ${batch.length}${untilClose ? ' (until the window closes each day, until the list is exhausted)' : ''}`)
   if (has('--dry-run')) {
     for (const r of batch) console.log(`   ${r.email.padEnd(42)} Hi ${r.greetingName},`)
     return
