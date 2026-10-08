@@ -10,6 +10,7 @@ import { sql } from '../db'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 import { displayEmail } from '../customer-email-guard'
+import { formatTimeWindow } from '../utils/deliveryTimeWindow'
 import { loadOrderItemsWithAddOns } from '../order-items'
 import { formatTime12 } from '../utils/time'
 import { formatDisplayAddress, dedupeAddressString } from '../address-display'
@@ -29,10 +30,18 @@ function fmtDate(v: unknown): string {
   if (!y) return iso
   return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
 }
-// Plain "h:mm a" from a raw "HH:MM" / "HH:MM:SS" string — no window-ranging.
-// The pick-up/fulfillment time is a single kitchen-readiness instant, not a
-// customer-facing arrival window (formatTimeWindow's "start - end" range is a
-// different concept and doesn't belong on this box — see fulfillment-time.ts).
+// Plain "h:mm a" from a raw "HH:MM" / "HH:MM:SS" string — NO window-ranging.
+//
+// This is the KITCHEN's formatter, and the no-range rule still holds for it:
+// READY BY is a single readiness instant, not an arrival window.
+//
+// It is NOT the customer's formatter. THIS PDF GOES TO BOTH AUDIENCES — it is
+// built once and attached to the customer AND the restaurant confirmation
+// (order-notifications.ts), which is exactly why the document carries two
+// boxes. The customer-facing half (the subject box and ORDER DETAILS) now
+// renders the delivery window through formatTimeWindow, so the attachment
+// agrees with the subject line and the body it arrives with; previously the
+// email promised "8:30 AM - 9:00 AM" and its own PDF said "8:30 AM".
 // Shared 12-hour formatter (lib/utils/time.ts).
 const fmtTime = (t: string): string => formatTime12(t)
 
@@ -173,7 +182,15 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     // so it is never concatenated into prose and title case reads correctly.
     orderService: fulfillmentLabel(o.delivery_type as string | null, o.order_type as string | null),
     orderDate: fmtDate(o.order_date),
-    orderTime: fmtTime(String(o.order_time ?? '')),
+    // Customer-facing: the window range for a delivery order, the exact time for
+    // pickup. The isDelivery test is `order_type === 'DELIVERY'`, character for
+    // character what order-notifications.ts:482 uses to build the subject line —
+    // the two must not be able to disagree about the same order.
+    orderTime: formatTimeWindow(
+      String(o.order_time ?? ''),
+      o.delivery_time_window as string | null,
+      String(o.order_type) === 'DELIVERY',
+    ),
     ...(() => {
       const rawOrderDate = toIsoDate(o.order_date)
       const rawOrderTime = String(o.order_time ?? '')
