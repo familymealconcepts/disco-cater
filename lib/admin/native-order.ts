@@ -182,6 +182,9 @@ export async function loadNativeAdminOrder(ref: string): Promise<Record<string, 
         price: it.pricePerUnit,
         count: it.quantity,
         serves: it.serves ?? null,
+        // Per-item Special Instructions — the super-admin order view dropped it
+        // for the same reason the portal's two routes did.
+        comment: it.notes ?? undefined,
         orderAddOns: it.addOns.length ? it.addOns.map(a => ({ name: a.name, price: a.price, count: a.quantity })) : undefined,
       })),
       orderClassics: [],

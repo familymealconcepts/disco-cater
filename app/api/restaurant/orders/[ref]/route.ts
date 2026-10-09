@@ -268,6 +268,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     base.orderMealPackages = items.map(it => ({
       name: it.name, count: it.quantity, price: it.pricePerUnit,
       mealPackageReference: it.mealPackageReference || undefined,
+      // Per-item Special Instructions — same omission as the details route.
+      comment: it.notes ?? undefined,
       orderAddOns: it.addOns.length ? it.addOns.map(a => ({ name: a.name, count: a.quantity, price: a.price })) : undefined,
     }))
     base.orderClassics = []

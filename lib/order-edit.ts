@@ -527,7 +527,7 @@ export async function applyPendingEdit(args: {
   const { orderId, orderReference, invoiceId } = args
   const p = args.pending || {}
   const lines = Array.isArray(p.activeLines)
-    ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number }[])
+    ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number; note?: string; comment?: string; specialInstructions?: string }[])
     : []
   // Normalize the stored date — legacy pending_edit_data may hold a corrupted
   // "Thu Jul 02"-style string that would fail the ::date cast below and throw the
@@ -559,8 +559,9 @@ export async function applyPendingEdit(args: {
     for (const l of lines) {
       const unit = n(l.price); const qty = Math.max(1, Math.trunc(n(l.quantity) || 1))
       stmts.push(sql`
-        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-        VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
+        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
+        VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100},
+                ${l.note || l.comment || l.specialInstructions || null})
       `)
     }
     await sql.transaction(stmts).catch(e => console.error('[applyPendingEdit] items replace failed:', e))

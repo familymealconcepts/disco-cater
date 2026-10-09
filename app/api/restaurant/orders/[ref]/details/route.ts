@@ -165,6 +165,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       price: it.pricePerUnit,
       count: it.quantity,
       serves: it.serves ?? null,
+      // Per-item Special Instructions. loadOrderItemsWithAddOns has always
+      // selected notes and the PDF/emails have always rendered it — this map
+      // dropped it, so the Orders tab and the detail drawer showed nothing even
+      // once the value existed. `comment` is the key the portal reads
+      // (orders/page.tsx: item.specialInstructions || item.comment).
+      comment: it.notes ?? undefined,
       orderAddOns: it.addOns.length ? it.addOns.map(a => ({ name: a.name, price: a.price, count: a.quantity })) : undefined,
     }))
     order.orderClassics = []

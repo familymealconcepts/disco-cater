@@ -90,7 +90,7 @@ interface PlacedOrderFallback {
   companyName?: string
   total?: number
   deliveryAddress?: { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zip?: string; latitude?: number; longitude?: number } | null
-  items?: Array<{ reference?: string; name?: string; count?: number; price?: number }>
+  items?: Array<{ reference?: string; name?: string; count?: number; price?: number; note?: string; specialInstructions?: string; comment?: string }>
 }
 
 // Idempotently write the disco_orders row from the place-response data when the
@@ -127,8 +127,9 @@ async function ensureRowFromPlaced(orderReference: string, p: PlacedOrderFallbac
         const qty = Math.max(1, Math.trunc(Number(it.count) || 1))
         const unit = Number(it.price) || 0
         stmts.push(sql`
-          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-          VALUES (${id}, ${it.reference || null}, ${it.name || 'Item'}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
+          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
+          VALUES (${id}, ${it.reference || null}, ${it.name || 'Item'}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100},
+                  ${it.note || it.specialInstructions || it.comment || null})
         `)
       }
       await sql.transaction(stmts).catch(() => {})

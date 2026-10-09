@@ -33,6 +33,12 @@ export interface NativeCartItem {
   // callers must treat that as "unknown", not "primary menu", and fall back
   // explicitly (see resolveCartMenuReference).
   menuReference?: string
+  /** Per-item Special Instructions, from the box gated by
+   *  disco_menu_items.allow_special_instructions. Stored on
+   *  disco_order_items.notes and surfaced to the kitchen as `comment`. This is
+   *  NOT the order-level note (disco_orders.note) and NOT the delivery
+   *  instructions (disco_orders.delivery_instructions) — three separate fields. */
+  note?: string
 }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
 export interface NativeDeliveryAddressInput {
@@ -706,7 +712,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
 // by name. Carried through now so checkCartMinimums can match a selection to its
 // group EXACTLY rather than by name.
 interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?: number; reference?: string; extraItemsGroupReference?: string }
-interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[]; menuReference?: string }
+interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[]; menuReference?: string; note?: string; specialInstructions?: string; comment?: string }
 
 // Map FM-shaped checkout items → native cart items, folding each line's add-on
 // prices into the unit price and count→quantity, so cartSubtotal matches FM's
@@ -730,6 +736,12 @@ export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartI
     return {
       reference: it.reference,
       name: it.name || `item-${i}`,
+      // Accept every spelling a client has ever sent: `note` (this codebase),
+      // `specialInstructions` / `comment` (the FM-shaped DTOs the order-edit and
+      // direct-entry screens build).
+      ...(it.note || it.specialInstructions || it.comment
+        ? { note: String(it.note || it.specialInstructions || it.comment) }
+        : {}),
       basePrice: base,
       // Folded unit price keeps cartSubtotal + all pricing byte-for-byte unchanged.
       price: base + addOnTotal,
@@ -982,8 +994,8 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
     // basePrice === price, so this is identical to before.
     const base = round2(Number(it.basePrice ?? it.price) || 0)
     const itemRows = (await sql`
-      INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-      VALUES (${order.id}, ${it.reference ?? null}, ${it.name || 'Item'}, ${qty}, ${base}, ${round2(base * qty)})
+      INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
+      VALUES (${order.id}, ${it.reference ?? null}, ${it.name || 'Item'}, ${qty}, ${base}, ${round2(base * qty)}, ${it.note || null})
       RETURNING id
     `) as { id: number }[]
     const orderItemId = itemRows[0]?.id

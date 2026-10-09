@@ -1070,7 +1070,11 @@ export default function CheckoutDrawer({
           deliveryAddress: orderType === 'DELIVERY'
             ? { addressLine1: fmAddr.addressLine1, addressLine2: fmAddr.addressLine2, city: fmAddr.city, state: fmAddr.state, zip: fmAddr.zipcode, latitude: fmAddr.latitude, longitude: fmAddr.longitude }
             : null,
-          items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice, menuReference: i.menuReference })),
+          // `note` is the per-item Special Instructions box. It was absent from
+          // this map, so the text the customer typed reached the checkout screen
+          // (it lives on the cart line) and went no further — every order since
+          // native checkout shipped lost it here, before any server saw it.
+          items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice, note: i.note, menuReference: i.menuReference })),
         }
         // Saved-card confirm (customer flow): FM's "confirm with default source" path
         // charges the Stripe Customer's legacy `default_source`, which Disco never sets

@@ -275,8 +275,9 @@ async function mirrorOrderToNeon(args: {
         const qty = Math.max(1, Math.trunc(num(it.count ?? it.quantity) || 1))
         const unit = num(it.price)
         stmts.push(sql`
-          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-          VALUES (${orderId}, ${str(it.reference)}, ${name}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
+          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
+          VALUES (${orderId}, ${str(it.reference)}, ${name}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100},
+                  ${str(it.note) || str(it.specialInstructions) || str(it.comment) || null})
         `)
       }
       await sql.transaction(stmts)
