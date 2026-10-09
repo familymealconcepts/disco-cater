@@ -236,12 +236,54 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       const leadTwo = incoming.leadGenTwo != null ? Number(incoming.leadGenTwo) : null
       try {
         // Name/phone/address go to disco_restaurant_cache below, not here.
-        await sql`
+        //
+        // ── UPDATE EXACTLY THE ROW THE GET SHOWED, NOT EVERY ROW ─────────────
+        // This was `WHERE restaurant_reference = ${ref}`, which matches EVERY
+        // account on the restaurant — the admin, the Stripe-import sentinel, and
+        // every team member. Setting them all to one email collides with the
+        // fleet-wide UNIQUE index on email, so the save 409'd with "That email is
+        // already used by another account" even when the email had not been
+        // changed and belonged to nobody else. The dialog sends the email on every
+        // save (the field is disabled, not omitted), so this fired on any
+        // restaurant with more than one account row — 156 of them, Black Bear BBQ
+        // among them, where the second row was just its Stripe sentinel.
+        //
+        // The 409 also returned BEFORE the cache and lead-gen writes below, so an
+        // unrelated edit — Peter changing only the lead-gen percentages — was lost
+        // with it.
+        //
+        // The predicate is the GET's, exactly (same filters, same ORDER BY id ASC,
+        // same LIMIT 1), so the write lands on the row the dialog displayed. The
+        // sentinel is excluded deliberately: it is not a person and it still holds
+        // the Stripe connection. Team members are no longer collateral — the UNIQUE
+        // index was the only thing that had been stopping their rows from being
+        // overwritten with the admin's identity.
+        //
+        // A GENUINE collision is still refused: the UNIQUE index is fleet-wide, so
+        // an email belonging to another restaurant's account still raises here and
+        // still returns the 409 below.
+        const updated = (await sql`
           UPDATE disco_restaurant_accounts SET
             first_name = ${s(admin.firstName)}, last_name = ${s(admin.lastName)},
             email = COALESCE(${s(admin.email)}, email)
-          WHERE restaurant_reference = ${ref}
-        `
+          WHERE id = (
+            SELECT id FROM disco_restaurant_accounts
+            WHERE restaurant_reference = ${ref}
+              AND email NOT LIKE 'stripe-import+%'
+              AND archived_at IS NULL
+            ORDER BY id ASC
+            LIMIT 1
+          )
+          RETURNING id
+        `) as Array<{ id: string }>
+        // No real account row — the restaurant has only a Stripe sentinel (148 are
+        // in that state). Nothing is written rather than overwriting the sentinel's
+        // address, which would break the Stripe anchor the GET's comment protects.
+        // The rest of the save still proceeds, so an edit to the lead-gen
+        // percentages or the address is not lost to this.
+        if (!updated.length) {
+          console.warn('[admin/restaurants PUT] no editable account row for', ref, '— admin name/email not written (Stripe sentinel left intact)')
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         if (/unique|duplicate/i.test(msg)) return NextResponse.json({ error: 'That email is already used by another account.' }, { status: 409 })
