@@ -305,12 +305,16 @@ export default function LocationsPage() {
 
   async function toggleStatus(loc: Location) {
     if (loc.archived) return
+    // MAP. The toggle shows/removes this location in the marketplace. It is not
+    // online ordering — that is its own toggle — and it is not a "status".
     // FM: checked=!blocked. Clicking flips it. blockedParam = !nextChecked.
     const blockedParam = !loc.blocked
     setLocations(prev => prev.map(l => l.reference === loc.reference ? { ...l, blocked: blockedParam } : l))
     const res = await fetch(`/api/restaurant/locations/${loc.reference}/block?blocked=${blockedParam}`, { method: 'PUT' })
     if (res.ok) {
-      showToast(`Online ordering for ${loc.businessName} successfully changed!`)
+      showToast(blockedParam
+        ? `${loc.businessName} removed from the marketplace map.`
+        : `${loc.businessName} is now on the marketplace map.`)
     } else {
       setLocations(prev => prev.map(l => l.reference === loc.reference ? { ...l, blocked: !blockedParam } : l))
     }
@@ -441,7 +445,7 @@ export default function LocationsPage() {
           </colgroup>
           <thead><tr>
             <th style={colHead}></th>
-            <th style={colHead}>STATUS:</th>
+            <th style={colHead}>MAP:</th>
             <th style={colHead}>RESTAURANT:</th>
             <th style={colHead}>ADDRESS:</th>
             <th style={colHead}>REGISTRATION:</th>

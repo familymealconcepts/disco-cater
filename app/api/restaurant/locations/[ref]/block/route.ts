@@ -11,8 +11,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   const { ref } = await params
   const blocked = req.nextUrl.searchParams.get('blocked') || 'false'
 
-  // Disco-native: block/unblock a location = remove/show it on the marketplace
-  // (is_live). Scoped to the SA's group.
+  // Disco-native: this control means MAP — it removes or shows a location in the
+  // marketplace. Scoped to the SA's group.
+  //
+  // It used to write disco_restaurant_cache.is_live, which is not one of the
+  // three concepts and which the marketplace feed has never read, so the toggle
+  // was INERT: a system admin could block a location and it stayed on the map.
+  // It now writes the Map toggle itself (disco_restaurant_overrides.visible),
+  // the same column the feed reads and the same one the super-admin marketplace
+  // control writes.
   const ctx = await getRestaurantAuthContext()
   // KEYED ON THE LOCATION BEING ACTED ON, not on the session. `ref` is the
   // location in the URL, so its own native flag is the right discriminator —
@@ -21,7 +28,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (ctx && await isDiscoNativeRestaurant(ref)) {
     if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
-    await sql`UPDATE disco_restaurant_cache SET is_live = ${blocked !== 'true'}, cached_at = NOW() WHERE restaurant_reference = ${ref}`
+    // Upsert, not UPDATE: a native location with no overrides row yet would
+    // otherwise silently match zero rows and report success, which is the same
+    // failure in a new disguise.
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
+      VALUES (${ref}, ${blocked !== 'true'}, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${blocked !== 'true'}, updated_at = NOW()
+    `
     return NextResponse.json({ ok: true })
   }
 

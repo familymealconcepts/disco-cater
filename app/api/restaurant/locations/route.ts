@@ -49,7 +49,10 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
            -- 21:40 for those two, the same day as FM's own value. Falls back to
            -- cached_at only when no overrides row exists at all.
            to_char(COALESCE(ovr.created_at, c.cached_at), 'YYYY-MM-DD') AS "createdDate",
-           (NOT COALESCE(c.is_live, false)) AS blocked
+           -- MAP. blocked is the inverse of the Map toggle, the column the
+           -- marketplace feed actually reads. It was derived from is_live, which
+           -- nothing maintains, so every location read as blocked.
+           (NOT COALESCE(ovr.visible, true)) AS blocked
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides ovr ON ovr.restaurant_reference = c.restaurant_reference
     WHERE c.restaurant_reference = ANY(${refs}::text[])
@@ -149,7 +152,7 @@ export async function GET(req: NextRequest) {
                  -- Same correction as above: the registration date, not the
                  -- last cache refresh.
                  to_char(COALESCE(ovr2.created_at, c.cached_at), 'YYYY-MM-DD') AS "createdDate",
-                 (NOT COALESCE(c.is_live, false)) AS blocked
+                 (NOT COALESCE(ovr2.visible, true)) AS blocked
             FROM disco_multi_unit_link_members seed
             JOIN disco_multi_unit_link_members sib ON sib.link_reference = seed.link_reference
             JOIN disco_restaurant_cache c ON c.restaurant_reference = sib.restaurant_reference

@@ -6,7 +6,7 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 
-interface Location { reference: string; name: string; address: string; isLive: boolean; isHome: boolean }
+interface Location { reference: string; name: string; address: string; takingOrders: boolean; isHome: boolean }
 interface SubAdmin { email: string; firstName: string; lastName: string; pendingInvite?: boolean; locations: { reference: string; name: string }[] }
 
 export default function TeamPage() {
@@ -122,7 +122,10 @@ export default function TeamPage() {
                   </div>
                   {loc.address && <div style={{ fontSize: 12, color: '#888' }}>{loc.address}</div>}
                 </div>
-                <span style={loc.isLive ? livePill : offPill}>{loc.isLive ? 'Live' : 'Not live'}</span>
+                {/* Stripe connection + the online-ordering toggle — the two
+                    things that decide whether this location can sell. Not a
+                    "live" flag: that was not a concept and always read false. */}
+                <span style={loc.takingOrders ? livePill : offPill}>{loc.takingOrders ? 'Taking orders' : 'Not taking orders'}</span>
               </div>
             ))}
           </section>

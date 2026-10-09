@@ -19,7 +19,20 @@ export async function GET(req: NextRequest) {
     const native = await getNativeLinkBySlug(slug)
     if (native) {
       if (!native.memberRefs.length) return NextResponse.json({ slug, liveCount: 0 })
-      const rows = (await sql`SELECT COUNT(*)::int AS n FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${native.memberRefs}) AND is_live = true`) as { n: number }[]
+      // MAP — how many member locations the marketplace actually shows. This
+      // counted is_live, which nothing maintains, so every group reported 0.
+      // The predicate is the native branch of lib/marketplace-restaurants.ts:
+      // Map toggle on, online ordering on, and a Disco connected account.
+      const rows = (await sql`
+        SELECT COUNT(*)::int AS n
+          FROM disco_restaurant_cache c
+          JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+         WHERE c.restaurant_reference = ANY(${native.memberRefs})
+           AND o.archived_at IS NULL
+           AND o.visible = true
+           AND COALESCE(o.online_ordering_enabled, true) = true
+           AND o.stripe_account_id IS NOT NULL
+      `) as { n: number }[]
       return NextResponse.json({ slug, liveCount: rows[0]?.n ?? 0 })
     }
   } catch { /* fall through to FM */ }

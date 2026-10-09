@@ -70,20 +70,31 @@ export async function GET() {
     if (!refs.length && ctx.restaurantReference) refs = [ctx.restaurantReference]
     const locations = refs.length
       ? (await sql`
-          SELECT restaurant_reference AS reference,
-                 COALESCE(name, '') AS name,
-                 COALESCE(address, '') AS address,
-                 COALESCE(is_live, false) AS is_live
-          FROM disco_restaurant_cache
-          WHERE restaurant_reference = ANY(${refs}::text[])
-          ORDER BY name ASC
-        `) as Array<{ reference: string; name: string; address: string; is_live: boolean }>
+          -- "Is this location open for business?" is Stripe connection AND the
+          -- online-ordering toggle — the same pair the customer page gates on.
+          -- This read is_live, which nothing maintains, so EVERY location
+          -- reported closed, including ones taking orders that day.
+          --
+          -- stripe_account_id, not stripe_connected: the latter answers "does
+          -- FamilyMeal hold an account", which is the wrong question for a
+          -- Disco-native location. This is the column lib/restaurant-orderable.ts
+          -- reads, so the pill and the storefront cannot disagree.
+          SELECT c.restaurant_reference AS reference,
+                 COALESCE(c.name, '') AS name,
+                 COALESCE(c.address, '') AS address,
+                 (o.stripe_account_id IS NOT NULL
+                   AND COALESCE(o.online_ordering_enabled, true) = true) AS taking_orders
+          FROM disco_restaurant_cache c
+          LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+          WHERE c.restaurant_reference = ANY(${refs}::text[])
+          ORDER BY c.name ASC
+        `) as Array<{ reference: string; name: string; address: string; taking_orders: boolean }>
       : []
     // Keep references that have no cache row so the PSA still sees them.
     const seen = new Set(locations.map(l => l.reference))
     const locationList = [
-      ...locations.map(l => ({ reference: l.reference, name: l.name, address: l.address, isLive: l.is_live === true, isHome: l.reference === ctx.restaurantReference })),
-      ...refs.filter(r => !seen.has(r)).map(r => ({ reference: r, name: '', address: '', isLive: false, isHome: r === ctx.restaurantReference })),
+      ...locations.map(l => ({ reference: l.reference, name: l.name, address: l.address, takingOrders: l.taking_orders === true, isHome: l.reference === ctx.restaurantReference })),
+      ...refs.filter(r => !seen.has(r)).map(r => ({ reference: r, name: '', address: '', takingOrders: false, isHome: r === ctx.restaurantReference })),
     ]
 
     // Helper: the locations an account can actually REACH.
