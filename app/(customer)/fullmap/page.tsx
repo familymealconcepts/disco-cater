@@ -1160,7 +1160,17 @@ function FullMapInner() {
 
           {/* 4. Count + search + map toggles */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px 8px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
-            <span style={{ fontSize: 12, color: '#727272', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
+            {/* COUNT ONLY AFTER A LOCATION IS SEARCHED. Before that it is a
+                platform-size figure we do not advertise; after it, it answers
+                "how many are near me", which is the question being asked.
+                proximityAnchor is the geocoded-location signal — it is what
+                switches the list to distance-sorted — so it is exactly the
+                "has a location been searched" test. An empty span keeps the
+                row's space-between layout, holding the Map/search buttons
+                right where they were. */}
+            {proximityAnchor
+              ? <span style={{ fontSize: 12, color: '#727272', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
+              : <span />}
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
               <button
                 onClick={() => setMobileMapOpen(true)}
@@ -1457,10 +1467,17 @@ function FullMapInner() {
                 <input value={search} onChange={e => { setSearch(e.target.value); if (e.target.value.length > 2) trackEvent('search_performed', { search_term: e.target.value }) }} placeholder="Search restaurants…" style={{ width: '100%', padding: '9px 10px 9px 32px', borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
-            <div style={{ padding: '6px 12px', fontSize: 11, color: '#727272', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-              {filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}
-              {proximityAnchor && (<><span style={{ fontSize: 10, background: '#f0f0ff', color: '#6466E8', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#727272', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
-            </div>
+            {/* The whole strip, not just the number: its only other content is
+                the "Nearby" pill, which already requires proximityAnchor, so
+                before a location is searched this row would be an empty bordered
+                bar. See the mobile note above for why the count is withheld. */}
+            {proximityAnchor && (
+              <div style={{ padding: '6px 12px', fontSize: 11, color: '#727272', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}
+                <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6466E8', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span>
+                <button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#727272', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button>
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {!listReady && <SkeletonCards count={8} />}
               {listReady && filtered.length === 0 && (
