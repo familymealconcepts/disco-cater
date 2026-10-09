@@ -20,6 +20,7 @@ for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
   const m = line.match(/^([A-Z_]+)=(.*)$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
 }
 import { sql, runMigrations } from '../lib/db'
+import { setMarketplaceVisible } from '../lib/marketplace-switch'
 
 let pass = 0, fail = 0
 const ok = (n: string, c: boolean, e = '') => { c ? (pass++, console.log(`  ✓ ${n}`)) : (fail++, console.log(`  ✗ ${n} ${e}`)) }
@@ -44,8 +45,13 @@ async function main() {
     await sql`INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, restaurant_name, role, stripe_account_id, stripe_onboarding_complete)
       VALUES (${email}, 'x', ${discoRef}, 'Regress Disco', 'ADMIN', 'acct_regress123', true)`
     await sql`INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, visible) VALUES
-      (${discoRef}, true, true), (${plainRef}, true, true)
+      (${discoRef}, true, false), (${plainRef}, true, false)
       ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = true, stripe_checked_at = NULL`
+    // Marketplace switch ON through lib/marketplace-switch.ts, the one writer of
+    // `visible`. audit: false — these are temp rows this script deletes.
+    for (const ref of [discoRef, plainRef]) {
+      await setMarketplaceVisible(ref, true, { source: 'script', actorEmail: null, authType: 'script', audit: false })
+    }
 
     console.log('FIX #1 — Stripe status reflects the disco Stripe connection:')
     // (a) overrides API LATERAL join computes has_stripe_account

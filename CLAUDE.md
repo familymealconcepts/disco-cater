@@ -110,6 +110,15 @@ from; and an archived restaurant is gone, not hidden. FM-BACKED rows take a
 2-part version of the same rule (visible + `stripe_connected`) because
 FamilyMeal takes their money, not Disco.
 
+**One veto on top of the rule: a TEST account never lists.**
+`disco_restaurant_overrides.is_test` (admin-only "Test" toggle on the Ordering
+page) is not a fourth concept — it is a veto. `lib/marketplace-switch.ts` is the
+ONLY code allowed to write `visible`, and it refuses to turn a test restaurant on
+(409 `{ error, reason: 'test-restaurant' }`); `lib/marketplace-restaurants.ts`
+also excludes `is_test` rows as a last line. Setting the flag never changes
+`visible`. `npm run test:guards` fails if any other file writes `visible` with
+anything but a literal `false`.
+
 **EXPOSURE IS MEASURED AGAINST THE FEED AND THE CUSTOMER PATH — NEVER FROM A
 TOGGLE COLUMN.** `online_ordering_enabled = true` does not mean a customer can
 reach checkout. It is one of three conditions, it defaults to true, and

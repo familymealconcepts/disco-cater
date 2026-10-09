@@ -23,6 +23,7 @@ import { MENU_ACTIVE_SQL } from './menu-state'
 import { sql, runDiscoMenuMigrations } from './db'
 import { verifyAccountReusable } from './stripe-connect'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
+import { setMarketplaceVisible, refuseIfTestRestaurant, TEST_RESTAURANT_REASON } from './marketplace-switch'
 
 let ensured = false
 async function ensureTable(): Promise<void> {
@@ -174,21 +175,36 @@ export async function checkNativeGoLiveReadiness(ref: string, opts?: { stripe?: 
   return { restaurantReference: ref, found, isDiscoNative, live: cache[0]?.is_live === true, offersThirdPartyDelivery, gates, readyToFlip, firstBlocker }
 }
 
-export interface GoLiveResult { flipped: boolean; reason?: string; readiness: GoLiveReadiness }
+// `reason` is a human-readable message for a gate failure, EXCEPT for a test
+// restaurant, where it is the machine code 'test-restaurant' and `error` carries
+// the message — the same { error, reason } 409 shape every other marketplace-
+// switch caller returns (lib/marketplace-switch.ts).
+export interface GoLiveResult { flipped: boolean; reason?: string; error?: string; readiness: GoLiveReadiness }
 
 // Step 7 — flip the restaurant LIVE (visible + online + is_live). ONLY when every
 // gate passes. This is the single point where a real customer can start ordering.
-export async function goLiveNativeRestaurant(ref: string, opts?: { stripe?: Stripe }): Promise<GoLiveResult> {
+export async function goLiveNativeRestaurant(ref: string, opts?: { stripe?: Stripe; actorEmail?: string | null }): Promise<GoLiveResult> {
   const readiness = await checkNativeGoLiveReadiness(ref, opts)
   if (!readiness.found) return { flipped: false, reason: 'Restaurant not found.', readiness }
   if (!readiness.isDiscoNative) return { flipped: false, reason: 'Not Disco-native — convert it first.', readiness }
+  // ── A TEST RESTAURANT NEVER GOES LIVE ───────────────────────────────────
+  // Checked before the gate list so a test restaurant is told the real reason
+  // rather than whichever gate it happens to fail first, and before ANY write so
+  // a refused flip leaves online_ordering_enabled and is_live exactly as they
+  // were. setMarketplaceVisible below enforces the same rule atomically.
+  const switchOpts = { source: 'admin-go-live' as const, actorEmail: opts?.actorEmail ?? null, authType: 'admin' as const }
+  const testRefusal = await refuseIfTestRestaurant(ref, switchOpts)
+  if (testRefusal) return { flipped: false, reason: TEST_RESTAURANT_REASON, error: testRefusal.error, readiness }
   if (!readiness.readyToFlip) {
     const failing = readiness.gates.filter(g => g.blocking && !g.done).map(g => `#${g.step} ${g.label}`).join('; ')
     return { flipped: false, reason: `Go-live gate not passed — resolve: ${failing}.`, readiness }
   }
-  await sql`INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, online_ordering_enabled, updated_at)
-            VALUES (${ref}, true, true, NOW())
-            ON CONFLICT (restaurant_reference) DO UPDATE SET visible = true, online_ordering_enabled = true, updated_at = NOW()`
+  // The switch first: if it is refused, nothing else has been written.
+  const sw = await setMarketplaceVisible(ref, true, switchOpts)
+  if (!sw.ok) return { flipped: false, reason: sw.reason, error: sw.error, readiness }
+  await sql`INSERT INTO disco_restaurant_overrides (restaurant_reference, online_ordering_enabled, updated_at)
+            VALUES (${ref}, true, NOW())
+            ON CONFLICT (restaurant_reference) DO UPDATE SET online_ordering_enabled = true, updated_at = NOW()`
   await sql`UPDATE disco_restaurant_cache SET is_live = true, cached_at = NOW() WHERE restaurant_reference = ${ref}`
   return { flipped: true, readiness: { ...readiness, live: true } }
 }

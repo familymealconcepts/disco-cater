@@ -37,7 +37,7 @@ async function main() {
     src[0].is_disco_native === true, 'source is not native')
 
   const srcOv = (await sql`SELECT tax_rates, notification_emails, text_notifications_enabled,
-      online_ordering_enabled, money_flow, stripe_account_id
+      online_ordering_enabled, money_flow, stripe_account_id, is_test
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${SOURCE}`) as Record<string, unknown>[]
   console.log('   source overrides:', JSON.stringify(srcOv[0] ?? {}).slice(0, 180))
 
@@ -55,7 +55,9 @@ async function main() {
         ${s.address}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, false
       )`
     created = true
-    await cloneDiscoRestaurantOverrides(SOURCE, newRef)
+    // audit: false — this is a throwaway copy deleted below; it should not leave
+    // a marketplace_switch_update row behind in disco_admin_audit.
+    await cloneDiscoRestaurantOverrides(SOURCE, newRef, { actorEmail: null, authType: 'script', audit: false })
 
     const c = (await sql`SELECT name, is_disco_native, is_live FROM disco_restaurant_cache WHERE restaurant_reference = ${newRef}`) as Record<string, unknown>[]
     const o = (await sql`SELECT * FROM disco_restaurant_overrides WHERE restaurant_reference = ${newRef}`) as Record<string, unknown>[]
@@ -64,7 +66,13 @@ async function main() {
     console.log('   name:', c[0].name)
     check('created as Disco-native', c[0].is_disco_native === true, String(c[0].is_disco_native))
     check('NOT live', c[0].is_live === false, String(c[0].is_live))
-    check('visible = false', o[0].visible === false, String(o[0].visible))
+    // Since 6f94cb6 a duplicate is visible = true (Stripe, not the switch, keeps
+    // it off the feed) — unless the source is a TEST restaurant, whose copy
+    // inherits is_test and has its switch refused by lib/marketplace-switch.ts.
+    const srcIsTest = srcOv[0]?.is_test === true
+    check('is_test inherited from the source', (o[0].is_test === true) === srcIsTest, String(o[0].is_test))
+    check(srcIsTest ? 'visible = false (test source — switch refused)' : 'visible = true (matches FM clone)',
+      o[0].visible === !srcIsTest, String(o[0].visible))
     check('NO Stripe account inherited', !o[0].stripe_account_id, String(o[0].stripe_account_id))
     check('tax rates copied from the source',
       JSON.stringify(o[0].tax_rates ?? null) === JSON.stringify(srcOv[0]?.tax_rates ?? null),

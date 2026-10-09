@@ -1,5 +1,5 @@
 import { cache } from 'react'
-import { sql } from './db'
+import { sql, runMigrations, withDiscoTables } from './db'
 import { getNativeLinkBySlug } from './multi-unit-links'
 import { getLinkGradient, cacheAutoGradient } from './location-links'
 import { stateFromAddress, stateFullName } from './us-states'
@@ -180,13 +180,19 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
     // account, so it rendered on the page and its Order button failed. The old
     // filter asked "was this marked live at some point", the new one asks "can a
     // customer order from it right now".
-    const rows = (await sql`
+    // withDiscoTables + runMigrations: the is_test column is added by the suite,
+    // and a cold lambda that reads it first must migrate-and-retry rather than
+    // fall into the .catch below and render the link as "no longer active".
+    const rows = (await withDiscoTables(() => sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.state,
              c.address_line1, c.address_line2, c.city, c.zipcode
       FROM disco_restaurant_cache c
       JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE c.restaurant_reference = ANY(${nativeLink.memberRefs})
         AND o.archived_at IS NULL
+        -- A test account is never shown to customers, here or on the marketplace
+        -- (lib/marketplace-switch.ts). It stays a member of the link.
+        AND o.is_test IS NOT TRUE
         AND o.online_ordering_enabled = true
         AND o.stripe_account_id IS NOT NULL
         -- ── AND STRIPE MUST NOT HAVE RESTRICTED IT ─────────────────────────
@@ -207,7 +213,7 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
         -- an open question, not a restriction. Taking a working storefront offline
         -- over a network blip would be a worse failure than the one being fixed.
         AND o.stripe_charges_enabled IS NOT FALSE
-    `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null;
+    `, runMigrations).catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null;
            address_line1: string | null; address_line2: string | null; city: string | null; zipcode: string | null }[]
     if (!rows.length) return null
     const locations: LocationItem[] = rows.map(r => ({

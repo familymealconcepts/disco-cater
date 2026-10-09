@@ -107,6 +107,7 @@ export async function runMigrations(): Promise<void> {
       restaurant_reference TEXT PRIMARY KEY,
       is_premium BOOLEAN NOT NULL DEFAULT false,
       visible BOOLEAN NOT NULL DEFAULT false,
+      is_test BOOLEAN NOT NULL DEFAULT false,
       order_url TEXT,
       notes TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -115,6 +116,12 @@ export async function runMigrations(): Promise<void> {
     // Self-heal DBs created before `visible` existed. Drives fullmap listing:
     // a restaurant appears only when an admin marks it visible.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT false`,
+    // Test account flag. A restaurant marked is_test can never have the
+    // marketplace switch (`visible`) turned on — lib/marketplace-switch.ts
+    // refuses it — and lib/marketplace-restaurants.ts excludes it from every
+    // listing as a last line. Setting it does NOT change `visible` by itself, so
+    // clearing it is fully reversible. Admin-only; no portal route writes it.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT false`,
     // Stripe Connect status, populated by the /api/admin/sync-stripe-status tool.
     // The fullmap only lists restaurants that are visible AND stripe_connected.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected BOOLEAN NOT NULL DEFAULT false`,
@@ -563,7 +570,13 @@ export async function withDiscoTables<T>(
 function isUndefinedTableError(err: unknown): boolean {
   const e = err as { code?: string; message?: string } | null
   if (e?.code === '42P01') return true // undefined_table
-  return /relation ".*" does not exist/i.test(e?.message || '')
+  // undefined_column — the same "schema not migrated yet" state, one level down.
+  // An additive ADD COLUMN IF NOT EXISTS (e.g. disco_restaurant_overrides.is_test)
+  // lands on the first request that runs the suite, so a read that names the new
+  // column on a cold lambda before then must migrate-and-retry rather than throw:
+  // for the marketplace feed a throw is an empty marketplace.
+  if (e?.code === '42703') return true
+  return /relation ".*" does not exist|column ".*" does not exist/i.test(e?.message || '')
 }
 
 // ── Disco-native menu schema ──────────────────────────────────────────────────

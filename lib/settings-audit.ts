@@ -140,8 +140,9 @@ export async function logSettingsChange(params: {
   action: AdminAuditAction
   restaurantReference: string
   actorEmail: string | null
-  /** 'disco' | 'fm' for restaurant-portal routes; 'admin' for the super-admin portal. */
-  authType: 'disco' | 'fm' | 'admin'
+  /** 'disco' | 'fm' for restaurant-portal routes; 'admin' for the super-admin portal;
+   *  'script' for a one-off operational script run from a terminal. */
+  authType: 'disco' | 'fm' | 'admin' | 'script'
   before: unknown
   after: unknown
   /** Route-specific context worth keeping — e.g. an FM proxy's outcome, a remapped ref. */

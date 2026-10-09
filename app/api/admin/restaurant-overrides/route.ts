@@ -4,6 +4,7 @@ import { stripeReadySql } from '../../../../lib/stripe-readiness'
 import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
 import { overridesSnapshot, cacheSnapshot, accountMarketplaceSnapshot, logSettingsChange } from '../../../../lib/settings-audit'
 import { stripeStatusByReference } from '../../../../lib/stripe-account-status'
+import { setMarketplaceVisible, refuseIfTestRestaurant, setTestRestaurant, marketplaceSwitchRefusalBody } from '../../../../lib/marketplace-switch'
 
 // Disco-owned per-restaurant overrides (Premium flag + order-URL) stored in Neon.
 // Admin-only (gated on the admin session cookie). The public /api/restaurants
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
       // but no overrides row) still appear in the admin table.
       const rows = (await sql`
         SELECT COALESCE(o.restaurant_reference, c.restaurant_reference) AS restaurant_reference,
-               o.is_premium, o.visible, o.stripe_connected,
+               o.is_premium, o.visible, o.is_test, o.stripe_connected,
                o.stripe_checked_at, o.order_url, o.online_ordering_enabled, o.money_flow, c.menu_upload_url,
                c.is_live, c.is_disco_native, o.archived_at,
                -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
         ) inv ON true
         LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = COALESCE(o.restaurant_reference, c.restaurant_reference)
       `) as {
-        restaurant_reference: string; is_premium: boolean | null; visible: boolean | null
+        restaurant_reference: string; is_premium: boolean | null; visible: boolean | null; is_test: boolean | null
         stripe_connected: boolean | null; stripe_checked_at: string | null
         order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
@@ -80,7 +81,7 @@ export async function GET(req: NextRequest) {
       const discoStripeEmails = discoRows.map((r) => r.email)
 
       type OverrideDto = {
-        restaurantReference: string; isPremium: boolean; visible: boolean; stripeConnected: boolean
+        restaurantReference: string; isPremium: boolean; visible: boolean; isTest: boolean; stripeConnected: boolean
         stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null; moneyFlow: string | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
         menuDriftDetected: boolean; menuDriftDetails: unknown[]; inviteExpired: boolean
@@ -92,6 +93,7 @@ export async function GET(req: NextRequest) {
           restaurantReference: r.restaurant_reference,
           isPremium: r.is_premium ?? false,
           visible: r.visible ?? false,
+          isTest: r.is_test ?? false,
           stripeConnected: r.stripe_connected ?? false,
           stripeCheckedAt: r.stripe_checked_at,
           orderUrl: r.order_url ?? '',
@@ -122,7 +124,7 @@ export async function GET(req: NextRequest) {
       // native ref in PATCH, keeping the two sides two-way synced.)
       const nativeRows = (await sql`
         SELECT a.fm_restaurant_reference AS fm_ref,
-               o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
+               o.is_premium, o.visible, o.is_test, o.stripe_connected, o.stripe_checked_at, o.order_url,
                o.online_ordering_enabled, o.money_flow, c.menu_upload_url, c.is_live, o.archived_at,
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
                d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
@@ -133,7 +135,7 @@ export async function GET(req: NextRequest) {
         LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = a.restaurant_reference
         WHERE a.is_disco_native = true AND a.fm_restaurant_reference IS NOT NULL
       `) as {
-        fm_ref: string; is_premium: boolean | null; visible: boolean | null; stripe_connected: boolean | null
+        fm_ref: string; is_premium: boolean | null; visible: boolean | null; is_test: boolean | null; stripe_connected: boolean | null
         stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
@@ -145,6 +147,7 @@ export async function GET(req: NextRequest) {
           restaurantReference: n.fm_ref,
           isPremium: n.is_premium ?? false,
           visible: n.visible ?? false,
+          isTest: n.is_test ?? false,
           stripeConnected: n.stripe_connected ?? false,
           stripeCheckedAt: n.stripe_checked_at,
           orderUrl: n.order_url ?? '',
@@ -184,10 +187,10 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = (await sql`
-      SELECT restaurant_reference, is_premium, visible, stripe_connected, stripe_checked_at, order_url
+      SELECT restaurant_reference, is_premium, visible, is_test, stripe_connected, stripe_checked_at, order_url
       FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
     `) as {
-      restaurant_reference: string; is_premium: boolean; visible: boolean
+      restaurant_reference: string; is_premium: boolean; visible: boolean; is_test: boolean | null
       stripe_connected: boolean; stripe_checked_at: string | null; order_url: string | null
     }[]
     const row = rows[0]
@@ -195,6 +198,7 @@ export async function GET(req: NextRequest) {
       restaurantReference: ref,
       isPremium: row?.is_premium ?? false,
       visible: row?.visible ?? false,
+      isTest: row?.is_test ?? false,
       stripeConnected: row?.stripe_connected ?? false,
       stripeCheckedAt: row?.stripe_checked_at ?? null,
       orderUrl: row?.order_url ?? '',
@@ -205,7 +209,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PATCH /api/admin/restaurant-overrides — body { restaurantReference, isPremium, orderUrl }
+// PATCH /api/admin/restaurant-overrides — body { restaurantReference, isPremium, visible, orderUrl,
+//   onlineOrderingEnabled, isLive, isTest }
+//
+// `visible` (the marketplace switch) goes through lib/marketplace-switch.ts and
+// is written ONLY when it is sent as a boolean — an omitted `visible` leaves the
+// switch unchanged. (It used to write false, so any PATCH that forgot the field
+// silently took a restaurant off the marketplace.) is_premium and order_url keep
+// their original semantics: omitted still means false / null on this path.
+//
+// `isTest` is the admin-only Test account flag, handled independently like
+// onlineOrderingEnabled. It does not change `visible`. A request that asks for
+// visible: true on a test restaurant is refused with 409 BEFORE anything in the
+// request is written.
 export async function PATCH(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
@@ -263,6 +279,37 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    const actorEmail = await getAdminEmail()
+    const remapExtra = claimedReference !== restaurantReference
+      ? { claimedRef: claimedReference, remappedToNativeRef: true }
+      : undefined
+    const switchOpts = {
+      source: 'admin-overrides-patch' as const, actorEmail, authType: 'admin' as const,
+      // This route logs its own admin_overrides_update row for the change, so the
+      // helper must not log a second one. A refusal is still logged by the helper.
+      audit: false, extra: remapExtra,
+    }
+    const isTestSent = typeof body?.isTest === 'boolean'
+
+    // ── A TEST RESTAURANT CANNOT BE TURNED ON — REFUSE BEFORE ANY WRITE ───────
+    // Judged on the is_test this request is about to leave in place: a request
+    // that sets isTest: true and visible: true together is refused, and one that
+    // clears the flag in the same breath is allowed.
+    if (body?.visible === true) {
+      const refusal = await refuseIfTestRestaurant(restaurantReference, switchOpts, isTestSent ? body.isTest : undefined)
+      if (refusal) return NextResponse.json(marketplaceSwitchRefusalBody(refusal), { status: 409 })
+    }
+
+    // is_test — the Test account flag. Admin-only (this route is the only one
+    // that accepts it; no restaurant-portal route does). Audited by the helper as
+    // test_flag_update. Never touches `visible`.
+    if (isTestSent) {
+      await setTestRestaurant(restaurantReference, body.isTest, { actorEmail, extra: remapExtra })
+      if (body?.onlineOrderingEnabled === undefined && body?.isPremium === undefined && body?.visible === undefined && body?.orderUrl === undefined && body?.isLive === undefined) {
+        return NextResponse.json({ ok: true, restaurantReference, isTest: body.isTest })
+      }
+    }
+
     // online_ordering_enabled — the canonical "Accept online orders" flag both the
     // restaurant portal (disco-settings / online-ordering) and the native order-gate
     // read. Handled independently so an ordering-only PATCH from the admin toggle
@@ -304,24 +351,36 @@ export async function PATCH(req: NextRequest) {
     }
 
     const isPremium = body?.isPremium === true
-    const visible = body?.visible === true
     const orderUrl: string | null = body?.orderUrl ? String(body.orderUrl) : null
+    const visibleSent = typeof body?.visible === 'boolean'
 
+    // is_premium / order_url: unchanged semantics (omitted → false / null). The
+    // literal `false` for visible is the insert-time default for a brand-new row
+    // only — the ON CONFLICT branch does not touch visible, so an existing row's
+    // switch is left exactly as it was unless the request sent one below.
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, is_premium, visible, order_url, updated_at)
-      VALUES (${restaurantReference}, ${isPremium}, ${visible}, ${orderUrl}, NOW())
+      VALUES (${restaurantReference}, ${isPremium}, false, ${orderUrl}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET is_premium = EXCLUDED.is_premium,
-            visible = EXCLUDED.visible,
             order_url = EXCLUDED.order_url,
             updated_at = NOW()
     `
+
+    // The marketplace switch, only when it was actually sent.
+    let visible = beforeOverrides?.visible ?? false
+    if (visibleSent) {
+      const sw = await setMarketplaceVisible(restaurantReference, body.visible, switchOpts)
+      // Reachable only if the flag was set between the pre-check above and here.
+      if (!sw.ok) return NextResponse.json(marketplaceSwitchRefusalBody(sw), { status: 409 })
+      visible = sw.visible
+    }
 
     // Two-way marketplace sync: a restaurant shown on the marketplace is also
     // "live" on the map, and its Disco account (if any) reflects the opt-in. Only
     // when `visible` was explicitly part of this request (Marketplace toggle / edit
     // dialog), so a Premium-only or order_url-only PATCH doesn't flip live status.
-    if (typeof body?.visible === 'boolean') {
+    if (visibleSent) {
       await sql`
         UPDATE disco_restaurant_cache SET is_live = ${visible}, cached_at = NOW()
         WHERE restaurant_reference = ${restaurantReference}
@@ -334,8 +393,8 @@ export async function PATCH(req: NextRequest) {
 
     // The visible-triggered syncs above are fire-and-forget, so record the
     // intent rather than asserting an outcome — unlike the restaurant-portal
-    // marketplace toggle, this route does not track their success.
-    const visibleSent = typeof body?.visible === 'boolean'
+    // marketplace toggle, this route does not track their success. `visible` in
+    // `after` is the resulting value: the stored one when it was not sent.
     await auditOverrides(
       {
         is_premium: beforeOverrides?.is_premium ?? null,

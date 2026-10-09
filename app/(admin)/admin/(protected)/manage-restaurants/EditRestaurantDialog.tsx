@@ -112,7 +112,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
   // Overrides (Neon disco_restaurant_overrides)
   const [isDisco, setIsDisco] = useState(false)
-  const [visible, setVisible] = useState(false)
   // Order-URL override is no longer editable here, but we round-trip the loaded
   // value on save so the overrides PATCH (which overwrites order_url) doesn't
   // wipe it.
@@ -206,7 +205,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       // Premium + map visibility + order-URL override come from Neon overrides.
       if (ov) {
         setIsDisco(!!ov.isPremium)
-        setVisible(!!ov.visible)
         setOrderUrlOverride(ov.orderUrl || '')
         setStripeConnected(typeof ov.stripeConnected === 'boolean' ? ov.stripeConnected : null)
       }
@@ -474,13 +472,18 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         throw new Error(rawDetail ? `FM rejected the save (${putRes.status}): ${rawDetail.slice(0, 500)}` : (d?.error || `Failed to save restaurant (${putRes.status})`))
       }
 
-      // 2) Premium + visibility → Neon overrides (order_url round-tripped, not edited here).
+      // 2) Premium → Neon overrides (order_url round-tripped, not edited here).
+      // `visible` is deliberately NOT sent: the overrides PATCH now treats an
+      // omitted `visible` as "unchanged", and the Map toggle in the table row is
+      // its only control. Round-tripping the value loaded when the dialog opened
+      // could silently revert a toggle made since, and on a test account that is
+      // still on the map it would be refused with 409 (lib/marketplace-switch.ts).
       const ovRes = await fetch('/api/admin/restaurant-overrides', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, visible, orderUrl: orderUrlOverride || undefined }),
+        body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, orderUrl: orderUrlOverride || undefined }),
       })
-      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / visibility override failed to save')
+      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium override failed to save')
 
       // 3) Push the new map image to FM's marketplace logo too (FM side still needs it).
       if (imageFile) {
@@ -785,8 +788,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
               )}
 
               {/* Disco fullmap listing — Premium (Neon overrides). Map visibility
-                  is controlled by the Marketplace toggle in the table row, so the
-                  loaded `visible` value is round-tripped on save (not edited here). */}
+                  is controlled by the Marketplace toggle in the table row only;
+                  this dialog does not send `visible` at all (omitted = unchanged). */}
               <div style={section}>
                 <div style={sTitle}>Marketplace listing (Premium)</div>
                 <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon).</p>

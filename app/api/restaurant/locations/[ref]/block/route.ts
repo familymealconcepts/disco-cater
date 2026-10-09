@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { sql, runMigrations } from '../../../../../../lib/db'
+import { runMigrations } from '../../../../../../lib/db'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
+import { setMarketplaceVisible, marketplaceSwitchRefusalBody } from '../../../../../../lib/marketplace-switch'
+import { restaurantActorEmail } from '../../../../../../lib/settings-audit'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -28,14 +30,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (ctx && await isDiscoNativeRestaurant(ref)) {
     if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
-    // Upsert, not UPDATE: a native location with no overrides row yet would
-    // otherwise silently match zero rows and report success, which is the same
-    // failure in a new disguise.
-    await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
-      VALUES (${ref}, ${blocked !== 'true'}, NOW())
-      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${blocked !== 'true'}, updated_at = NOW()
-    `
+    // Through the one writer of the switch (lib/marketplace-switch.ts), which
+    // upserts — a native location with no overrides row yet would otherwise
+    // silently match zero rows and report success, which is the same failure in
+    // a new disguise. Unblocking a TEST location is refused with 409; blocking
+    // is always allowed. The helper audits the change (this route had no audit
+    // row of its own).
+    const sw = await setMarketplaceVisible(ref, blocked !== 'true', {
+      source: 'portal-location-block',
+      actorEmail: restaurantActorEmail(ctx),
+      authType: ctx.authType,
+    })
+    if (!sw.ok) return NextResponse.json(marketplaceSwitchRefusalBody(sw), { status: 409 })
     return NextResponse.json({ ok: true })
   }
 

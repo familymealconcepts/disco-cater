@@ -63,6 +63,10 @@ interface Restaurant {
 // visibility toggle can preserve them on the upsert PATCH.
 interface OverrideMeta {
   visible: boolean
+  // Test account (disco_restaurant_overrides.is_test). A test restaurant's
+  // marketplace switch cannot be turned on (lib/marketplace-switch.ts refuses it
+  // with 409) and it never lists publicly. Setting it does not change `visible`.
+  isTest: boolean
   isPremium: boolean
   orderUrl: string
   menuUploadUrl: string | null
@@ -97,7 +101,7 @@ interface OverrideMeta {
 // Restore only render for rows that already have one.
 function defaultOverrideMeta(isDiscoNative: boolean): OverrideMeta {
   return {
-    visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null,
+    visible: false, isTest: false, isPremium: false, orderUrl: '', menuUploadUrl: null,
     isLive: false, isDiscoNative, onlineOrderingEnabled: null, moneyFlow: null,
     menuDriftDetected: false, menuDriftDetails: [], inviteExpired: false,
     archivedAt: null,
@@ -431,7 +435,14 @@ export default function RestaurantsOrderingPage() {
   // does NOT touch any FM field. Toggling opens a confirmation modal; the PATCH
   // (preserving the row's current isPremium/orderUrl) only fires on confirm.
   function requestVisibleToggle(r: Restaurant) {
-    setMarketplaceConfirm({ r, next: !(overrideMap[r.reference]?.visible) })
+    const next = !(overrideMap[r.reference]?.visible)
+    // The server refuses this (409, reason 'test-restaurant'); say so up front
+    // rather than opening a confirmation that can only fail.
+    if (next && overrideMap[r.reference]?.isTest) {
+      showToast(`${r.businessName} is a test account — clear “Test” before putting it on the marketplace`)
+      return
+    }
+    setMarketplaceConfirm({ r, next })
   }
 
   async function confirmVisible() {
@@ -446,14 +457,43 @@ export default function RestaurantsOrderingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurantReference: r.reference, visible: next, isPremium: cur.isPremium, orderUrl: cur.orderUrl || undefined }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        throw new Error(typeof d?.error === 'string' ? d.error : '')
+      }
       showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} the Disco Cater map & marketplace`)
       setMarketplaceConfirm(null)
-    } catch {
+    } catch (e) {
       setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
-      showToast('Could not update map & marketplace visibility')
+      showToast((e instanceof Error && e.message) || 'Could not update map & marketplace visibility')
     } finally {
       setMarketplaceBusy(false)
+    }
+  }
+
+  // "Test account" — admin-only flag (disco_restaurant_overrides.is_test), set via
+  // the overrides PATCH's `isTest`. It does NOT change the Map toggle: flagging a
+  // restaurant that is on the map takes it out of every public listing (the
+  // listing query excludes test accounts) but leaves `visible` as it was, so
+  // clearing the flag is a clean undo. While it is set, the Map toggle cannot be
+  // turned on. Audited server-side as test_flag_update.
+  async function toggleTest(r: Restaurant) {
+    const cur = overrideMap[r.reference] || defaultOverrideMeta(false)
+    const next = !cur.isTest
+    setOverrideMap(prev => ({ ...prev, [r.reference]: { ...cur, isTest: next } }))
+    try {
+      const res = await fetch('/api/admin/restaurant-overrides', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: r.reference, isTest: next }),
+      })
+      if (!res.ok) throw new Error()
+      showToast(next
+        ? `${r.businessName} marked as a test account — hidden from public listings`
+        : `${r.businessName} is no longer a test account`)
+    } catch {
+      setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
+      showToast('Could not update the test account flag')
     }
   }
 
@@ -919,7 +959,7 @@ export default function RestaurantsOrderingPage() {
       const oMap: Record<string, OverrideMeta> = {}
       for (const o of (d?.overrides || []) as {
         restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null
-        visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
+        visible?: boolean; isTest?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
         moneyFlow?: string | null
@@ -928,7 +968,7 @@ export default function RestaurantsOrderingPage() {
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
-          visible: !!o.visible, isPremium: !!o.isPremium,
+          visible: !!o.visible, isTest: !!o.isTest, isPremium: !!o.isPremium,
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
@@ -1206,12 +1246,12 @@ export default function RestaurantsOrderingPage() {
           pin against. minHeight:0 lets the flex child shrink so its own overflow
           scrolls instead of the page. */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', flex: 1, minHeight: 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1730 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1746 }}>
           {/* Fixed column proportions: narrow toggle column, wide Restaurant + Admin
               (names/locations need room), everything else compact. Order matches the
               <thead> below. */}
           <colgroup>
-            <col style={{ width: 76 }} />{/* Disco Cater Marketplace */}
+            <col style={{ width: 92 }} />{/* Disco Cater Marketplace + Test account */}
             <col style={{ width: 320 }} />{/* Restaurant */}
             <col style={{ width: 210 }} />{/* Admin */}
             <col style={{ width: 280 }} />{/* Email — the longest address in this table measures 232px at DM Sans 12.5; with 24px cell padding, 280 leaves 24px of headroom so the next long one does not immediately clip. */}
@@ -1226,7 +1266,7 @@ export default function RestaurantsOrderingPage() {
           </colgroup>
           <thead>
             <tr>
-              <th style={colHead} title="Show on Disco Cater map and marketplace">Map</th>
+              <th style={colHead} title="Map: show on Disco Cater map and marketplace. Test: mark as a test account (never listed publicly; Map cannot be turned on).">Map</th>
               {sortTh('restaurant')}
               {sortTh('admin')}
               {sortTh('email')}
@@ -1270,6 +1310,15 @@ export default function RestaurantsOrderingPage() {
                       visibility toggle (disco_restaurant_overrides.visible). */}
                   <td style={cell}>
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
+                    {/* Test account (is_test) — admin-only, sits under the Map toggle
+                        it vetoes. Setting it never changes the Map toggle itself. */}
+                    <span
+                      title="Test account: never shown on the public marketplace, city pages, directory or sitemap, and noindexed. While set, the Map toggle cannot be turned on. Setting or clearing it does not change the Map toggle."
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: '#888' }}
+                    >
+                      <Toggle checked={!!ov?.isTest} onChange={() => toggleTest(r)} color="#D97706" />
+                      Test
+                    </span>
                   </td>
                   <td style={{ ...cell, fontWeight: 600, wordBreak: 'break-word' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1286,6 +1335,12 @@ export default function RestaurantsOrderingPage() {
                           badge below, and fires on 2 restaurants. */}
                       {overrideMap[r.reference]?.isDiscoNative && (
                         <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
+                      )}
+                      {ov?.isTest && (
+                        <span
+                          title="Test account — hidden from every public listing and noindexed. The Map toggle cannot be turned on until this is cleared."
+                          style={{ fontSize: 10, fontWeight: 700, color: '#92400E', background: '#FEF3C7', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}
+                        >Test</span>
                       )}
                       {r.fmCreationFailed && (
                         <span

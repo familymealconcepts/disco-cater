@@ -290,7 +290,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     // The settings row, WITHOUT the Stripe account — see cloneDiscoRestaurantOverrides.
     // Without this the duplicate has no tax config and checkout refuses every order,
     // which is how both existing native copies ended up unable to transact.
-    await cloneDiscoRestaurantOverrides(ref, newRef)
+    // It also inherits the source's is_test flag and turns the copy's marketplace
+    // switch on through lib/marketplace-switch.ts — refused (copy left OFF, not an
+    // error) when the source is a test restaurant.
+    await cloneDiscoRestaurantOverrides(ref, newRef, { actorEmail: actorEmail || null, authType: ctx.authType })
 
     // ── SLACK, MATCHING FM'S OWN MESSAGE ─────────────────────────────────────
     // FM routes a duplicate through afterRegisteredRestaurantProcessDefinition,

@@ -48,6 +48,10 @@ export interface CachedRestaurant {
   // to native-menu rendering or the FM lookup below just because those other
   // flags happen to still say "on."
   isArchived: boolean
+  // Test account (disco_restaurant_overrides.is_test). The page still renders —
+  // only indexing changes (see buildRestaurantMetadata) — and the marketplace
+  // listing already excludes it (lib/marketplace-restaurants.ts).
+  isTest: boolean
 }
 
 // React.cache() memoizes within a single request — generateMetadata and the
@@ -60,7 +64,7 @@ export interface CachedRestaurant {
 export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRestaurant | null> => {
   const rows = (await withDiscoTables(() => sql`
     SELECT c.restaurant_reference, c.name, c.slug, c.address, c.address_line1, c.address_line2, c.city, c.state, c.zipcode, c.location, c.cuisine, c.description,
-           c.image_url, c.icon_url, c.lat, c.lng, c.timezone, o.is_premium, o.archived_at
+           c.image_url, c.icon_url, c.lat, c.lng, c.timezone, o.is_premium, o.archived_at, o.is_test
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE LOWER(c.slug) = LOWER(${slug})
@@ -69,7 +73,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null
     cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null
     lat: string | number | null; lng: string | number | null; timezone: string | null
-    is_premium: boolean | null; archived_at: string | null
+    is_premium: boolean | null; archived_at: string | null; is_test: boolean | null
   }[]
   const r = rows[0]
   if (!r) return null
@@ -88,6 +92,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     lat: r.lat != null ? Number(r.lat) : null, lng: r.lng != null ? Number(r.lng) : null,
     timezone: r.timezone,
     isArchived: r.archived_at != null,
+    isTest: r.is_test === true,
   }
 })
 
@@ -352,7 +357,9 @@ export async function buildRestaurantMetadata(
     ? await getOrderable(r.restaurantReference).catch(() => null)
     : null
   const paused = orderable?.reason === 'ordering-disabled'
-  const robots = (opts.noindex || r?.isArchived || paused) ? { index: false, follow: true } : undefined
+  // And a TEST account is always noindex: it renders for whoever is testing it,
+  // but it is not a restaurant a search engine should send anyone to.
+  const robots = (opts.noindex || r?.isArchived || paused || r?.isTest) ? { index: false, follow: true } : undefined
 
   // Fall back to a minimal but useful set if Neon has no cache row yet (e.g.
   // FM fallback path) — the page itself still renders via the FM lookup.

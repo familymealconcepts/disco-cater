@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { sql } from '../db'
+import { setMarketplaceVisible, type MarketplaceSwitchOptions } from '../marketplace-switch'
 
 // Deep-copy a Disco-native restaurant's entire menu tree from sourceRef to newRef,
 // regenerating every reference and remapping the foreign keys (menus → categories →
@@ -135,20 +136,35 @@ export async function cloneDiscoRestaurantMenus(sourceRef: string, newRef: strin
  * correct, visible, blocking state rather than a silent misdirection.
  *
  * Promo codes are not copied either (they live in their own table and are a
- * marketing decision, not a setting), and `visible` is forced to false so a
- * half-configured duplicate can never appear on the marketplace on its own.
+ * marketing decision, not a setting).
+ *
+ * ── THE MARKETPLACE SWITCH IS TURNED ON — THROUGH lib/marketplace-switch.ts ───
+ * Since 6f94cb6 a duplicate is visible = true (Peter's call, matching FM's
+ * cloneRestaurant, which leaves a copy ACCEPTED and unblocked). It still cannot
+ * reach the public feed without its own Stripe account — that, not `visible`,
+ * is what stops a half-configured duplicate from selling; see the clone route.
+ * The row is inserted with visible = false and the switch is then turned on by
+ * setMarketplaceVisible, the only code allowed to turn it on.
+ *
+ * is_test IS INHERITED. A duplicate of a test restaurant is a test restaurant,
+ * so the helper refuses to turn its switch on and the copy ends up OFF. That is
+ * a refusal, not an error: the clone completes normally.
  *
  * Everything carried is a SETTING the operator would otherwise retype: tax
  * rates, who gets notified, the lead-gen percentages, and whether online
  * ordering is on.
  */
-export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: string): Promise<boolean> {
+export async function cloneDiscoRestaurantOverrides(
+  sourceRef: string,
+  newRef: string,
+  actor: Pick<MarketplaceSwitchOptions, 'actorEmail' | 'authType' | 'audit'> = { actorEmail: null, authType: 'script' },
+): Promise<boolean> {
   const rows = (await sql`
     SELECT tax_rates, notification_emails, notification_sms_numbers,
            order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
            text_notifications_enabled, lead_gen_one_pct, lead_gen_two_pct,
            online_ordering_enabled, delivery_order_time_windows, enable_menu_search,
-           nash_allowed, shipday_enabled, money_flow
+           nash_allowed, shipday_enabled, money_flow, is_test
       FROM disco_restaurant_overrides WHERE restaurant_reference = ${sourceRef} LIMIT 1
   `) as Record<string, unknown>[]
 
@@ -156,9 +172,9 @@ export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: s
   // clone still needs a row so it is configurable, so insert the defaults.
   const s = rows[0] ?? {}
 
-  await sql`
+  const inserted = (await sql`
     INSERT INTO disco_restaurant_overrides (
-      restaurant_reference, visible,
+      restaurant_reference, visible, is_test,
       tax_rates, notification_emails, notification_sms_numbers,
       order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
       text_notifications_enabled, lead_gen_one_pct, lead_gen_two_pct,
@@ -166,7 +182,7 @@ export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: s
       nash_allowed, shipday_enabled, money_flow
       -- stripe_account_id / stripe_onboarding_complete intentionally absent; see header.
     ) VALUES (
-      ${newRef}, true,
+      ${newRef}, false, ${s.is_test === true},
       ${s.tax_rates ? JSON.stringify(s.tax_rates) : null}::jsonb,
       ${(s.notification_emails as string) ?? null},
       ${(s.notification_sms_numbers as string) ?? null},
@@ -183,6 +199,14 @@ export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: s
       ${(s.money_flow as string) ?? null}
     )
     ON CONFLICT (restaurant_reference) DO NOTHING
-  `
+    RETURNING restaurant_reference
+  `) as { restaurant_reference: string }[]
+
+  // Only for a row this call created — ON CONFLICT DO NOTHING means an existing
+  // row is left entirely alone, switch included. A refusal (test source) leaves
+  // the copy OFF and is audited by the helper; it does not fail the clone.
+  if (inserted.length > 0) {
+    await setMarketplaceVisible(newRef, true, { source: 'location-clone', ...actor, extra: { sourceRef } })
+  }
   return rows.length > 0
 }

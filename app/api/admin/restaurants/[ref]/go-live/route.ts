@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { checkNativeGoLiveReadiness, goLiveNativeRestaurant, recordGoLiveVerification } from '../../../../../../lib/native-go-live'
 
 // Native go-live gate (super-admin). The ordered verify-before-live checklist.
@@ -35,7 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       return NextResponse.json(await checkNativeGoLiveReadiness(ref))
     }
     if (action === 'flip') {
-      const result = await goLiveNativeRestaurant(ref)
+      // actorEmail is attribution for the marketplace-switch audit row only. A
+      // test restaurant comes back as 409 with { error, reason: 'test-restaurant' }
+      // alongside the usual readiness payload (lib/marketplace-switch.ts).
+      const result = await goLiveNativeRestaurant(ref, { actorEmail: await getAdminEmail().catch(() => null) })
       return NextResponse.json(result, { status: result.flipped ? 200 : 409 })
     }
     return NextResponse.json({ error: "Provide { action: 'record' | 'flip' }" }, { status: 400 })
