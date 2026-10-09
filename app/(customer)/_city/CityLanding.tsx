@@ -55,6 +55,15 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
   },
 }
 
+// The city page a restaurant with this `location` would be listed on, or null.
+// Same substring rule fetchCityRestaurants applies below, so a link built from
+// this always lands on a page that covers the restaurant's area.
+export function cityForLocation(location: string | null | undefined): CityConfig | null {
+  const loc = (location || '').toLowerCase()
+  if (!loc) return null
+  return Object.values(CITIES).find(c => c.matchTerms.some(t => loc.includes(t))) ?? null
+}
+
 interface CityRestaurant {
   restaurant_reference: string
   name: string

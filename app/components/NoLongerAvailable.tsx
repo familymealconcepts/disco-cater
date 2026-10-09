@@ -12,10 +12,14 @@ export default function NoLongerAvailable({
   icon = '🔗',
   title = 'This link is no longer active',
   message = "The page you're looking for isn't available. Browse our marketplace to find catering near you.",
+  ctaHref = '/fullmap',
+  ctaLabel = 'Browse restaurants →',
 }: {
   icon?: string
   title?: string
   message?: string
+  ctaHref?: string
+  ctaLabel?: string
 }) {
   return (
     <div style={{ minHeight: '100svh', background: '#fff', fontFamily: F, display: 'flex', flexDirection: 'column' }}>
@@ -28,13 +32,13 @@ export default function NoLongerAvailable({
           {message}
         </p>
         <a
-          href="/fullmap"
+          href={ctaHref}
           style={{
             display: 'inline-block', background: BLUE, color: '#fff', textDecoration: 'none',
             padding: '12px 24px', borderRadius: 999, fontSize: 15, fontWeight: 700,
           }}
         >
-          Browse restaurants →
+          {ctaLabel}
         </a>
       </main>
     </div>

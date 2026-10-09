@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
 import NoLongerAvailable from '../../../components/NoLongerAvailable'
+import { cityForLocation } from '../../_city/CityLanding'
 import { assertRestaurantOrderable } from '../../../../lib/restaurant-orderable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
@@ -89,6 +90,12 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     isArchived: r.archived_at != null,
   }
 })
+
+// The orderability gate, memoized per request like getCachedRestaurant above.
+// generateMetadata reads it to decide noindex and RestaurantView reads it to
+// decide the paused page, so the robots tag and the banner come from ONE read
+// and can never disagree about whether a restaurant is paused.
+const getOrderable = cache((ref: string) => assertRestaurantOrderable(ref))
 
 function truncate(s: string, n: number): string {
   if (!s) return ''
@@ -334,7 +341,18 @@ export async function buildRestaurantMetadata(
   // An archived restaurant is always noindex, regardless of which route this
   // is — it must never rank in search once it's gone, even on the otherwise-
   // indexable /restaurants page.
-  const robots = (opts.noindex || r?.isArchived) ? { index: false, follow: true } : undefined
+  //
+  // So is one that has paused online ordering: its page renders only the
+  // "not accepting online orders" notice (see RestaurantView), which is thin
+  // content and a dead end from search. Same gate that drives that notice, so
+  // the tag lifts on its own the moment ordering is switched back on. A gate
+  // read failure leaves the page indexable rather than failing metadata — the
+  // page body reads the same gate and surfaces the error itself.
+  const orderable = r?.restaurantReference
+    ? await getOrderable(r.restaurantReference).catch(() => null)
+    : null
+  const paused = orderable?.reason === 'ordering-disabled'
+  const robots = (opts.noindex || r?.isArchived || paused) ? { index: false, follow: true } : undefined
 
   // Fall back to a minimal but useful set if Neon has no cache row yet (e.g.
   // FM fallback path) — the page itself still renders via the FM lookup.
@@ -683,7 +701,7 @@ export async function RestaurantView({
   // the API can never disagree about whether a restaurant is open — which is the whole
   // reason lib/restaurant-orderable.ts exists. It is read-only and never writes a flag.
   const orderable = cachedForArchiveCheck?.restaurantReference
-    ? await assertRestaurantOrderable(cachedForArchiveCheck.restaurantReference)
+    ? await getOrderable(cachedForArchiveCheck.restaurantReference)
     : null
   if (cachedForArchiveCheck?.isArchived || orderable?.reason === 'archived') {
     // Archive keeps its own longer-standing copy — it is the shipped experience and points
@@ -703,6 +721,10 @@ export async function RestaurantView({
     // ordering-disabled message is a complete statement on its own, so repeating it
     // underneath (which the first cut did) just said the same thing twice.
     const paused = orderable.reason === 'ordering-disabled'
+    // A paused page is noindexed (buildRestaurantMetadata), so send the visitor
+    // somewhere that still ranks and still sells: the city page covering this
+    // restaurant when there is one, otherwise the map (the component default).
+    const city = paused ? cityForLocation(cachedForArchiveCheck?.location) : null
     return (
       <NoLongerAvailable
         icon={paused ? '⏸' : '💳'}
@@ -710,6 +732,7 @@ export async function RestaurantView({
         message={paused
           ? 'Browse our marketplace to find catering near you.'
           : orderable.message}
+        {...(city ? { ctaHref: `/${city.slug}`, ctaLabel: `Browse ${city.name} catering →` } : {})}
       />
     )
   }
