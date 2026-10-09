@@ -291,9 +291,13 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS menu_upload_url TEXT`,
     // Disco-native onboarding fields. `phone` is the restaurant's contact number;
     // `is_disco_native` marks a restaurant created entirely in Disco (no FM
-    // record); `is_live` is set true by become-a-partner Go-Live (or a super
-    // admin) and surfaces the restaurant on the marketplace alongside the
-    // visible+stripe_connected FM-backed rows. (cuisine already exists above.)
+    // record). `is_live` is RETAINED ONLY AS A COLUMN — it is not a concept and
+    // gates nothing. Visibility and ordering are decided by Stripe connection,
+    // the online-ordering toggle and the Map toggle, and nothing else. A few
+    // call sites still read this column for unrelated purposes (multi-location
+    // blocking, the team list, onboarding progress, the multi-unit count); each
+    // is being re-pointed at one of the three. Never gate on it.
+    // (cuisine already exists above.)
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS phone TEXT`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT false`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_disco_native BOOLEAN DEFAULT false`,

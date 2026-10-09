@@ -283,9 +283,10 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // is_live is a disco-native marketplace toggle living on the cache row — a
-    // super admin can flip a disco-native restaurant live/offline directly.
-    // Handled independently of the overrides upsert.
+    // LEGACY. is_live is not a marketplace toggle and is not a concept — the Map
+    // toggle (o.visible) is what puts a restaurant on the marketplace, and the
+    // feed has never read this column. Kept only so an older client sending
+    // `isLive` is not met with an error; it changes nothing a customer can see.
     if (typeof body?.isLive === 'boolean') {
       await sql`
         UPDATE disco_restaurant_cache

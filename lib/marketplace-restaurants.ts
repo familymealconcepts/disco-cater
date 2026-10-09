@@ -43,15 +43,20 @@ export interface MarketplaceRestaurantRow {
 //     account row during onboarding). NOT o.stripe_connected — see the comment
 //     on that branch below.
 //
-// is_live is deliberately NOT part of this filter, despite reading like it
-// should be. Checked live in production: 30 of 32 disco-native restaurants
-// have is_live=true (reliably maintained), but only 281 of 4,051 FM-backed
-// restaurants do — the other 3,770 are is_live=false, and the FM cache-refresh
-// cron (lib/restaurant-cache.ts) never touches is_live at all, so that's
-// "never set," not "intentionally hidden." Adding is_live here would drop ~95
-// real, currently visible+Stripe-connected FM-backed restaurants (Tap 42,
-// Two Hands, Happy's Pizza, etc.) off the public feed — a regression, not a
-// fix. Revisit only if is_live becomes reliably maintained for FM-backed rows.
+// THERE ARE EXACTLY THREE CONCEPTS, AND THIS FILTER IS THE THIRD:
+//   Stripe connection — enables online ordering; without it a restaurant
+//                       cannot take payment
+//   Online ordering   — a toggle, on automatically for a newly Stripe-connected
+//                       location, controllable by admins, system admins and
+//                       super admins
+//   Map               — default on; makes the restaurant visible here
+// Nothing else gates visibility or ordering.
+//
+// This filter never read is_live, which is why it was already correct when
+// is_live was removed as a gate everywhere else. Do not reintroduce it: it is
+// not a concept. (It was also never maintained — 3,770 of 4,051 FM-backed rows
+// sat at false purely because the cache cron never set it, so reading it here
+// would have dropped ~95 real, Stripe-connected restaurants off the feed.)
 export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurantRow[]> {
   const rows = (await withDiscoTables(() => sql`
     SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description,

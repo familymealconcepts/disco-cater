@@ -346,7 +346,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
                 <a
                   href={`https://www.discocater.com/order/${restaurantSlug}`}
                   target="_blank" rel="noreferrer"
-                  title="Open live page in new tab"
+                  title="Open ordering page in new tab"
                   style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}
                 >↗</a>
               )}
