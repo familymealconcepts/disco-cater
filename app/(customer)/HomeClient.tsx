@@ -329,6 +329,8 @@ export default function HomeClient() {
               { slug: 'new-york', name: 'New York' },
               { slug: 'new-jersey', name: 'New Jersey' },
               { slug: 'los-angeles', name: 'Los Angeles' },
+              { slug: 'austin', name: 'Austin' },
+              { slug: 'seattle', name: 'Seattle' },
             ].map((c, i) => (
               <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                 {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
