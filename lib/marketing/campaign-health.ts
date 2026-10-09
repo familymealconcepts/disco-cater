@@ -74,6 +74,22 @@ export class CampaignHealth {
     private readonly domain: string,
     private readonly sinceSec: number,
     private readonly thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
+    /**
+     * Complaints a PERSON has already reviewed and accepted, for this window.
+     *
+     * The complaint rule is unchanged and still zero-tolerance: any complaint
+     * beyond this number halts the run instantly. This exists because the
+     * measurement window looks BACK 24 hours, so a complaint that already
+     * halted a run is still inside the window on the next one — without a way
+     * to say "that one has been seen", a reviewed halt could never be resumed,
+     * only waited out for a day.
+     *
+     * Deliberately a per-run input with a default of 0, not a stored flag and
+     * not a threshold: resuming past a complaint has to be an explicit, visible
+     * act by the operator doing the resuming, and it expires with the process.
+     * A future complaint-triggered halt is never silently pre-disarmed.
+     */
+    private readonly acknowledgedComplaints = 0,
   ) {}
 
   /** Record one send result. Any auth failure is terminal on its own. */
@@ -157,8 +173,16 @@ export class CampaignHealth {
       return { halt: true, reason: `${this.consecutiveFailures} consecutive send failures (limit ${t.maxConsecutiveFailures})` }
     }
 
-    if (s.complaints > 0) {
-      return { halt: true, reason: `${s.complaints} spam complaint(s) — any complaint halts the run` }
+    // Zero-tolerance, measured against what has already been reviewed. With the
+    // default acknowledgement of 0 this is exactly `complaints > 0`.
+    if (s.complaints > this.acknowledgedComplaints) {
+      const fresh = s.complaints - this.acknowledgedComplaints
+      return {
+        halt: true,
+        reason: this.acknowledgedComplaints > 0
+          ? `${fresh} new spam complaint(s) beyond the ${this.acknowledgedComplaints} already reviewed — any complaint halts the run`
+          : `${s.complaints} spam complaint(s) — any complaint halts the run`,
+      }
     }
 
     // ROLLING, not cumulative. The floor is unchanged: at least

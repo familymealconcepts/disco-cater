@@ -430,7 +430,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true AND c.is_live = true
+      WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true
       LIMIT 1
     `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
@@ -719,17 +719,28 @@ export async function RestaurantView({
   // disco-native restaurants use the native ordering endpoints; FM-specific
   // availability calls in RestaurantClient are no-ops for these (the menu,
   // item names, descriptions and prices render correctly).
+  // ── is_live IS GONE, DELIBERATELY ──────────────────────────────────────────
+  // Two rules decide everything, and neither is is_live:
+  //   • Stripe connected AND online ordering on -> the ordering page displays
+  //   • marketplace toggle on                   -> it is on the marketplace
+  //
+  // The loader above used to require is_live = true, and a native row that
+  // failed it fell into a notFound() guard here. That 404'd 486 converted
+  // restaurants, 116 of which the marketplace feed was ALREADY listing publicly
+  // — the feed has never read is_live (see lib/marketplace-restaurants.ts for
+  // why), so the map offered a restaurant whose page did not exist.
+  //
+  // The guard itself is gone with it: it existed only to stop a NOT-LIVE native
+  // row from falling through to Sanity/FM and serving an unrelated restaurant
+  // that shares the slug. Without the is_live condition the loader returns a row
+  // for every native slug, so `native` is now null only when the slug is not
+  // native at all — which is exactly when falling through is correct.
+  //
+  // Readiness is still enforced, just not here: assertRestaurantOrderable ran
+  // above and renders its own refusal for a restaurant that cannot take payment
+  // or has ordering off. That is a page saying "not accepting orders right now",
+  // which is what a customer should get — never a 404.
   const native = await loadDiscoNativeRestaurant(slug)
-  if (!native) {
-    // A disco-native restaurant that hasn't gone live yet (is_live = false) must
-    // never fall through to Sanity/FM below — that risks silently serving an
-    // unrelated restaurant that happens to share this slug (e.g. a
-    // become-a-partner shadow FM record), instead of a clear "not available".
-    const notLiveNative = (await withDiscoTables(() => sql`
-      SELECT 1 FROM disco_restaurant_cache WHERE LOWER(slug) = LOWER(${slug}) AND is_disco_native = true LIMIT 1
-    `, runMigrations).catch(() => [])) as unknown[]
-    if (notLiveNative.length > 0) return notFound()
-  }
   if (native) {
     return (
       <>
