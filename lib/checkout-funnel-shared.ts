@@ -50,3 +50,12 @@ export const FUNNEL_STAGE_TIMESTAMP_COLUMN: Record<FunnelStage, string> = {
 export function isFunnelStage(v: unknown): v is FunnelStage {
   return typeof v === 'string' && (FUNNEL_STAGES as string[]).includes(v)
 }
+
+// Name of the first-party cookie holding a restaurant's funnel session id. Lives
+// here (zero imports) rather than in lib/utils/funnel-session.ts because that
+// module is 'use client', and the server needs the exact same name to read the
+// id back -- /api/checkout-contact keys its row on the cookie, not on a body
+// value. One definition, so the two sides cannot drift apart.
+export function funnelCookieName(restaurantReference: string): string {
+  return `disco_fn_${restaurantReference.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+}

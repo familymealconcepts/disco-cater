@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, withDiscoTables, runCheckoutFunnelMigrations } from '../../../../lib/db'
+import { sql, withDiscoTables, runCheckoutFunnelMigrations, runCheckoutContactsMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,8 +30,34 @@ export async function GET(req: NextRequest) {
       `,
       runCheckoutFunnelMigrations,
     ) as { session_id: string }[]
-    console.log(`[cron/cleanup-checkout-funnel] deleted=${rows.length}`)
-    return NextResponse.json({ ok: true, deleted: rows.length })
+
+    // disco_checkout_contacts retention: 30 days -- a THIRD of the funnel's 90,
+    // on purpose. That table holds a name, email and phone for people who mostly
+    // never ordered; it exists for a timely follow-up on an abandoned cart, and a
+    // cart a month old is past following up, so there is no reason to hold the PII
+    // longer. Keyed on updated_at (last capture or the order stamp), same as the
+    // funnel. Its own try/catch: a failure here must not mask the funnel cleanup
+    // above, which has already run and is reported either way.
+    let contactsDeleted: number | null = null
+    try {
+      const contactRows = await withDiscoTables(
+        () => sql`
+          DELETE FROM disco_checkout_contacts
+          WHERE updated_at < NOW() - INTERVAL '30 days'
+          RETURNING session_id
+        `,
+        runCheckoutContactsMigrations,
+      ) as { session_id: string }[]
+      contactsDeleted = contactRows.length
+    } catch (err) {
+      console.error('[cron/cleanup-checkout-funnel] checkout-contacts cleanup failed:', err instanceof Error ? err.message : err)
+    }
+
+    console.log(`[cron/cleanup-checkout-funnel] deleted=${rows.length} contactsDeleted=${contactsDeleted ?? 'failed'}`)
+    if (contactsDeleted === null) {
+      return NextResponse.json({ error: 'Checkout-contacts cleanup failed', deleted: rows.length }, { status: 500 })
+    }
+    return NextResponse.json({ ok: true, deleted: rows.length, contactsDeleted })
   } catch (err) {
     console.error('[cron/cleanup-checkout-funnel] failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Cleanup failed' }, { status: 500 })
