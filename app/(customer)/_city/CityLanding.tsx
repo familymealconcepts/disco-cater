@@ -3,8 +3,8 @@ import Link from 'next/link'
 import { getMarketplaceRestaurants, type MarketplaceRestaurantRow } from '../../../lib/marketplace-restaurants'
 import GlobalHeader from '../../components/GlobalHeader'
 
-// Shared server-rendered city landing page. The four city routes
-// (/new-york, /new-jersey, /los-angeles, /chicago) are thin wrappers that pass
+// Shared server-rendered city landing page. The city routes (/new-york,
+// /new-jersey, /los-angeles, /chicago, /austin, /seattle) are thin wrappers that pass
 // their CityConfig here. No 'use client' — fully server-rendered for SEO; the
 // restaurant grid is static HTML built from a server-side Sanity fetch.
 
@@ -19,25 +19,73 @@ export interface CityConfig {
   // Case-insensitive substrings matched against Sanity `location`. NY/NJ use the
   // state suffix (", ny"/", nj") so the metro's boroughs/towns are all captured;
   // LA uses metro city names to avoid pulling in other California cities
-  // (SF/San Diego); Chicago matches the city name.
+  // (SF/San Diego); Chicago matches the city name. Austin/Seattle use
+  // state-qualified metro town names (", tx"/", wa") so no other state can match.
   matchTerms: string[]
   intro: string
+  // Optional FAQ. When present the page renders a visible FAQ section AND an
+  // FAQPage JSON-LD block built from these same strings, so the two can't drift.
+  faqs?: { q: string; a: string }[]
 }
 
-export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago', CityConfig> = {
+export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago' | 'austin' | 'seattle', CityConfig> = {
   'new-york': {
     slug: 'new-york',
     name: 'New York',
     matchTerms: [', ny'],
     intro:
       'New York sets the standard. The restaurants on Disco Cater reflect that — curated for corporate teams, holiday events, and occasions that demand something better than ordinary. Delivery and pickup across Manhattan, Brooklyn, Queens, and beyond.',
+    faqs: [
+      {
+        q: 'How do I order catering in New York?',
+        a: "Search your address on the Disco Cater map to see hand-vetted restaurants near you across Manhattan, Brooklyn, and beyond, then order directly from the restaurant's menu.",
+      },
+      {
+        q: 'Can I set up recurring office catering?',
+        a: 'Yes. Disco Cater is built for recurring office programs, from weekly team lunches to daily meals, with New York restaurants your team already knows.',
+      },
+      {
+        q: 'Do you cater holiday parties?',
+        a: 'Yes. Many New York restaurants on Disco Cater offer holiday and special-event menus available only on the marketplace.',
+      },
+      {
+        q: 'How far ahead should I order?',
+        a: 'Each restaurant sets its own lead time. For large groups and holiday season, order as early as you can.',
+      },
+      {
+        q: 'Is it delivery or pickup?',
+        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+      },
+    ],
   },
   'new-jersey': {
     slug: 'new-jersey',
     name: 'New Jersey',
     matchTerms: [', nj'],
     intro:
-      'From Jersey City to the Shore, Disco Cater connects you with the best catering options in New Jersey. Built for office teams, family gatherings, and events that deserve restaurant-quality food — without the restaurant markup.',
+      "Catering from New Jersey's best local restaurants, from the Jersey Shore to North Jersey. Disco Cater connects offices, event planners, and families with hand-vetted restaurants across dozens of New Jersey towns for corporate lunches, recurring office catering programs, holiday parties, and social events.",
+    faqs: [
+      {
+        q: 'How do I order catering in New Jersey?',
+        a: "Search your address on the Disco Cater map to see hand-vetted local restaurants near you, from the Jersey Shore to towns across the state, then order directly from the restaurant's menu.",
+      },
+      {
+        q: 'Can I set up recurring office catering?',
+        a: 'Yes. Offices across New Jersey use Disco Cater for recurring team lunches from restaurants close to them.',
+      },
+      {
+        q: 'Do you cater holiday parties?',
+        a: 'Yes, including holiday and special-event menus available only on Disco Cater.',
+      },
+      {
+        q: 'How far ahead should I order?',
+        a: 'Each restaurant sets its own lead time. For large groups and holiday season, order as early as you can.',
+      },
+      {
+        q: 'Is it delivery or pickup?',
+        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+      },
+    ],
   },
   'los-angeles': {
     slug: 'los-angeles',
@@ -45,6 +93,28 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
     matchTerms: ['los angeles', 'west hollywood', 'hollywood', 'santa monica', 'beverly hills', 'culver city', 'venice', 'studio city', 'sherman oaks', 'burbank', 'glendale', 'pasadena', 'westwood'],
     intro:
       'Los Angeles has no shortage of great food. Disco Cater curates the best of it for catering — from West Hollywood to the Westside, DTLA to the Valley. Corporate lunches, film set catering, private events, and everything in between.',
+    faqs: [
+      {
+        q: 'How do I order catering in Los Angeles?',
+        a: "Search your address on the Disco Cater map to see hand-vetted restaurants across Los Angeles, then order directly from the restaurant's menu.",
+      },
+      {
+        q: 'Can I set up recurring office catering?',
+        a: 'Yes. Disco Cater supports recurring office programs with Los Angeles restaurants, from weekly lunches to standing orders.',
+      },
+      {
+        q: 'Do you cater holiday parties?',
+        a: 'Yes, with holiday and special-event menus available only on Disco Cater.',
+      },
+      {
+        q: 'How far ahead should I order?',
+        a: 'Each restaurant sets its own lead time. Give large orders and holiday events extra notice.',
+      },
+      {
+        q: 'Is it delivery or pickup?',
+        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+      },
+    ],
   },
   'chicago': {
     slug: 'chicago',
@@ -52,6 +122,71 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
     matchTerms: ['chicago'],
     intro:
       "Chicago takes food seriously. Disco Cater brings the city's best catering options to corporate teams, event planners, and anyone who refuses to settle for average. Delivery and pickup across the Loop, River North, Lincoln Park, and beyond.",
+  },
+  // Austin and Seattle follow the METRO AREA, not the city limits: every term is
+  // state-qualified (", tx"/", wa") so no other state's town can match, and
+  // Dallas/Houston/San Antonio etc. stay off the Austin page. Tacoma is included
+  // deliberately, as part of the Seattle–Tacoma metro. Declared after the four
+  // original cities; none of their terms (", ny", ", nj", LA's bare city names,
+  // "chicago") occurs in any of these ", tx"/", wa" strings, so cityForLocation's
+  // first-match order cannot hand one of these locations to an earlier city.
+  'austin': {
+    slug: 'austin',
+    name: 'Austin',
+    matchTerms: ['austin, tx', 'kyle, tx', 'san marcos, tx', 'round rock, tx', 'cedar park, tx', 'pflugerville, tx', 'georgetown, tx', 'leander, tx', 'lakeway, tx', 'bee cave, tx', 'buda, tx', 'manor, tx', 'lago vista, tx'],
+    intro:
+      "Catering from Austin's best local restaurants. Disco Cater connects offices, event planners, and families with hand-vetted Austin restaurants for corporate lunches, recurring office catering programs, holiday parties, and social events.",
+    faqs: [
+      {
+        q: 'How do I order catering in Austin?',
+        a: "Search your Austin address on the Disco Cater map to see hand-vetted local restaurants near you, then order directly from the restaurant's menu.",
+      },
+      {
+        q: 'Can I set up recurring office catering?',
+        a: 'Yes. Austin offices can set up recurring team lunches with local restaurants on Disco Cater.',
+      },
+      {
+        q: 'Do you cater holiday parties?',
+        a: 'Yes, through restaurants offering holiday and special-event menus.',
+      },
+      {
+        q: 'How far ahead should I order?',
+        a: 'Each restaurant sets its own lead time. Order early for large groups.',
+      },
+      {
+        q: 'Is it delivery or pickup?',
+        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+      },
+    ],
+  },
+  'seattle': {
+    slug: 'seattle',
+    name: 'Seattle',
+    matchTerms: ['seattle, wa', 'bellevue, wa', 'redmond, wa', 'kirkland, wa', 'bothell, wa', 'lynnwood, wa', 'everett, wa', 'renton, wa', 'kent, wa', 'auburn, wa', 'burien, wa', 'tukwila, wa', 'federal way, wa', 'tacoma, wa', 'issaquah, wa', 'sammamish, wa', 'shoreline, wa'],
+    intro:
+      "Catering from Seattle's best local restaurants. Disco Cater connects offices, event planners, and families with hand-vetted Seattle restaurants for corporate lunches, recurring office catering programs, holiday parties, and social events.",
+    faqs: [
+      {
+        q: 'How do I order catering in Seattle?',
+        a: "Search your Seattle address on the Disco Cater map to see hand-vetted local restaurants near you, then order directly from the restaurant's menu.",
+      },
+      {
+        q: 'Can I set up recurring office catering?',
+        a: 'Yes. Seattle offices can set up recurring team lunches with local restaurants on Disco Cater.',
+      },
+      {
+        q: 'Do you cater holiday parties?',
+        a: 'Yes, through restaurants offering holiday and special-event menus.',
+      },
+      {
+        q: 'How far ahead should I order?',
+        a: 'Each restaurant sets its own lead time. Order early for large groups.',
+      },
+      {
+        q: 'Is it delivery or pickup?',
+        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+      },
+    ],
   },
 }
 
@@ -134,7 +269,23 @@ const CITY_FOOTER_LINKS = [
   { slug: 'new-jersey', name: 'New Jersey' },
   { slug: 'los-angeles', name: 'Los Angeles' },
   { slug: 'chicago', name: 'Chicago' },
+  { slug: 'austin', name: 'Austin' },
+  { slug: 'seattle', name: 'Seattle' },
 ]
+
+// FAQPage structured data, built from the same strings the visible section
+// renders. `<` is escaped so no answer text can close the <script> element.
+function faqJsonLd(faqs: { q: string; a: string }[]): string {
+  return JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqs.map(f => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  }).replace(/</g, '\\u003c')
+}
 
 export default async function CityLanding({ city }: { city: CityConfig }) {
   const restaurants = await fetchCityRestaurants(city)
@@ -151,6 +302,9 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      {city.faqs && city.faqs.length > 0 && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd(city.faqs) }} />
+      )}
       <GlobalHeader />
 
       <main style={{ fontFamily: F, maxWidth: 1120, margin: '0 auto', padding: '40px 24px 64px', color: DARK }}>
@@ -209,6 +363,22 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
               )
             })}
           </div>
+        )}
+
+        {/* FAQ — plain server-rendered headings + paragraphs, every answer in
+            the HTML so it is indexable and matches the FAQPage JSON-LD above. */}
+        {city.faqs && city.faqs.length > 0 && (
+          <section style={{ marginTop: 56, maxWidth: 720 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 20px', lineHeight: 1.2 }}>
+              {city.name} Catering FAQ
+            </h2>
+            {city.faqs.map(f => (
+              <div key={f.q} style={{ borderTop: '1px solid #f0f0f0', padding: '16px 0' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>{f.q}</h3>
+                <p style={{ fontSize: 15, lineHeight: 1.65, color: '#585786', margin: 0 }}>{f.a}</p>
+              </div>
+            ))}
+          </section>
         )}
       </main>
 

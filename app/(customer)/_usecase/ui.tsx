@@ -23,6 +23,8 @@ const CITY_FOOTER = [
   { slug: 'new-jersey', name: 'New Jersey' },
   { slug: 'los-angeles', name: 'Los Angeles' },
   { slug: 'chicago', name: 'Chicago' },
+  { slug: 'austin', name: 'Austin' },
+  { slug: 'seattle', name: 'Seattle' },
 ]
 
 const CSS = `

@@ -94,7 +94,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // City landing pages — priority above restaurant pages (0.7), below the
   // homepage (1.0).
-  const cityEntries: MetadataRoute.Sitemap = ['new-york', 'new-jersey', 'los-angeles', 'chicago'].map(slug => ({
+  const cityEntries: MetadataRoute.Sitemap = ['new-york', 'new-jersey', 'los-angeles', 'chicago', 'austin', 'seattle'].map(slug => ({
     url: `${SITE}/${slug}`,
     changeFrequency: 'weekly',
     priority: 0.8,
