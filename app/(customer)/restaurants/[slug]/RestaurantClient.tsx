@@ -2075,15 +2075,24 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 : <span style={{ fontSize: 32, color: '#fff', fontWeight: 700, fontFamily: F }}>{(restaurant.name?.[0] || '·').toUpperCase()}</span>}
             </div>
             <div style={{ flex: 1 }}>
-              {restaurant.isDisco && (
+              {/* PREMIUM is a MARKETPLACE signal — it ranks a restaurant against its
+                  competitors on /restaurants. On a restaurant's own 1P ordering link
+                  there are no competitors to rank against, and a badge Disco awards
+                  reads as Disco's branding on the restaurant's own page. 3P only. */}
+              {!isFirstParty && restaurant.isDisco && (
                 <div style={{ display: 'inline-block', background: GRAD, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 20, marginBottom: 6, letterSpacing: '0.06em' }}>🪩 PREMIUM</div>
               )}
               <h1 style={{ fontSize: 24, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>{restaurant.name}</h1>
               <div style={{ fontSize: 13, color: '#585786', marginBottom: 6 }}>📍 {restaurant.address || restaurant.location}</div>
-              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
-                {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
-              </div>
+              {/* Cuisine tags are a BROWSE filter — they exist so someone scanning the
+                  marketplace can tell one restaurant from the next. A customer who
+                  followed the restaurant's own link already knows what it serves. 3P only. */}
+              {!isFirstParty && (
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
+                  {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
+                </div>
+              )}
               {orderingPaused && (
                 <div style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10 }}>
                   ⏸ This restaurant is not currently accepting online orders.
