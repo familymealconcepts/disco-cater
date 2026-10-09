@@ -249,21 +249,69 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  */
 const TRANSIENT = /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network|Connection terminated|timeout/i
 
-export async function withDbRetry<T>(label: string, fn: () => Promise<T>, attempts = 6): Promise<T> {
+// ── THE BUDGET, AND WHY IT IS TEN MINUTES ───────────────────────────────────
+// 25 attempts: 1s, 2s, 4s, 8s, 16s, then 30s a time (the cap) — about 10 minutes
+// of wall clock before the run gives up.
+//
+// It was 6 attempts, roughly 31 seconds. That is shorter than a real outage:
+// this run died TWICE on `ENOTFOUND api.c-8.us-east-1.aws.neon.tech`, a DNS
+// failure that outlasted the budget both times and ended an eleven-day send
+// over a blip the laptop recovered from minutes later. Restarting is safe but
+// manual, and the campaign is only sending while someone notices.
+//
+// Ten minutes is chosen against what is actually being waited on: a laptop's
+// network dropping (sleep, a wifi change, a DNS hiccup) resolves in seconds to
+// a few minutes, while an outage genuinely longer than ten minutes is not a
+// blip and a person should hear about it. The pacing cost of being wrong is
+// nil — the loop is already spending 30s+ between messages.
+//
+// THIS STILL CANNOT MASK A REAL FAILURE, by three separate mechanisms:
+//   • Only TRANSIENT-matching errors retry at all. A constraint violation, a
+//     syntax error, a permissions failure — anything not in that regex — throws
+//     on the FIRST attempt, exactly as before. A longer budget buys a wrong
+//     query nothing.
+//   • Exhaustion still throws, the driver's catch still exits non-zero, and the
+//     run still stops. Nothing here converts a failure into a silent skip.
+//   • A sustained outage is now ANNOUNCED rather than merely logged: once the
+//     retries pass a minute, ops is alerted, and alerted again when the budget
+//     is spent. alertOps writes to the console and a webhook and touches no
+//     database, so it still works when the database is the thing that is gone.
+const DB_RETRY_ATTEMPTS = 25
+// Alert once the outage is clearly not a blip — after the 1+2+4+8+16s ramp.
+const DB_RETRY_ALERT_AFTER = 6
+
+export async function withDbRetry<T>(label: string, fn: () => Promise<T>, attempts = DB_RETRY_ATTEMPTS): Promise<T> {
   let lastErr: unknown
+  let alerted = false
+  const startedAt = Date.now()
   for (let i = 0; i < attempts; i++) {
     try {
-      return await fn()
+      const out = await fn()
+      if (alerted) {
+        await alertOps(`campaign DB connectivity RECOVERED on ${label} after ${Math.round((Date.now() - startedAt) / 1000)}s — the run continued`)
+      }
+      return out
     } catch (e) {
       lastErr = e
       const msg = e instanceof Error ? `${e.message} ${String((e as { sourceError?: unknown }).sourceError ?? '')}` : String(e)
       if (!TRANSIENT.test(msg)) throw e          // a real error is not a blip
       if (i === attempts - 1) break
+      if (i === DB_RETRY_ALERT_AFTER && !alerted) {
+        alerted = true
+        await alertOps('campaign DB unreachable — still retrying, the run has NOT stopped', {
+          label, error: msg.slice(0, 200), elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+          budgetSec: 601,
+        })
+      }
       const backoff = Math.min(1000 * 2 ** i, 30_000) + Math.floor(Math.random() * 1000)
       console.warn(`[campaign] ${label} failed (${msg.slice(0, 90)}) — retry ${i + 1}/${attempts - 1} in ${Math.round(backoff / 1000)}s`)
       await sleep(backoff)
     }
   }
+  await alertOps('campaign STOPPING — database unreachable for the whole retry budget', {
+    label, attempts, elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+    error: lastErr instanceof Error ? lastErr.message.slice(0, 200) : String(lastErr),
+  })
   throw lastErr
 }
 
