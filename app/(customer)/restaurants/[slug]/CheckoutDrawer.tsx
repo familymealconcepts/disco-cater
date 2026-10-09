@@ -9,7 +9,7 @@ import { trackEvent } from '../../../../lib/analytics'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
-import { postFunnelStage } from '../../../../lib/utils/funnel-session'
+import { postFunnelStage, postCheckoutContact } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
 
 const F = "'DM Sans', sans-serif"
@@ -309,6 +309,29 @@ export default function CheckoutDrawer({
       }
     }
   }, [contactFirst, contactLast, contactEmail, contactPhone, isDirectEntry, restaurantName, funnelSessionId, fmRef, orderType, subtotal, cart])
+
+  // Abandoned-checkout contact capture (006_checkout_contacts.sql) -- a SEPARATE
+  // table from the funnel above, which still stores no contact details. Gated on
+  // the same latch, so nothing is sent until all four fields have been filled at
+  // least once. Unlike the latch it keeps listening: for a signed-in diner the
+  // fields pre-fill and latch immediately, so a one-shot send would only ever
+  // capture the account's own details, never what they typed over them. The
+  // debounce makes it one request per pause in typing, not one per keystroke.
+  //
+  // Only sent with a signed-in diner (the server ignores anything else anyway) and
+  // never on Direct Entry, where the person typing is staff, not the customer.
+  // Fire-and-forget: postCheckoutContact never throws and nothing awaits it.
+  useEffect(() => {
+    if (isDirectEntry || !authUser || !funnelSessionId || !fmRef || !contactCompletedRef.current) return
+    const t = setTimeout(() => {
+      postCheckoutContact({
+        restaurantReference: fmRef,
+        firstName: contactFirst, lastName: contactLast, email: contactEmail,
+        phone: contactPhone, company: contactCompany,
+      })
+    }, 1000)
+    return () => clearTimeout(t)
+  }, [contactFirst, contactLast, contactEmail, contactPhone, contactCompany, isDirectEntry, authUser, funnelSessionId, fmRef])
 
   // Continue checkout after login via AuthModal
   useEffect(() => {

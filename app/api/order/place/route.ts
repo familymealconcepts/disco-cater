@@ -18,6 +18,7 @@ import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/r
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
+import { stampCheckoutContactOrderPlaced } from '../../../../lib/checkout-contacts'
 import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition } from '../../../../lib/attribution'
 
 export const runtime = 'nodejs'
@@ -408,6 +409,18 @@ export async function POST(req: NextRequest) {
             orderReference: result.orderReference,
           }).catch((e) => console.error('[order/place] funnel capture failed (non-fatal):', e instanceof Error ? e.message : e)),
         )
+        // Abandoned-checkout list (006_checkout_contacts.sql): this session
+        // converted. Same session id, same fire-and-forget shape; a no-op when no
+        // contact row was ever captured. Wrapped so even a synchronous throw cannot
+        // reach the placement response.
+        try {
+          waitUntil(
+            stampCheckoutContactOrderPlaced(body.funnelSessionId, body.restaurantRef)
+              .catch((e) => console.error('[order/place] checkout-contact stamp failed (non-fatal):', e instanceof Error ? e.message : e)),
+          )
+        } catch (e) {
+          console.error('[order/place] checkout-contact stamp failed (non-fatal):', e instanceof Error ? e.message : e)
+        }
       }
 
       // How the customer found us. The order row already exists here
@@ -604,6 +617,15 @@ export async function POST(req: NextRequest) {
             orderReference: orderRef,
           }).catch((e) => console.error('[order/place] funnel capture failed (non-fatal):', e instanceof Error ? e.message : e)),
         )
+        // Abandoned-checkout list: this session converted (see the native path above).
+        try {
+          waitUntil(
+            stampCheckoutContactOrderPlaced(funnelSessionId, restaurantRef)
+              .catch((e) => console.error('[order/place] checkout-contact stamp failed (non-fatal):', e instanceof Error ? e.message : e)),
+          )
+        } catch (e) {
+          console.error('[order/place] checkout-contact stamp failed (non-fatal):', e instanceof Error ? e.message : e)
+        }
       }
     }
 

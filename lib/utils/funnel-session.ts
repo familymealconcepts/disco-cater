@@ -1,6 +1,6 @@
 'use client'
 
-import type { FunnelStage } from '../checkout-funnel-shared'
+import { type FunnelStage, funnelCookieName } from '../checkout-funnel-shared'
 
 // One first-party cookie PER RESTAURANT, not one global cookie — a customer
 // with two restaurant tabs open (or who visits a second restaurant later in
@@ -11,9 +11,8 @@ import type { FunnelStage } from '../checkout-funnel-shared'
 // stale one.
 const COOKIE_MAX_AGE_SECONDS = 6 * 60 * 60
 
-function cookieName(restaurantReference: string): string {
-  return `disco_fn_${restaurantReference.replace(/[^a-zA-Z0-9_-]/g, '_')}`
-}
+// Shared with the server (see funnelCookieName in checkout-funnel-shared.ts).
+const cookieName = funnelCookieName
 
 function readCookie(name: string): string | null {
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
@@ -63,6 +62,36 @@ export function postFunnelStage(input: PostFunnelStageInput): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
       keepalive: true, // let it land even if this fires right before navigation
+    }).catch(() => {})
+  } catch {
+    /* never let a capture call throw into the checkout flow */
+  }
+}
+
+export interface PostCheckoutContactInput {
+  restaurantReference: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  company: string
+}
+
+// Abandoned-checkout contact capture (see 006_checkout_contacts.sql). Sends only
+// what the diner typed into the drawer's contact fields. Deliberately carries NO
+// session id and NO account identity: the server reads the session id from the
+// disco_fn_<ref> cookie and the account from the signed-in customer session, so
+// nothing here can name a row or an account. Same fire-and-forget contract as
+// postFunnelStage -- never awaited, never throws, response ignored.
+export function postCheckoutContact(input: PostCheckoutContactInput): void {
+  if (!input.restaurantReference) return
+  try {
+    fetch('/api/checkout-contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(input),
+      keepalive: true,
     }).catch(() => {})
   } catch {
     /* never let a capture call throw into the checkout flow */

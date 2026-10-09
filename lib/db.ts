@@ -654,6 +654,28 @@ export async function runRestaurantAdminListCacheMigrations(): Promise<void> {
   restaurantAdminListCacheMigrated = true
 }
 
+// ── Abandoned-checkout contact capture ───────────────────────────────────────
+// Reads lib/migrations/006_checkout_contacts.sql. Same idempotent, split-on-`;`,
+// cached-per-lambda approach as runCheckoutFunnelMigrations.
+let checkoutContactsMigrated = false
+export async function runCheckoutContactsMigrations(): Promise<void> {
+  if (checkoutContactsMigrated) return
+
+  const sqlPath = path.join(process.cwd(), 'lib', 'migrations', '006_checkout_contacts.sql')
+  const file = await readFile(sqlPath, 'utf8')
+
+  const statements = file
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  for (const s of statements) await sql.query(s)
+  checkoutContactsMigrated = true
+}
+
 // ── Ops-alert deduplication ───────────────────────────────────────────────────
 // Backs alertOnce() in lib/ops-alert.ts. See that file for the rule this exists
 // to enforce; the short version is that an alert fires when a condition NEWLY
