@@ -11,6 +11,7 @@ import {
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
+import { setMarketplaceVisible } from '../../../../lib/marketplace-switch'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -223,11 +224,18 @@ export async function POST(req: NextRequest) {
     // gated by the 3-part rule in /api/restaurants (Stripe connected + this toggle +
     // online ordering), so auto-enabling here bypasses no safety check — it just
     // avoids a manual admin step after they've already told us they want to list.
+    //
+    // The row (with stripe_connected) is written here exactly as before; the
+    // `visible` literal false is only the insert-time default for a brand-new row.
+    // The switch itself goes through lib/marketplace-switch.ts, the one writer of
+    // `visible`, which refuses to turn on a test restaurant (a refusal is audited
+    // there and does not fail onboarding).
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, is_premium, stripe_connected)
-      VALUES (${ref}, ${joinedMarketplace}, false, ${stripeConnected})
-      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${joinedMarketplace}, stripe_connected = ${stripeConnected}
+      VALUES (${ref}, false, false, ${stripeConnected})
+      ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = ${stripeConnected}
     `
+    await setMarketplaceVisible(ref, joinedMarketplace, { source: 'onboarding', actorEmail: email || null, authType: 'disco' })
     await sql`
       UPDATE disco_restaurant_accounts SET joined_marketplace = ${joinedMarketplace}, updated_at = NOW()
       WHERE restaurant_reference = ${ref}

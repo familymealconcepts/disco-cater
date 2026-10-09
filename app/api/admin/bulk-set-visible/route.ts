@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, runMigrations } from '../../../../lib/db'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { runMigrations } from '../../../../lib/db'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { setMarketplaceVisible } from '../../../../lib/marketplace-switch'
 
 // Targeted bulk visibility tool for the Disco fullmap. Admin-only.
 //
@@ -11,6 +12,11 @@ import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 // removed so FM data can no longer drive Disco marketplace visibility. Disco's own
 // per-restaurant toggle (portal + super-admin) is now the single source of truth.
 // Only the explicit, admin-chosen targeted branch remains.
+//
+// Each ref goes through lib/marketplace-switch.ts. A TEST restaurant is refused
+// there; this tool SKIPS it and reports it under `skippedTest` rather than
+// failing the batch — one test row in a pasted list should not stop the rest.
+// Every change and every refusal is audited by the helper, one row per ref.
 
 export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
@@ -26,17 +32,15 @@ export async function POST(req: NextRequest) {
         .filter(Boolean)
       let updated = 0
       let inserted = 0
+      const skippedTest: string[] = []
+      const actorEmail = await getAdminEmail().catch(() => null)
       for (const ref of refs) {
-        const rows = (await sql`
-          INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
-          VALUES (${ref}, true, NOW())
-          ON CONFLICT (restaurant_reference) DO UPDATE SET visible = true, updated_at = NOW()
-          RETURNING (xmax = 0) AS inserted
-        `) as { inserted: boolean }[]
-        if (rows[0]?.inserted) inserted++
+        const r = await setMarketplaceVisible(ref, true, { source: 'admin-bulk', actorEmail, authType: 'admin' })
+        if (!r.ok) { skippedTest.push(ref); continue }
+        if (r.inserted) inserted++
         else updated++
       }
-      return NextResponse.json({ updated, inserted })
+      return NextResponse.json({ updated, inserted, skippedTest })
     }
 
     // { all: true } is intentionally no longer supported (see header note).

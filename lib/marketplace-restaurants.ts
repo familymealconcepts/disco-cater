@@ -26,6 +26,9 @@ export interface MarketplaceRestaurantRow {
 // change only needs to touch this file.
 //
 // VISIBILITY:
+//   • is_test is excluded unconditionally (see the WHERE clause and
+//     lib/marketplace-switch.ts). It is a veto, not a fourth concept: a test
+//     account is not a restaurant a customer should ever be shown.
 //   • archived_at IS NULL is checked FIRST and short-circuits everything below
 //     it — archive is a fourth, STRONGER gate than visible/stripe_connected/
 //     online_ordering_enabled, and must never be reachable around by them. See
@@ -76,6 +79,11 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     ) a ON true
     WHERE
       o.archived_at IS NULL
+      -- TEST ACCOUNTS NEVER LIST. lib/marketplace-switch.ts already refuses to
+      -- turn a test restaurant's switch on; this is the last line, so a missed
+      -- or future write path — or a row that was visible before it was flagged —
+      -- still cannot reach the feed, city pages, directory or sitemap.
+      AND o.is_test IS NOT TRUE
       AND (
         (COALESCE(c.is_disco_native, false) = false
           AND o.visible = true AND o.stripe_connected = true)

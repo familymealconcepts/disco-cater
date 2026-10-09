@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:guards": "node scripts/tests/marketplace-switch-guard.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:preview": "BASE_URL=https://disco-cater-git-main-peter-discocaters-projects.vercel.app playwright test",

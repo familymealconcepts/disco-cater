@@ -15,6 +15,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 import Stripe from 'stripe'
 import { sql, runMigrations } from '../lib/db'
+import { setMarketplaceVisible } from '../lib/marketplace-switch'
 import { convertToNative, importRestaurantStripeAccount } from '../lib/native-conversion'
 import { importFmMenuFaithfully } from '../lib/menu-import/fm-faithful-import'
 import { getFmServiceAuthHeader } from '../lib/fm-service-auth'
@@ -102,10 +103,11 @@ async function main() {
       console.log('  menu:', JSON.stringify(rec.menu))
 
       // Standing rule: visible = true (is_live is COMPUTED by convertToNative from it).
-      await sql`
-        INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
-        VALUES (${t.ref}, true, NOW())
-        ON CONFLICT (restaurant_reference) DO UPDATE SET visible = true, updated_at = NOW()`
+      // Through lib/marketplace-switch.ts, the one writer of the switch: a test
+      // restaurant is refused and recorded here rather than turned on.
+      const sw = await setMarketplaceVisible(t.ref, true, { source: 'script', actorEmail: 'peter@familymeal.com', authType: 'script', extra: { script: 'convert-eggbred-namkeen' } })
+      rec.marketplaceSwitch = sw.ok ? 'on' : sw.reason
+      if (!sw.ok) console.log(`  marketplace switch refused: ${sw.reason}`)
 
       const r = await convertToNative(t.ref, { stripe, skipInvites: true, actorEmail: 'peter@familymeal.com' })
       const j = r as Record<string, any>

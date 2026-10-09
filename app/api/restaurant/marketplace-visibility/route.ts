@@ -4,6 +4,7 @@ import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { restaurantActorEmail, overridesSnapshot, cacheSnapshot, accountMarketplaceSnapshot, pick, logSettingsChange } from '../../../../lib/settings-audit'
+import { setMarketplaceVisible, marketplaceSwitchRefusalBody } from '../../../../lib/marketplace-switch'
 
 export const runtime = 'nodejs'
 
@@ -67,11 +68,17 @@ export async function PATCH(req: Request) {
     const beforeIsLive = (await cacheSnapshot(ref))?.is_live ?? null
     const beforeJoined = (await accountMarketplaceSnapshot(ref))?.joined_marketplace ?? null
 
-    await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
-      VALUES (${ref}, ${visible}, NOW())
-      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${visible}, updated_at = NOW()
-    `
+    // Through the one writer of the switch. A test restaurant is refused with 409
+    // BEFORE the is_live / joined_marketplace syncs below, so a refused toggle
+    // writes nothing. audit: false because this route logs its own
+    // marketplace_visibility_update row; the helper logs the refusal.
+    const sw = await setMarketplaceVisible(ref, visible, {
+      source: 'portal-toggle',
+      actorEmail: ctx ? restaurantActorEmail(ctx) : null,
+      authType: ctx?.authType ?? 'fm',
+      audit: false,
+    })
+    if (!sw.ok) return NextResponse.json(marketplaceSwitchRefusalBody(sw), { status: 409 })
     // Two-way marketplace sync (mirrors the super admin toggle): keep the map's
     // is_live and the account's joined_marketplace opt-in in step with visibility.
     // Both are best-effort, so their outcome is TRACKED rather than assumed — the

@@ -33,6 +33,13 @@ export type AdminAuditAction =
   // admin portal — settings
   | 'money_flow_update' | 'payout_schedule_update'
   | 'admin_overrides_update' | 'admin_cache_update'
+  // the marketplace switch (disco_restaurant_overrides.visible), written ONLY by
+  // lib/marketplace-switch.ts. marketplace_switch_update is the change itself,
+  // for callers that do not already log their own row (go-live, bulk, location
+  // block, clone, onboarding, scripts); marketplace_switch_refused is an attempt
+  // to turn a TEST restaurant on, logged once whichever path tried it.
+  // test_flag_update is the admin-only Test account toggle (is_test).
+  | 'marketplace_switch_update' | 'marketplace_switch_refused' | 'test_flag_update'
   // credentials — a reset triggered on someone else's account (and the storage
   // the per-target cooldown in lib/password-reset.ts reads). actor_email is the
   // super admin who clicked, or null for a self-service reset.

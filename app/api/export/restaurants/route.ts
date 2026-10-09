@@ -23,6 +23,8 @@ export async function GET(request: Request) {
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE o.visible = true AND o.stripe_connected = true
+        -- Test accounts never leave the building (lib/marketplace-switch.ts).
+        AND o.is_test IS NOT TRUE
     `) as {
       restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
       location: string | null; lat: string | null; lng: string | null
