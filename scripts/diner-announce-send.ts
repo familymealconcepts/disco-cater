@@ -14,7 +14,6 @@
  *   npx tsx scripts/diner-announce-send.ts --canary 50
  *   npx tsx scripts/diner-announce-send.ts --count 500
  *   npx tsx scripts/diner-announce-send.ts --until-close
- *   npx tsx scripts/diner-announce-send.ts --until-close --ack-complaints 1
  *
  * RESUME IS THE DEFAULT. Every mode subtracts anyone already in
  * marketing_send_log for this campaign before doing anything, and claim() writes
@@ -223,19 +222,12 @@ async function main() {
   // 100 fresh sends before the rule could fire again — so every restart would
   // disarm the protection for the first 100 messages. At ~1,300 a day, 24 hours
   // comfortably covers 200 sends while bounding what the poll has to page.
-  // --ack-complaints <n>: complaints a person has ALREADY REVIEWED and accepted.
-  // Required to resume after a complaint-triggered halt, because the window
-  // looks back 24 hours and would otherwise re-halt on the same complaint. The
-  // rule itself is unchanged — anything beyond n still stops the run on the
-  // spot — and the default of 0 is ordinary zero-tolerance.
-  const ackComplaints = Number(val('--ack-complaints') ?? 0) || 0
-  if (ackComplaints > 0) {
-    console.log(`ACKNOWLEDGED COMPLAINTS: ${ackComplaints} — already reviewed and accepted by a person.`)
-    console.log('Any complaint beyond that number still halts this run immediately.')
-  }
+  // --ack-complaints is GONE. It existed only to resume past a complaint the
+  // zero-tolerance rule had halted on; complaints are now judged as a rate, so
+  // there is nothing to acknowledge and two overlapping controls would be one
+  // too many. A genuinely bad rate stops the run on its own.
   const health = new CampaignHealth(
     DINER_PROFILE.tag!, DINER_PROFILE.domain, Math.floor(started / 1000) - 24 * 3600,
-    undefined, ackComplaints,
   )
 
   console.log(`send window is currently ${inSendWindow(new Date()) ? 'OPEN' : 'CLOSED (the run will wait)'}`)

@@ -24,6 +24,11 @@ export interface HealthThresholds {
    *  can trip a halt days later on a known artifact rather than a live problem.
    *  Rolling keeps the rule measuring what is happening NOW. */
   bounceWindowSize: number
+  /** Complaints are a RATE, not an event. See DEFAULT_THRESHOLDS for why this
+   *  window is five times the bounce window. */
+  maxComplaintPct: number
+  complaintWindowSize: number
+  minSendsForComplaint: number
   maxConsecutiveFailures: number
   minDeliveryPct: number        // once minMaturedForDelivery have matured
   minMaturedForDelivery: number
@@ -36,6 +41,31 @@ export const DEFAULT_THRESHOLDS: HealthThresholds = {
   maxHardBouncePct: 5,
   minSendsForBounce: 100,
   bounceWindowSize: 200,
+  // ── COMPLAINTS: A RATE, MEASURED OVER A THOUSAND ─────────────────────────
+  // This replaced a zero-tolerance rule that stopped the run on ANY complaint.
+  // Two complaints in 1,445 sends (0.138%) halted an eleven-day campaign twice,
+  // each time needing a person to review and clear it by hand.
+  //
+  // 0.3% is where mailbox providers actually penalise. They begin reacting
+  // around 0.1%, so a threshold below that would stop the run while delivery is
+  // still healthy; well above 0.3% and the protection is theatre.
+  //
+  // THE WINDOW IS 1,000, NOT THE BOUNCE RULE'S 200, AND THAT IS THE WHOLE
+  // POINT. A rate is only as fine as its denominator: over 200 sends a single
+  // complaint is 0.5%, so a 0.3% threshold on a 200-window fires on the FIRST
+  // complaint and is precisely the rule being removed, just delayed. Over 1,000
+  // one complaint is 0.1% and the rule needs FOUR to trip — a genuine rate,
+  // which is what was asked for.
+  //
+  // Measured against the observed rate of roughly one complaint per 720 sends:
+  // a 200-window would halt on ~24% of windows, a 1,000-window on ~5%. The
+  // first is the status quo wearing a percentage; the second tolerates a normal
+  // rate and still catches a real deterioration.
+  maxComplaintPct: 0.3,
+  complaintWindowSize: 1000,
+  // The full window before it can fire. A smaller minimum re-introduces the
+  // same arithmetic: at 300 sends one complaint is 0.33% and halts on its own.
+  minSendsForComplaint: 1000,
   maxConsecutiveFailures: 5,
   minDeliveryPct: 90,
   minMaturedForDelivery: 200,
@@ -56,6 +86,10 @@ export interface HealthSnapshot {
   rollingWindow: number
   rollingHardBounces: number
   rollingBouncePct: number | null
+  /** The complaint rule's own window — wider than the bounce window. */
+  rollingComplaintWindow: number
+  rollingComplaints: number
+  rollingComplaintPct: number | null
 }
 
 export interface HaltDecision { halt: boolean; reason?: string }
@@ -67,6 +101,7 @@ export class CampaignHealth {
     accepted: 0, acceptedMatured: 0, delivered: 0, hardBounces: 0,
     complaints: 0, consecutiveFailures: 0, hardBouncePct: null, deliveryPct: null,
     rollingWindow: 0, rollingHardBounces: 0, rollingBouncePct: null,
+    rollingComplaintWindow: 0, rollingComplaints: 0, rollingComplaintPct: null,
   }
 
   constructor(
@@ -74,22 +109,6 @@ export class CampaignHealth {
     private readonly domain: string,
     private readonly sinceSec: number,
     private readonly thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
-    /**
-     * Complaints a PERSON has already reviewed and accepted, for this window.
-     *
-     * The complaint rule is unchanged and still zero-tolerance: any complaint
-     * beyond this number halts the run instantly. This exists because the
-     * measurement window looks BACK 24 hours, so a complaint that already
-     * halted a run is still inside the window on the next one — without a way
-     * to say "that one has been seen", a reviewed halt could never be resumed,
-     * only waited out for a day.
-     *
-     * Deliberately a per-run input with a default of 0, not a stored flag and
-     * not a threshold: resuming past a complaint has to be an explicit, visible
-     * act by the operator doing the resuming, and it expires with the process.
-     * A future complaint-triggered halt is never silently pre-disarmed.
-     */
-    private readonly acknowledgedComplaints = 0,
   ) {}
 
   /** Record one send result. Any auth failure is terminal on its own. */
@@ -118,6 +137,9 @@ export class CampaignHealth {
     // ascending=yes, so push order IS send order.
     const acceptedOrder: string[] = []
     const bouncedSet = new Set<string>()
+    // Per RECIPIENT, exactly as bounces are, so one address complaining twice
+    // cannot inflate the rate.
+    const complainedSet = new Set<string>()
 
     while (page) {
       const res: Response = await fetch(page, { headers: { Authorization: auth } })
@@ -135,7 +157,7 @@ export class CampaignHealth {
         const who = String(e.recipient ?? '').toLowerCase()
         if (ev === 'accepted') { accepted++; acceptedOrder.push(who); if (ts < cutoff) acceptedMatured++ }
         else if (ev === 'delivered') delivered++
-        else if (ev === 'complained') complaints++
+        else if (ev === 'complained') { complaints++; complainedSet.add(who) }
         else if (ev === 'failed' && String(e.severity) === 'permanent') { hardBounces++; bouncedSet.add(who) }
       }
       page = j.paging?.next ?? null
@@ -146,6 +168,9 @@ export class CampaignHealth {
     // cannot be counted twice and inflate the rate.
     const windowRecipients = acceptedOrder.slice(-this.thresholds.bounceWindowSize)
     const rollingHardBounces = windowRecipients.filter(r => bouncedSet.has(r)).length
+    // The complaint window is its own, and wider — see DEFAULT_THRESHOLDS.
+    const complaintWindow = acceptedOrder.slice(-this.thresholds.complaintWindowSize)
+    const rollingComplaints = complaintWindow.filter(r => complainedSet.has(r)).length
 
     this.snap = {
       accepted, acceptedMatured, delivered, hardBounces, complaints,
@@ -155,6 +180,9 @@ export class CampaignHealth {
       rollingWindow: windowRecipients.length,
       rollingHardBounces,
       rollingBouncePct: windowRecipients.length > 0 ? (rollingHardBounces / windowRecipients.length) * 100 : null,
+      rollingComplaintWindow: complaintWindow.length,
+      rollingComplaints,
+      rollingComplaintPct: complaintWindow.length > 0 ? (rollingComplaints / complaintWindow.length) * 100 : null,
     }
   }
 
@@ -173,15 +201,24 @@ export class CampaignHealth {
       return { halt: true, reason: `${this.consecutiveFailures} consecutive send failures (limit ${t.maxConsecutiveFailures})` }
     }
 
-    // Zero-tolerance, measured against what has already been reviewed. With the
-    // default acknowledgement of 0 this is exactly `complaints > 0`.
-    if (s.complaints > this.acknowledgedComplaints) {
-      const fresh = s.complaints - this.acknowledgedComplaints
+    // ROLLING, like the bounce rule below it, and for the same reason: a rate
+    // measured from the run's start keeps every old complaint in the denominator
+    // forever and stops reflecting what is happening now.
+    //
+    // This replaced "any complaint halts the run", which stopped an eleven-day
+    // send twice at a cumulative 0.138% — a rate mailbox providers are entirely
+    // relaxed about. The floor matters as much as the percentage: below
+    // minSendsForComplaint the rule is disarmed, because over a short window a
+    // single complaint is a large percentage and would halt on its own.
+    if (
+      s.rollingComplaintWindow >= t.minSendsForComplaint &&
+      s.rollingComplaintPct !== null &&
+      s.rollingComplaintPct > t.maxComplaintPct
+    ) {
       return {
         halt: true,
-        reason: this.acknowledgedComplaints > 0
-          ? `${fresh} new spam complaint(s) beyond the ${this.acknowledgedComplaints} already reviewed — any complaint halts the run`
-          : `${s.complaints} spam complaint(s) — any complaint halts the run`,
+        reason: `spam complaints ${s.rollingComplaintPct.toFixed(3)}% over the last ${s.rollingComplaintWindow} sends ` +
+                `(${s.rollingComplaints} of ${s.rollingComplaintWindow}, limit ${t.maxComplaintPct}%)`,
       }
     }
 
