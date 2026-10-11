@@ -37,7 +37,7 @@ export function isLoyaltyDemoUser(email?: string | null): boolean {
 // for. See the report accompanying this change for a ladder that produces a
 // real distribution (2/$250, 3/$750, 4/$2,000, 6/$5,000 → 538/87/15/3).
 export interface LoyaltyTier {
-  key: 'copper' | 'silver' | 'gold' | 'platinum'
+  key: 'copper' | 'silver' | 'gold' | 'marquee'
   name: string
   minOrders: number
   minSubtotal: number
@@ -46,21 +46,30 @@ export interface LoyaltyTier {
    *  excluded from the restaurant transfer), so a reduction never touches a
    *  restaurant's payout. Cosmetic here — nothing applies it. */
   feeCutPoints: number
-  /** Palette: copper and silver are the only new values. Gold reuses the
-   *  existing brand accent #EFB84A; platinum reuses the brand GRADIENT, so the
-   *  top tier reads as "Disco" rather than as a fifth metal. */
+  /** BOLD fill — bars, dots, rings, accents. Never carries text, so it is
+   *  chosen for vibrancy rather than contrast. */
   colour: string
+  /** The same hue darkened until WHITE TEXT clears 4.5:1. Used for every
+   *  text-bearing tier surface. Measured, not eyeballed:
+   *    copper  #B87333 -> #A5672D  4.59:1   (raw copper was 3.79 — large text only)
+   *    silver  #9BA3AF -> #6F757D  4.65:1   (raw silver was 2.54 — failed outright)
+   *    gold    #EFB84A -> #8F6E2C  4.74:1   (raw gold was 1.81 — failed badly)
+   *    marquee #6466E8 unchanged   4.56:1   (already passed) */
+  deep: string
+  /** Reserved for Marquee alone, so the apex reads as Disco rather than as a
+   *  fifth colour. */
   gradient?: string
+  /** Dark ink for tier-TINTED backgrounds (12% colour on white), all >= 4.6:1. */
   ink: string
 }
 
 export const BRAND_GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
 export const LOYALTY_TIERS: LoyaltyTier[] = [
-  { key: 'copper',   name: 'Copper',   minOrders: 10, minSubtotal: 5000,  feeCutPoints: 0.5, colour: '#B87333', ink: '#5E3A1A' },
-  { key: 'silver',   name: 'Silver',   minOrders: 20, minSubtotal: 12500, feeCutPoints: 1.0, colour: '#9BA3AF', ink: '#3F4651' },
-  { key: 'gold',     name: 'Gold',     minOrders: 35, minSubtotal: 30000, feeCutPoints: 1.5, colour: '#EFB84A', ink: '#6B4E12' },
-  { key: 'platinum', name: 'Platinum', minOrders: 50, minSubtotal: 60000, feeCutPoints: 2.0, colour: '#6466E8', gradient: BRAND_GRADIENT, ink: '#2A2060' },
+  { key: 'copper',  name: 'Copper',  minOrders: 10, minSubtotal: 5000,  feeCutPoints: 0.5, colour: '#B87333', deep: '#A5672D', ink: '#7A4C21' },
+  { key: 'silver',  name: 'Silver',  minOrders: 20, minSubtotal: 12500, feeCutPoints: 1.0, colour: '#9BA3AF', deep: '#6F757D', ink: '#636A74' },
+  { key: 'gold',    name: 'Gold',    minOrders: 35, minSubtotal: 30000, feeCutPoints: 1.5, colour: '#EFB84A', deep: '#8F6E2C', ink: '#8A6B2B' },
+  { key: 'marquee', name: 'Marquee', minOrders: 50, minSubtotal: 60000, feeCutPoints: 2.0, colour: '#6466E8', deep: '#6466E8', gradient: BRAND_GRADIENT, ink: '#4044A1' },
 ]
 
 /** Highest tier whose BOTH conditions are met. Null when none are. */
@@ -103,7 +112,13 @@ export const DEMO_IS_SEEDED = true
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 
+/** BOLD fill for surfaces that carry no text — bars, dots, rings, accents. */
 function tierFill(t: LoyaltyTier): string { return t.gradient ?? t.colour }
+/** Text-bearing surfaces: the darkened hue, so white text always clears 4.5:1.
+ *  Marquee keeps the gradient — its lightest stop still clears white text. */
+function tierSurface(t: LoyaltyTier): string { return t.gradient ?? t.deep }
+/** A soft wash of the tier colour, for rows and panels that carry dark ink. */
+function tierTint(t: LoyaltyTier): string { return `${t.colour}2E` }
 
 /** Small status chip — header, nav, and the card header all use this one. */
 export function TierChip({ tier, size = 'sm' }: { tier: LoyaltyTier; size?: 'sm' | 'lg' }) {
@@ -113,7 +128,7 @@ export function TierChip({ tier, size = 'sm' }: { tier: LoyaltyTier; size?: 'sm'
       title={`${tier.name} member (demo)`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: lg ? 8 : 5,
-        background: tierFill(tier), color: '#fff',
+        background: tierSurface(tier), color: '#fff',
         fontSize: lg ? 13 : 10, fontWeight: 800, letterSpacing: '0.06em',
         padding: lg ? '5px 14px' : '2px 9px', borderRadius: 20,
         fontFamily: F, textTransform: 'uppercase', whiteSpace: 'nowrap',
@@ -133,23 +148,26 @@ export function LoyaltyNavIcon({ tier }: { tier: LoyaltyTier | null }) {
       display: 'inline-block', width: 16, height: 16, borderRadius: '50%',
       background: tier ? tierFill(tier) : '#e0e0e0',
       border: tier ? 'none' : '1.5px solid #c9c9c9', flexShrink: 0,
+      // a soft halo of the same hue, so the dot reads as tier colour rather
+      // than as a generic bullet at nav size
+      boxShadow: tier ? `0 0 0 3px ${tier.colour}33` : 'none',
     }} />
   )
 }
 
-function Bar({ value, max, fill, label, suffix }: { value: number; max: number; fill: string; label: string; suffix: string }) {
+function Bar({ value, max, fill, track, ink, label, suffix }: { value: number; max: number; fill: string; track: string; ink: string; label: string; suffix: string }) {
   const pct = Math.max(0, Math.min(100, max > 0 ? (value / max) * 100 : 0))
   const done = value >= max
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <span style={{ fontSize: 12.5, color: '#585786', fontFamily: F }}>{label}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: done ? '#1D9E75' : DARK, fontFamily: F }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: ink, fontFamily: F }}>
           {done ? '✓ ' : ''}{suffix}
         </span>
       </div>
-      <div style={{ height: 8, borderRadius: 20, background: '#f0f0f0', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: done ? '#1D9E75' : fill, borderRadius: 20, transition: 'width 0.3s' }} />
+      <div style={{ height: 12, borderRadius: 20, background: track, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: fill, borderRadius: 20, transition: 'width 0.3s' }} />
       </div>
     </div>
   )
@@ -174,34 +192,59 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
         Order more, pay a smaller platform fee. {windowLabel.toLowerCase()}.
       </p>
 
-      {/* STATUS */}
-      <div style={{ ...card, background: tier ? tierFill(tier) : '#f7f7fb', border: tier ? 'none' : '1px solid #eee', color: tier ? '#fff' : DARK, padding: 24 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85, marginBottom: 6 }}>
-          {firstName ? `${firstName}'s status` : 'Your status'}
-        </div>
-        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 10 }}>
-          {tier ? tier.name : 'Not yet a member'}
-        </div>
-        {tier ? (
-          <div style={{ fontSize: 14, opacity: 0.95 }}>
-            {tier.feeCutPoints}% off the platform fee on every order · {money2(savedThisYear)} saved so far
-          </div>
-        ) : (
-          <div style={{ fontSize: 14, color: '#585786' }}>
-            Reach {LOYALTY_TIERS[0].minOrders} orders and {money(LOYALTY_TIERS[0].minSubtotal)} in a year to unlock Copper.
-          </div>
+      {/* ── STATUS — the top-left element, and the loudest thing on the page ──
+          Deliberately larger than everything else: full-bleed tier colour, a
+          38px tier name, and the benefit raised into a pill rather than left as
+          body text. tierSurface() (not tierFill) because this surface carries
+          white text and the raw tier colours do not clear 4.5:1. */}
+      <div style={{
+        background: tier ? tierSurface(tier) : '#f7f7fb',
+        border: tier ? 'none' : '1px solid #eee',
+        color: tier ? '#fff' : DARK,
+        borderRadius: 18, padding: '30px 32px', marginBottom: 18,
+        boxShadow: tier ? '0 10px 30px rgba(0,0,0,0.16)' : 'none',
+        position: 'relative', overflow: 'hidden',
+      }}>
+        {/* a brighter wash of the raw tier colour, so the bold hue is present
+            even though the surface itself is the darkened one */}
+        {tier && (
+          <span aria-hidden style={{
+            position: 'absolute', top: -70, right: -70, width: 210, height: 210,
+            borderRadius: '50%', background: tier.colour, opacity: 0.4, pointerEvents: 'none',
+          }} />
         )}
+        <div style={{ position: 'relative' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.9, marginBottom: 8 }}>
+            {firstName ? `${firstName}'s status` : 'Your status'}
+          </div>
+          <div style={{ fontSize: 38, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, marginBottom: 14 }}>
+            {tier ? tier.name : 'Not yet a member'}
+          </div>
+          {tier ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', background: 'rgba(255,255,255,0.22)',
+                padding: '7px 15px', borderRadius: 20, fontSize: 14, fontWeight: 800,
+              }}>−{tier.feeCutPoints}% platform fee</span>
+              <span style={{ fontSize: 14, opacity: 0.95 }}>{money2(savedThisYear)} saved so far</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, color: '#585786' }}>
+              Reach {LOYALTY_TIERS[0].minOrders} orders and {money(LOYALTY_TIERS[0].minSubtotal)} in a year to unlock Copper.
+            </div>
+          )}
+        </div>
       </div>
 
       {/* PROGRESS — both bars, because both conditions must be met */}
       {next && (
-        <div style={card}>
+        <div style={{ ...card, borderLeft: `5px solid ${next.colour}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Progress to</span>
             <TierChip tier={next} />
           </div>
-          <Bar label="Orders" value={orders} max={next.minOrders} fill={tierFill(next)} suffix={`${orders} of ${next.minOrders}`} />
-          <Bar label="Order value" value={subtotal} max={next.minSubtotal} fill={tierFill(next)} suffix={`${money(subtotal)} of ${money(next.minSubtotal)}`} />
+          <Bar label="Orders" value={orders} max={next.minOrders} fill={tierFill(next)} track={tierTint(next)} ink={next.ink} suffix={`${orders} of ${next.minOrders}`} />
+          <Bar label="Order value" value={subtotal} max={next.minSubtotal} fill={tierFill(next)} track={tierTint(next)} ink={next.ink} suffix={`${money(subtotal)} of ${money(next.minSubtotal)}`} />
           <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
             Both are needed to move up — {windowLabel.toLowerCase()}.
           </div>
@@ -216,20 +259,25 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
           const current = tier?.key === t.key
           return (
             <div key={t.key} style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '11px 12px', borderRadius: 10,
-              background: current ? 'rgba(107,110,249,0.07)' : 'transparent',
-              border: current ? '1.5px solid #6466E8' : '1.5px solid transparent', marginBottom: 6,
+              display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', borderRadius: 12,
+              background: current ? tierTint(t) : 'transparent',
+              border: `1.5px solid ${current ? t.colour : 'transparent'}`, marginBottom: 6,
+              borderLeft: current ? `6px solid ${t.colour}` : '1.5px solid transparent',
             }}>
-              <span aria-hidden style={{ width: 30, height: 30, borderRadius: '50%', background: tierFill(t), flexShrink: 0, opacity: earned ? 1 : 0.3 }} />
+              <span aria-hidden style={{
+                width: 34, height: 34, borderRadius: '50%', background: tierFill(t), flexShrink: 0,
+                opacity: earned ? 1 : 0.22,
+                boxShadow: current ? `0 0 0 4px ${tierTint(t)}` : 'none',
+              }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: earned ? DARK : '#999' }}>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: current ? t.ink : (earned ? DARK : '#999') }}>
                   {t.name}{current ? ' · current' : ''}
                 </div>
                 <div style={{ fontSize: 12, color: '#888' }}>
                   {t.minOrders} orders and {money(t.minSubtotal)} a year
                 </div>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: earned ? DARK : '#bbb', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: current ? t.ink : (earned ? DARK : '#bbb'), whiteSpace: 'nowrap' }}>
                 −{t.feeCutPoints}% fee
               </div>
             </div>
@@ -238,7 +286,7 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
       </div>
 
       {/* WHAT IT SAVED */}
-      <div style={card}>
+      <div style={{ ...card, borderLeft: tier ? `5px solid ${tier.colour}` : card.border }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4 }}>Your savings</div>
         <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
           {money2(feesPaid)} in platform fees · {money2(savedThisYear)} saved at your tier
