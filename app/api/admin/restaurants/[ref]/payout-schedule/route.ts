@@ -27,12 +27,26 @@ async function resolveNativeAccount(ref: string): Promise<
   if (cache[0].is_disco_native !== true) {
     return { ok: false, reason: 'Payout schedule is editable only for Disco-native restaurants (FM-backed payouts are managed by FamilyMeal).' }
   }
-  // A native account may be keyed by its own reference OR bridged via fm_restaurant_reference.
+  // ── READ THE ACCOUNT STRIPE ACTUALLY PAYS OUT TO ──────────────────────────
+  // This read disco_restaurant_accounts.stripe_account_id, which is neither
+  // complete nor reliably correct. Measured against the destination of real
+  // recorded transfers: disco_restaurant_overrides matched 7 of 7, the account
+  // row matched 1 of 7 and was NULL for the other six. Fleet-wide, overrides is
+  // a strict superset — 558 native restaurants hold an id only there and none
+  // hold one only on the account row — which is why the payout screen reported
+  // "no Stripe account" for restaurants that are demonstrably being paid.
+  //
+  // The single disagreement was worse than staleness: for Salad House the
+  // account-row lookup returned an account that overrides attributes to a
+  // DIFFERENT business, because `restaurant_reference = X OR
+  // fm_restaurant_reference = X` can land on another restaurant's row. Reading
+  // overrides removes that class of error, not just the nulls.
+  //
+  // This is a SUPER-ADMIN reporting/settings screen. It is not on any ordering,
+  // checkout, payment-intent or transfer path.
   const acct = (await sql`
-    SELECT stripe_account_id FROM disco_restaurant_accounts
-    WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref})
-      AND stripe_account_id IS NOT NULL
-    ORDER BY stripe_onboarding_complete DESC NULLS LAST, id ASC
+    SELECT stripe_account_id FROM disco_restaurant_overrides
+    WHERE restaurant_reference = ${ref} AND stripe_account_id IS NOT NULL
     LIMIT 1
   `) as { stripe_account_id: string | null }[]
   const accountId = acct[0]?.stripe_account_id

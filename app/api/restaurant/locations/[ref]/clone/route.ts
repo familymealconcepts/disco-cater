@@ -212,6 +212,28 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     //    claim (getRestaurantEmail — the same resolver d77c35f added for exactly
     //    this gap), so both session types now name a real person.
     //
+    // ── THE COPY'S OWN CONTACT ADDRESS ──────────────────────────────────────
+    // A copy can never have an account row: account email is UNIQUE fleet-wide,
+    // so the owner of the source already holds the only row their address is
+    // allowed to have. Without a restaurant-level contact the copy had nowhere
+    // to keep one, which is exactly why Connect to Stripe refused it.
+    //
+    // Carried from the SOURCE, falling back to the first of its notification
+    // recipients. DO NOTHING on conflict — a copy is brand new, and if an
+    // overrides row somehow already exists it is not this step's to overwrite.
+    // Best-effort, exactly like the grant loop below it: a copy that lands
+    // without a contact address is recoverable in the portal, whereas failing
+    // the whole duplication over it is not.
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, contact_email, updated_at)
+      SELECT ${newRef},
+             COALESCE(o.contact_email, NULLIF(split_part(COALESCE(o.notification_emails, ''), ',', 1), '')),
+             NOW()
+        FROM disco_restaurant_overrides o
+       WHERE o.restaurant_reference = ${ref}
+      ON CONFLICT (restaurant_reference) DO NOTHING
+    `.catch(e => console.error('[locations/clone] contact_email copy failed:', newRef, e instanceof Error ? e.message : e))
+
     // 2. EVERYONE WHO ALREADY OWNS THE SOURCE. "The same access to the copy as
     //    they have to the source" is satisfied by mirroring the source's existing
     //    grants onto the copy, so a chain whose locations are shared by several

@@ -277,6 +277,15 @@ export async function runMigrations(): Promise<void> {
     // restaurant-scoped, not per-admin — a restaurant with several admin rows
     // must fire the notification once, not once per row.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected_notified_at TIMESTAMPTZ`,
+    // THE RESTAURANT'S OWN CONTACT ADDRESS — a property of the business, not of
+    // a person. disco_restaurant_accounts.email is a LOGIN and is UNIQUE
+    // fleet-wide, so one person can anchor at exactly one restaurant; a second
+    // location they own can never have an account row and therefore had nowhere
+    // to keep a contact address. That is why a copied location could not connect
+    // Stripe at all. Nullable and additive: every reader of this table names its
+    // columns (verified — there is no SELECT * on it anywhere), so nothing that
+    // exists today can see this column, including every ordering path.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS contact_email TEXT`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

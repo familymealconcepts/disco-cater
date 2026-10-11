@@ -960,11 +960,19 @@ export async function carryOverNotificationSettings(ref: string, walled?: FmWall
     // already has rather than writing a fabricated false.
     const orderReminders = typeof data.orderReminderEmailsEnabled === 'boolean' ? data.orderReminderEmailsEnabled : null
     const adminReminders = typeof data.adminOrderReminderEmailsEnabled === 'boolean' ? data.adminOrderReminderEmailsEnabled : null
+    // CONTACT ADDRESS, carried from FamilyMeal at conversion. The first of FM's
+    // notification recipients is the business's own address — the same source
+    // the restaurant already uses to hear about orders — and it is what a
+    // converted restaurant needs so Stripe Connect has somewhere to write to.
+    // COALESCE on conflict: never overwrite an address a person has since set
+    // in the portal with FM's older value.
+    const contactEmail = emails[0] || null
     await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_settings_flagged_at, updated_at)
-      VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, ${orderReminders}, ${adminReminders}, NULL, NOW())
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, contact_email, notification_settings_flagged_at, updated_at)
+      VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, ${orderReminders}, ${adminReminders}, ${contactEmail}, NULL, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
-        SET notification_emails = ${emails.join(',') || null},
+        SET contact_email = COALESCE(disco_restaurant_overrides.contact_email, ${contactEmail}),
+            notification_emails = ${emails.join(',') || null},
             notification_sms_numbers = ${phones.join(',') || null},
             text_notifications_enabled = ${textNotificationsEnabled},
             order_reminder_emails_enabled = COALESCE(${orderReminders}, disco_restaurant_overrides.order_reminder_emails_enabled),

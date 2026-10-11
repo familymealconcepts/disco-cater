@@ -26,10 +26,50 @@ export async function POST(req: NextRequest) {
     if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ error: 'Payments are not configured.' }, { status: 500 })
     try {
       await runMigrations()
+      // ── AN EMAIL FOR THE STRIPE ACCOUNT, NOT AN AUTHORISATION CHECK ───────
+      // Access was already decided by requireWritableRestaurantRef above. This
+      // only needs a contact address to hand createConnectAccount, and it used
+      // to 404 "Account not found" when it could not find one.
+      //
+      // A COPIED LOCATION HAS NO ACCOUNT ROW OF ITS OWN, EVER. The copy route
+      // creates a cache row, an overrides row, multi-unit membership and
+      // location grants — but no account, and it cannot: account email is
+      // UNIQUE fleet-wide, so the owner of the source already holds the only
+      // row their address is allowed to have. 174 native restaurants are in
+      // that state and every one of them was refused here.
+      //
+      // DELIBERATELY CONSERVATIVE. Tier 1 is the EXISTING query, unchanged —
+      // same table, same ORDER BY id, same result — so for every restaurant
+      // that already has an anchored row the chosen address is byte-for-byte
+      // what it is today. Measured before building: of 487 native restaurants
+      // with an anchored row, this changes the address for 0. The later tiers
+      // are reachable ONLY when there are no anchored rows at all.
       const rows = (await sql`
-        SELECT email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
+        SELECT email FROM (
+          -- 1. exactly today's behaviour
+          SELECT a.email AS email, 1 AS tier, a.id AS ord
+            FROM disco_restaurant_accounts a
+           WHERE a.restaurant_reference = ${ref}
+          UNION ALL
+          -- 2. the restaurant's own nominated contact, when nobody is anchored
+          SELECT o.contact_email, 2, 0
+            FROM disco_restaurant_overrides o
+           WHERE o.restaurant_reference = ${ref}
+             AND o.contact_email IS NOT NULL AND o.contact_email <> ''
+          UNION ALL
+          -- 3. somebody who demonstrably has access to this location
+          SELECT la.account_email, 3, la.id
+            FROM disco_restaurant_location_access la
+           WHERE la.restaurant_reference = ${ref}
+        ) s
+        ORDER BY tier ASC, ord ASC
+        LIMIT 1
       `) as { email: string }[]
-      if (!rows.length) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      if (!rows.length) {
+        return NextResponse.json({
+          error: 'No one is associated with this location yet, so there is no contact address for the Stripe account. Add a team member to it first.',
+        }, { status: 404 })
+      }
       const cacheRows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null }[]
       const ovrRows = (await sql`SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { stripe_account_id: string | null }[]
       let accountId = ovrRows[0]?.stripe_account_id || ''

@@ -292,10 +292,17 @@ export async function PUT(req: NextRequest) {
     // Email list + phone list + reminder toggles → disco_restaurant_overrides (CSV).
     await sql`
       INSERT INTO disco_restaurant_overrides
-        (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
-      VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NOW())
+        (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, text_notifications_enabled, contact_email, updated_at)
+      VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, ${emails[0] || null}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
-        SET order_reminder_emails_enabled = ${reminderOn},
+        -- CONTACT ADDRESS, kept in step with the recipient list a restaurant
+        -- edits here. This is the restaurant-level address Stripe Connect needs
+        -- when no person is anchored at the location (a copy never can be), so
+        -- editing the recipients in the portal is what keeps it current.
+        -- COALESCE on the incoming side only: an empty list must not erase an
+        -- address that is already set.
+        SET contact_email = COALESCE(${emails[0] || null}, disco_restaurant_overrides.contact_email),
+            order_reminder_emails_enabled = ${reminderOn},
             admin_order_reminder_emails_enabled = COALESCE(${adminReminderOn}::boolean, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
             notification_emails = ${emails.join(',') || null},
             notification_sms_numbers = ${phones.join(',') || null},
