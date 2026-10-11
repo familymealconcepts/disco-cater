@@ -472,8 +472,29 @@ function FullMapInner() {
         delete popupsRef.current[id]
       }
     })
+    // ── NUMBERS ONLY AFTER A LOCATION IS SEARCHED ────────────────────────────
+    // The markers are numbered 1…N over `filtered`, so before a search the
+    // highest number on the map IS the platform's restaurant count — the very
+    // thing hiding the sidebar count was meant to withhold. Gated on
+    // proximityAnchor, the same geocoded-location signal the count uses.
+    // Without a number a marker is its plain 30px dot: same blue, same white
+    // ring, same gold ring and glow for Premium, just no digits.
+    const showNumbers = !!proximityAnchor
+
     list.forEach((r, i) => {
-      if (markersRef.current[r._id]) return
+      // ── RE-LABEL A MARKER WE ARE KEEPING ───────────────────────────────────
+      // This used to `return` immediately, so a marker that survived a filter
+      // change kept the number it was born with while the list renumbered
+      // around it. Searching a location re-sorts by distance, which is exactly
+      // when the pin and its row stopped agreeing — the numbering is only a
+      // navigational aid if the two always match, so the label is refreshed on
+      // every pass rather than written once at creation.
+      const existing = markersRef.current[r._id]
+      if (existing) {
+        const dot = existing.getElement().firstElementChild as HTMLElement | null
+        if (dot) dot.textContent = showNumbers ? String(i + 1) : ''
+        return
+      }
       const el = document.createElement('div')
       const mkDiv = document.createElement('div')
       Object.assign(mkDiv.style, {
@@ -485,7 +506,7 @@ function FullMapInner() {
         boxShadow: r.isDisco ? '0 2px 10px rgba(239,184,74,0.4)' : '0 2px 10px rgba(0,0,0,0.15)',
         fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', transition: 'all 0.15s',
       })
-      mkDiv.textContent = String(i + 1)
+      mkDiv.textContent = showNumbers ? String(i + 1) : ''
       el.appendChild(mkDiv)
 
       const marker = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
@@ -1250,7 +1271,7 @@ function FullMapInner() {
                             <RestaurantCardImage src={r.image} w={320} h={192} alt={r.name} style={{ width: '100%', height: 96 }} />
                             <div style={{ padding: '8px 12px 10px' }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
-                                {i + 1}. {r.name}{r.isDisco ? ' 🪩' : ''}
+                                {proximityAnchor ? `${i + 1}. ` : ''}{r.name}{r.isDisco ? ' 🪩' : ''}
                               </div>
                               <div style={{ fontSize: 11, color: '#727272', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
                               <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -1342,7 +1363,9 @@ function FullMapInner() {
                   <RestaurantCardImage src={r.image} w={160} h={160} alt={r.name} style={{ width: 80, height: 80, flexShrink: 0 }} />
                   <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      {proximityAnchor && (
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      )}
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
                     </div>
                     <div style={{ fontSize: 12, color: '#727272', marginBottom: 5 }}>{r.location}</div>
@@ -1515,7 +1538,9 @@ function FullMapInner() {
                   <RestaurantCardImage src={r.image} w={150} h={150} alt={r.name} style={{ width: 74, height: 74, flexShrink: 0 }} />
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      {proximityAnchor && (
+                        <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      )}
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
                     </div>
                     <div style={{ fontSize: 11, color: '#727272', marginBottom: 4 }}>{r.location}</div>
