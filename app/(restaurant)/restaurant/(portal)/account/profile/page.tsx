@@ -63,6 +63,30 @@ interface DiscoProfile {
 // database itself was clean, this was purely a client-side autofill
 // misclassification). Making them required means a future field added to this
 // page can't silently omit them the way the old optional opts did.
+//
+// ── AND IT STILL HAPPENS, SO THERE IS NOW A SECOND LINE ─────────────────────
+// Reported again on Rooted Cafe (kealoha@familymeal.com in Phone Number) and on
+// Utopia Bagels (peteventi+1@gmail.com). Re-checked 2026-10-11: the database is
+// still clean — ZERO rows across disco_restaurant_accounts.phone,
+// disco_restaurant_cache.phone and overrides.notification_sms_numbers contain
+// an "@" — and every input on this page does carry name + autoComplete. So the
+// markup fix is in place and holding; Chrome is simply overriding it, which it
+// is free to do because autoComplete is a hint and not a rule.
+//
+// autoComplete is advisory, so the only thing that can actually guarantee this
+// is the VALUE. A tel field now refuses an email-shaped value: it is filtered
+// on the way in (so the stray fill never renders) and stripped again before
+// save (so it can never be persisted even if something slips past the input).
+// The database is clean today and this is what keeps it that way.
+const EMAILISH = /@/
+
+/** Phone fields accept digits and the punctuation a phone number uses, nothing
+ *  else. Returns '' for an email-shaped value rather than trying to repair it. */
+export function sanitizePhoneInput(v: string): string {
+  if (!v) return ''
+  if (EMAILISH.test(v)) return ''
+  return v.replace(/[^0-9+()\-.\s ext]/gi, '')
+}
 function inp(
   value: string,
   onChange: (v: string) => void,
@@ -81,8 +105,16 @@ function inp(
       name={opts.name}
       autoComplete={opts.autoComplete}
       type={opts.type || 'text'}
+      // A tel field gets the numeric keypad AND a pattern, which both improve
+      // the browser's own field classification, and its value is filtered so a
+      // mis-targeted autofill never reaches state.
+      inputMode={opts.type === 'tel' ? 'tel' : undefined}
+      pattern={opts.type === 'tel' ? '[0-9+()\\-.\\s]*' : undefined}
+      // password managers are the other common source of a wrong fill
+      data-lpignore={opts.type === 'tel' ? 'true' : undefined}
+      data-1p-ignore={opts.type === 'tel' ? 'true' : undefined}
       value={value}
-      onChange={e => onChange(e.target.value)}
+      onChange={e => onChange(opts.type === 'tel' ? sanitizePhoneInput(e.target.value) : e.target.value)}
       placeholder={opts.placeholder}
       disabled={opts.disabled}
       maxLength={opts.maxLength}
@@ -316,11 +348,11 @@ export default function ProfilePage() {
         firstName: admin.firstName,
         lastName: admin.lastName,
         email: admin.email,
-        phoneNumber: admin.phoneNumber,
+        phoneNumber: sanitizePhoneInput(admin.phoneNumber),
       },
       address: {
         businessName: address.businessName,
-        phoneNumber: address.phoneNumber,
+        phoneNumber: sanitizePhoneInput(address.phoneNumber),
         addressLine1: address.addressLine1,
         city: address.city,
         state: address.state,
@@ -346,7 +378,7 @@ export default function ProfilePage() {
         body: JSON.stringify({
           firstName: admin.firstName,
           lastName: admin.lastName,
-          phoneNumber: admin.phoneNumber,
+          phoneNumber: sanitizePhoneInput(admin.phoneNumber),
         }),
       })
       if (!res.ok) {
