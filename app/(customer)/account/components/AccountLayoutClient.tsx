@@ -5,6 +5,8 @@ import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import { useAuthContext } from '../../../context/AuthContext'
 import { isAmexDemoUser, AmexNavIcon } from '../../../../lib/demo/amex-demo' // AMEX DEMO (temporary — see lib/demo/amex-demo.tsx)
+// LOYALTY DEMO (temporary)
+import { isLoyaltyDemoUser, LoyaltyNavIcon, tierFor, DEMO_STATS } from '../../../../lib/demo/loyalty-demo'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -136,6 +138,12 @@ const NAV: NavEntry[] = [
 // AMEX DEMO (temporary) — nav entry injected only for the demo account.
 const AMEX_ENTRY: NavEntry = { href: '/account/amex-benefits', label: 'Amex Benefits', icon: <AmexNavIcon /> }
 
+// LOYALTY DEMO (temporary) — nav entry injected only for the demo account.
+const LOYALTY_ENTRY: NavEntry = {
+  href: '/account/loyalty', label: 'Disco Rewards',
+  icon: <LoyaltyNavIcon tier={tierFor(DEMO_STATS.orders, DEMO_STATS.subtotal)} />,
+}
+
 export default function AccountLayoutClient({ children }: { children: React.ReactNode }) {
   const { user, isLoading, logout } = useAuthContext()
   const router = useRouter()
@@ -181,7 +189,11 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
 
   // AMEX DEMO (temporary) — inject the "Amex Benefits" tab after Favorites, for
   // the demo account only. Remove this line + the import to fully strip it.
-  const navItems = isAmexDemoUser(user.email) ? [...NAV.slice(0, 4), AMEX_ENTRY, ...NAV.slice(4)] : NAV
+  // LOYALTY DEMO (temporary) — injected after Amex, same one-account gate.
+  const withAmex = isAmexDemoUser(user.email) ? [...NAV.slice(0, 4), AMEX_ENTRY, ...NAV.slice(4)] : NAV
+  const navItems = isLoyaltyDemoUser(user.email)
+    ? [...withAmex.slice(0, 4), LOYALTY_ENTRY, ...withAmex.slice(4)]
+    : withAmex
 
   return (
     <>

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useAuthContext } from '../context/AuthContext'
 import { isAmexDemoUser, AmexBadge } from '../../lib/demo/amex-demo' // AMEX DEMO (temporary — see lib/demo/amex-demo.tsx)
+// LOYALTY DEMO (temporary)
+import { isLoyaltyDemoUser, TierChip, tierFor, DEMO_STATS } from '../../lib/demo/loyalty-demo'
 import AuthModal from './AuthModal'
 import UserMenu from './UserMenu'
 
@@ -91,6 +93,8 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
               <>
                 {/* AMEX DEMO (temporary) — cosmetic badge for one test account only */}
                 {isAmexDemoUser(user.email) && <AmexBadge />}
+                {/* LOYALTY DEMO (temporary) */}
+                {isLoyaltyDemoUser(user.email) && (() => { const t = tierFor(DEMO_STATS.orders, DEMO_STATS.subtotal); return t ? <TierChip tier={t} /> : null })()}
                 <UserMenu />
               </>
             ) : (
