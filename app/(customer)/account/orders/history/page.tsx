@@ -8,6 +8,12 @@ const DARK = '#1A1028'
 const BLUE = '#586CE1'
 const PAGE_SIZE = 10
 
+// LOYALTY DEMO (temporary) — one invented row, for one hardcoded account.
+// Merged CLIENT-SIDE after the fetch, so the server never returns it and nothing
+// that reads the database can ever see it. See lib/demo/loyalty-demo.tsx.
+import { isLoyaltyDemoUser, DemoHistoryRow, tierFor, DEMO_STATS } from '../../../../../lib/demo/loyalty-demo'
+import { useAuthContext } from '../../../../context/AuthContext'
+
 interface OrderItem {
   reference?: string
   id?: string
@@ -38,6 +44,9 @@ function fmtDate(d?: string) {
 function fmtMoney(n?: number) { return `$${(n || 0).toFixed(2)}` }
 
 export default function HistoryPage() {
+  const { user } = useAuthContext()
+  // LOYALTY DEMO (temporary)
+  const demoTier = isLoyaltyDemoUser(user?.email) ? tierFor(DEMO_STATS.orders, DEMO_STATS.subtotal) : null
   const [orders, setOrders] = useState<OrderItem[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -80,6 +89,8 @@ export default function HistoryPage() {
       ) : (
         <>
           <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', marginBottom: 16, background: '#fff' }}>
+            {/* LOYALTY DEMO (temporary) — pinned above the real rows, never fetched */}
+            {demoTier && <DemoHistoryRow tier={demoTier} />}
             {orders.map((o, i) => (
               <div
                 key={o.reference || o.id || i}

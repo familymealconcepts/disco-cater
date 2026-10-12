@@ -109,6 +109,41 @@ export const DEMO_STATS = {
 
 export const DEMO_IS_SEEDED = true
 
+// ── THE DEMO ORDER ──────────────────────────────────────────────────────────
+// ⚠️ INVENTED, like DEMO_STATS above. It is NOT in disco_orders, has no order
+// reference anything can resolve, and is never written, fetched or mirrored. It
+// exists so the tier discount can be SEEN the way a diner would see it, rather
+// than described.
+//
+// HOW IT IS KEPT OUT OF EVERYTHING REAL:
+//   • it is a constant in this file — no INSERT, no API, no migration
+//   • every surface that renders it is behind isLoyaltyDemoUser(), which matches
+//     one hardcoded address
+//   • it is merged into the history list CLIENT-SIDE, after the fetch, so the
+//     server never returns it and no caller can page past it into reality
+//   • reporting, the restaurant portal, exports and every cron read the
+//     database, which has never heard of it
+//   • its id is deliberately unresolvable, so clicking it opens nothing
+//
+// The fee maths is the native default of 5%, reduced by Silver's 1 point to 4%.
+export const DEMO_ORDER = {
+  id: 'demo-loyalty-order',
+  date: '2026-10-14',
+  dateLabel: '14 October 2026',
+  restaurantName: 'Apollo Bagels - Kips Bay',
+  status: 'Confirmed',
+  subtotal: 1000,
+  tax: 88.75,
+  /** What the fee WOULD have been, with no tier. */
+  feeStandard: 50,
+  /** What a Silver member is charged: 5% - 1pp = 4%. */
+  feeCharged: 40,
+  get saved() { return this.feeStandard - this.feeCharged },
+  get total() { return this.subtotal + this.tax + this.feeCharged },
+} as const
+
+
+
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 
@@ -285,6 +320,17 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
         })}
       </div>
 
+      {/* THE DISCOUNT ON A REAL-LOOKING ORDER */}
+      {tier && (
+        <div style={{ ...card, borderLeft: `5px solid ${tier.colour}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 2 }}>Your last order</div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
+            {DEMO_ORDER.restaurantName} · {DEMO_ORDER.dateLabel}
+          </div>
+          <DemoFeeLine tier={tier} />
+        </div>
+      )}
+
       {/* WHAT IT SAVED */}
       <div style={{ ...card, borderLeft: tier ? `5px solid ${tier.colour}` : card.border }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4 }}>Your savings</div>
@@ -305,4 +351,136 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
       </div>
     </div>
   )
+}
+
+/* ── THE DISCOUNT, AS A DINER SEES IT ──────────────────────────────────────────
+ *
+ * Two surfaces, because a diner meets the benefit twice and they answer different
+ * questions. The RECEIPT LINE is the moment of truth — "what am I paying, and what
+ * did my tier do about it" — so it strikes the standard fee through and names the
+ * saving in dollars beside the tier. The HISTORY ROW is the reminder weeks later,
+ * so it carries the saving as a quiet green note rather than re-explaining the
+ * arithmetic.
+ *
+ * Both are rendered ONLY behind isLoyaltyDemoUser(). Neither reads a database.
+ */
+
+/** The fee block exactly as it would sit in a checkout summary or a confirmation. */
+export function DemoFeeLine({ tier, compact = false }: { tier: LoyaltyTier; compact?: boolean }) {
+  const o = DEMO_ORDER
+  const row: React.CSSProperties = {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    fontSize: compact ? 13 : 13.5, padding: '7px 0', fontFamily: F,
+  }
+  return (
+    <div style={{ fontFamily: F }}>
+      <div style={{ ...row, color: '#585786' }}><span>Subtotal</span><span>{money2(o.subtotal)}</span></div>
+      <div style={{ ...row, color: '#585786' }}><span>Tax</span><span>{money2(o.tax)}</span></div>
+      <div style={{ ...row, alignItems: 'flex-start' }}>
+        <span style={{ color: '#585786' }}>
+          Platform fee
+          <span style={{
+            marginLeft: 8, fontSize: 10.5, fontWeight: 800, letterSpacing: '0.05em',
+            textTransform: 'uppercase', color: '#fff', background: tierSurface(tier),
+            padding: '2px 8px', borderRadius: 20, verticalAlign: 'middle',
+          }}>{tier.name} −{tier.feeCutPoints}%</span>
+        </span>
+        <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+          <s style={{ color: '#aaa', marginRight: 8 }}>{money2(o.feeStandard)}</s>
+          <strong style={{ color: DARK }}>{money2(o.feeCharged)}</strong>
+        </span>
+      </div>
+      <div style={{ ...row, color: '#1D9E75', fontWeight: 700, paddingTop: 0 }}>
+        <span>You saved</span><span>{money2(o.saved)}</span>
+      </div>
+      <div style={{ ...row, borderTop: '1px solid #eee', marginTop: 6, paddingTop: 12, fontSize: 15, fontWeight: 800, color: DARK }}>
+        <span>Total</span><span>{money2(o.total)}</span>
+      </div>
+    </div>
+  )
+}
+
+/** One row for the account order history, shaped like the real rows beside it. */
+export function DemoHistoryRow({ tier }: { tier: LoyaltyTier }) {
+  const o = DEMO_ORDER
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+      borderBottom: '1px solid #f0f0f0', fontFamily: F,
+      borderLeft: `4px solid ${tier.colour}`, background: tierTint(tier),
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{o.restaurantName}</div>
+        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+          {o.dateLabel} · {o.status}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{money2(o.total)}</div>
+        <div style={{ fontSize: 11.5, color: '#1D9E75', fontWeight: 700, marginTop: 2 }}>
+          saved {money2(o.saved)} · {tier.name}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── EXPERIMENT: TIER COLOUR IN THE CHROME ────────────────────────────────────
+ *
+ * ⚠️ AN EXPERIMENT, NOT A COMMITMENT. Set LOYALTY_CHROME_EXPERIMENT = false and
+ * every one of these overrides stops — the flag is the whole revert. Nothing else
+ * has to be touched and no other surface reads it.
+ *
+ * WHAT IT TOUCHES, AND WHAT IT DELIBERATELY DOES NOT.
+ *
+ * It tints three things that are ABOUT the diner: the thin rule under the header,
+ * a very low-opacity page wash, and the account nav's active item. Each is an
+ * accent whose meaning survives changing colour — a copper rule is still a rule.
+ *
+ * It leaves alone everything whose meaning is Disco's rather than the diner's:
+ *   • the logo and the wordmark gradient — the brand is not the diner's status
+ *   • primary buttons — a copper "Place order" reads as a different product, and
+ *     the same button turning four colours across four diners is a brand with no
+ *     colour of its own
+ *   • any success / error / warning colour — those mean a thing, not a person
+ *   • the header BACKGROUND, deliberately: a header that turns copper for most
+ *     diners (copper being the entry tier, where most people sit) stops reading as
+ *     Disco Cater at a glance, which is the brief's own warning
+ *
+ * CONTRAST. Nothing here puts text on a tier colour, so the raw hues are safe as
+ * accents. The one text-bearing surface — the active nav item — uses `deep`
+ * (white text clears 4.5:1) and the tint carries `ink`, both measured.
+ *
+ * MARQUEE keeps the brand gradient and is the one tier whose accent IS the brand,
+ * which is the point of it.
+ */
+export const LOYALTY_CHROME_EXPERIMENT = true
+
+export function LoyaltyChrome({ email }: { email?: string | null }) {
+  if (!LOYALTY_CHROME_EXPERIMENT || !isLoyaltyDemoUser(email)) return null
+  const tier = tierFor(DEMO_STATS.orders, DEMO_STATS.subtotal)
+  if (!tier) return null
+  const solid = tier.colour           // borders, which a gradient cannot do
+  const surface = tierSurface(tier)   // the one text-bearing override
+  // Built outside the JSX: a nested template literal inside a JSX expression is
+  // what broke the first version of this.
+  const HEADER = 'header, .dc-header, nav[class*="header"]'
+  const marqueeRule = tier.gradient
+    ? HEADER + ' { border-bottom: 2px solid transparent !important; border-image: ' + tier.gradient + ' 1 !important; }'
+    : ''
+  const css = [
+    // Header: a tier RULE, not a tier header. The background is untouched so the
+    // page reads as Disco Cater before it reads as anybody's status.
+    HEADER + ' { border-bottom: 2px solid ' + solid + ' !important; }',
+    // Page wash at ~4% — warm enough to notice, far too faint to compete with
+    // content or to move any text contrast ratio.
+    'body { background-image: linear-gradient(180deg, ' + solid + '0A 0%, transparent 340px) !important; background-repeat: no-repeat !important; }',
+    // The account nav's current item — the one piece of chrome genuinely about
+    // this diner. `deep` because it carries white text.
+    'a[aria-current="page"], a[data-active="true"] { background: ' + surface + ' !important; color: #fff !important; }',
+    // Focus rings follow the tier; an accent that never carries text.
+    ':focus-visible { outline-color: ' + solid + ' !important; }',
+    marqueeRule,
+  ].filter(Boolean).join('\n')
+  return <style>{css}</style>
 }
