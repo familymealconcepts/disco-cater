@@ -79,6 +79,9 @@ export interface HealthSnapshot {
   hardBounces: number
   complaints: number
   consecutiveFailures: number
+  /** Matured sends this run is answerable for — the denominator the delivery
+   *  rule actually arms on. Equals acceptedMatured when countFromSec is 0. */
+  acceptedMaturedCounted: number
   /** Cumulative, for REPORTING only — the halt rule reads the rolling figures. */
   hardBouncePct: number | null
   deliveryPct: number | null
@@ -99,7 +102,7 @@ export class CampaignHealth {
   private authError: string | null = null
   private snap: HealthSnapshot = {
     accepted: 0, acceptedMatured: 0, delivered: 0, hardBounces: 0,
-    complaints: 0, consecutiveFailures: 0, hardBouncePct: null, deliveryPct: null,
+    complaints: 0, consecutiveFailures: 0, acceptedMaturedCounted: 0, hardBouncePct: null, deliveryPct: null,
     rollingWindow: 0, rollingHardBounces: 0, rollingBouncePct: null,
     rollingComplaintWindow: 0, rollingComplaints: 0, rollingComplaintPct: null,
   }
@@ -109,6 +112,32 @@ export class CampaignHealth {
     private readonly domain: string,
     private readonly sinceSec: number,
     private readonly thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
+    /**
+     * Unix seconds. Events from sends ACCEPTED before this are measured but not
+     * COUNTED AGAINST the halt rules. Default 0 counts everything, which is the
+     * behaviour every existing caller gets unchanged.
+     *
+     * ── WHY THIS EXISTS: THE ROLLING WINDOW COULD NOT CLEAR ITSELF ───────────
+     * The bounce rule measures the last 200 ACCEPTED recipients. When it halts,
+     * the offending bounces are inside those 200 — and the window only moves as
+     * new sends land, which cannot happen because the run has stopped. The
+     * health poll fires every 20 messages, so a resumed run re-read the same
+     * stretch and halted again long before the bad run aged out. Observed on
+     * 2026-10-11: 12 bounces in 200, 6.00% against a 5% limit, and a relaunch
+     * modelled as halting immediately for as long as those 12 stayed in frame.
+     * The complaint rule has the identical shape over 1,000, and the delivery
+     * rule the same over the 24-hour lookback.
+     *
+     * THE NUMERATOR IS RESTRICTED, THE DENOMINATOR IS NOT, and that asymmetry is
+     * the whole safety argument. A resumed run counts only the bounces,
+     * complaints and failures IT caused, but still measures them against the
+     * real last-200 window. So it converges to the true rate as fresh volume
+     * replaces the old, and it is never blind in the meantime — the alternative
+     * (starting the window empty) would disarm the rule for the first 100
+     * messages of every restart, which is exactly what the 24-hour lookback was
+     * introduced to prevent.
+     */
+    private readonly countFromSec = 0,
   ) {}
 
   /** Record one send result. Any auth failure is terminal on its own. */
@@ -136,6 +165,10 @@ export class CampaignHealth {
     // rolling window can be taken off the tail. Events are requested
     // ascending=yes, so push order IS send order.
     const acceptedOrder: string[] = []
+    // When each recipient was ACCEPTED, so a prior run's outcomes can be left out
+    // of the numerators without touching the windows they are measured against.
+    const acceptedAt = new Map<string, number>()
+    const deliveredSet = new Set<string>()
     const bouncedSet = new Set<string>()
     // Per RECIPIENT, exactly as bounces are, so one address complaining twice
     // cannot inflate the rate.
@@ -155,8 +188,8 @@ export class CampaignHealth {
         const ev = String(e.event)
         const ts = Number(e.timestamp)
         const who = String(e.recipient ?? '').toLowerCase()
-        if (ev === 'accepted') { accepted++; acceptedOrder.push(who); if (ts < cutoff) acceptedMatured++ }
-        else if (ev === 'delivered') delivered++
+        if (ev === 'accepted') { accepted++; acceptedOrder.push(who); acceptedAt.set(who, ts); if (ts < cutoff) acceptedMatured++ }
+        else if (ev === 'delivered') { delivered++; deliveredSet.add(who) }
         else if (ev === 'complained') { complaints++; complainedSet.add(who) }
         else if (ev === 'failed' && String(e.severity) === 'permanent') { hardBounces++; bouncedSet.add(who) }
       }
@@ -166,17 +199,33 @@ export class CampaignHealth {
     // THE ROLLING WINDOW: the last N accepted recipients, and how many of those
     // bounced. Counted per RECIPIENT rather than per event so a retried address
     // cannot be counted twice and inflate the rate.
+    // Counts only for sends this run is answerable for. With countFromSec = 0
+    // this is `() => true` and every count is exactly as before.
+    const mine = (r: string) => (acceptedAt.get(r) ?? 0) >= this.countFromSec
+
     const windowRecipients = acceptedOrder.slice(-this.thresholds.bounceWindowSize)
-    const rollingHardBounces = windowRecipients.filter(r => bouncedSet.has(r)).length
+    const rollingHardBounces = windowRecipients.filter(r => bouncedSet.has(r) && mine(r)).length
     // The complaint window is its own, and wider — see DEFAULT_THRESHOLDS.
     const complaintWindow = acceptedOrder.slice(-this.thresholds.complaintWindowSize)
-    const rollingComplaints = complaintWindow.filter(r => complainedSet.has(r)).length
+    const rollingComplaints = complaintWindow.filter(r => complainedSet.has(r) && mine(r)).length
+
+    // DELIVERY GETS THE SAME TREATMENT, for the same reason. Its denominator is
+    // the 24-hour lookback rather than a send count, so it would have cleared on
+    // its own — but only after a full day, and a rule that needs a day to
+    // forgive a stretch it already stopped is the same deadlock on a timer.
+    // Restricted to this run, both halves move together.
+    const minedAccepted = acceptedOrder.filter(mine)
+    const minedMatured = minedAccepted.filter(r => (acceptedAt.get(r) ?? 0) < cutoff)
+    const minedDelivered = minedMatured.filter(r => deliveredSet.has(r)).length
+    const effMatured = this.countFromSec > 0 ? minedMatured.length : acceptedMatured
+    const effDelivered = this.countFromSec > 0 ? minedDelivered : delivered
 
     this.snap = {
       accepted, acceptedMatured, delivered, hardBounces, complaints,
       consecutiveFailures: this.consecutiveFailures,
       hardBouncePct: accepted > 0 ? (hardBounces / accepted) * 100 : null,
-      deliveryPct: acceptedMatured > 0 ? (delivered / acceptedMatured) * 100 : null,
+      acceptedMaturedCounted: effMatured,
+      deliveryPct: effMatured > 0 ? (effDelivered / effMatured) * 100 : null,
       rollingWindow: windowRecipients.length,
       rollingHardBounces,
       rollingBouncePct: windowRecipients.length > 0 ? (rollingHardBounces / windowRecipients.length) * 100 : null,
@@ -232,8 +281,8 @@ export class CampaignHealth {
       }
     }
 
-    if (s.acceptedMatured >= t.minMaturedForDelivery && s.deliveryPct !== null && s.deliveryPct < t.minDeliveryPct) {
-      return { halt: true, reason: `delivery ${s.deliveryPct.toFixed(2)}% of ${s.acceptedMatured} matured sends (floor ${t.minDeliveryPct}%)` }
+    if (s.acceptedMaturedCounted >= t.minMaturedForDelivery && s.deliveryPct !== null && s.deliveryPct < t.minDeliveryPct) {
+      return { halt: true, reason: `delivery ${s.deliveryPct.toFixed(2)}% of ${s.acceptedMaturedCounted} matured sends (floor ${t.minDeliveryPct}%)` }
     }
 
     return { halt: false }

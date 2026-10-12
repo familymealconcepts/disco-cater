@@ -226,8 +226,18 @@ async function main() {
   // zero-tolerance rule had halted on; complaints are now judged as a rate, so
   // there is nothing to acknowledge and two overlapping controls would be one
   // too many. A genuinely bad rate stops the run on its own.
+  // The 24-HOUR LOOKBACK IS THE DENOMINATOR and is unchanged — every rule still
+  // measures against the real last-200 (and last-1000) sends, so a resumed run is
+  // never blind the way a fresh-window run would be for its first 100 messages.
+  //
+  // The second marker is the NUMERATOR: this run only counts bounces, complaints
+  // and undelivered mail from sends IT made. A halt therefore clears itself as
+  // fresh volume replaces the stretch that caused it, instead of the run
+  // re-reading those same events every 20 messages and stopping again — which is
+  // what happened on 2026-10-11 (12 bounces in 200, 6.00% against 5%).
   const health = new CampaignHealth(
     DINER_PROFILE.tag!, DINER_PROFILE.domain, Math.floor(started / 1000) - 24 * 3600,
+    undefined, Math.floor(started / 1000),
   )
 
   console.log(`send window is currently ${inSendWindow(new Date()) ? 'OPEN' : 'CLOSED (the run will wait)'}`)
