@@ -94,6 +94,28 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   try {
     await runMigrations()
     const offset = await readCursor()
+
+    // ── THE ROTATION MOVES BEFORE THE WORK, NOT ONLY AFTER IT ────────────────
+    // Every other cursor write in this file happens AFTER at least one
+    // restaurant has finished: onProgress fires per completed restaurant, and
+    // the reconciling write below needs the function to return. Neither
+    // survives the platform killing this function at maxDuration while the
+    // FIRST restaurant of the batch is still running — and then the next hour
+    // re-reads the same offset and dies in the same place, forever.
+    //
+    // That is not theoretical either. Offset 906 is Mav's Top Buns, which has a
+    // reconciliation mismatch (neon 1195 vs FM 1200). A mismatch sets
+    // stopAtKnownDate=false and maxPages=500, so the rotation re-pulls its whole
+    // history with withItems — measured at roughly five minutes for its ~1,200
+    // orders, against a 300s maxDuration. It can never finish, so it can never
+    // report progress, so the cursor can never move past it.
+    //
+    // So claim one step up front. A killed run now costs at most the single
+    // restaurant it died on, which the next full rotation picks up anyway,
+    // instead of pinning the whole fleet behind it. A run that finishes
+    // overwrites this with the real advance below.
+    await writeCursor(offset + 1)
+
     // maxPages is a safety ceiling, not the normal stopping point — with
     // stopAtKnownDate, a restaurant with nothing new since last sync stops
     // after page 0 as before; this only pages further when a restaurant has
