@@ -1185,7 +1185,15 @@ export async function syncAllRestaurantOrders(
   // one is covered within a few runs instead of days. Capped so it can never
   // become a second unbounded job, and ONE page per restaurant — enough to
   // catch new arrivals, with the rotation still doing the deep passes.
-  const CONVERTED_CAP = 60
+  // Was 60. Freshness for converted restaurants is now cron/fm-order-watch's
+  // job — it checks ALL of them every 30 minutes with a count call, which is
+  // both faster and far lighter on FamilyMeal than this sweep's per-restaurant
+  // page pulls. What stays here is the deep work the watcher does not do:
+  // repairBareOrderDetail, and a full-page pass that catches anything the
+  // count-based trigger cannot see. Dropping 60 to 20 removes ~40 heavy page
+  // requests an hour from FamilyMeal's backend, which more than pays for the
+  // watcher's cheap counts.
+  const CONVERTED_CAP = 20
   const convertedRows = (await sql`
     SELECT DISTINCT c.restaurant_reference::text AS ref
     FROM disco_restaurant_cache c

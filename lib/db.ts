@@ -102,6 +102,33 @@ export async function runMigrations(): Promise<void> {
        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS disco_mirror_alerts_created_idx ON disco_mirror_alerts (created_at DESC)`,
+    // Per-restaurant freshness state for the FM order watcher
+    // (app/api/cron/fm-order-watch). Two jobs:
+    //
+    //   last_checked_at  — proves every converted restaurant is being looked at,
+    //                      and is what the 2-hour staleness alarm reads.
+    //   known_gap        — the SIZE OF THE PERMANENT difference between
+    //                      FamilyMeal's order count and Neon's for this
+    //                      restaurant. Some FM rows can never be mirrored:
+    //                      carts, and EXPIRED/CANCELED rows with a null customer
+    //                      email (disco_orders.customer_email is NOT NULL).
+    //                      Measured in production: 22 restaurants show FM > Neon
+    //                      but only ONE had a real missing order. Without this
+    //                      baseline the watcher would re-pull those 21 every
+    //                      run — up to 37s each, ~777s, well past maxDuration.
+    //                      With it, steady state costs zero fetches and only a
+    //                      genuine CHANGE in the gap triggers work.
+    `CREATE TABLE IF NOT EXISTS disco_fm_sync_watch (
+       restaurant_reference UUID PRIMARY KEY,
+       last_checked_at TIMESTAMPTZ,
+       last_synced_at TIMESTAMPTZ,
+       last_fm_total INTEGER,
+       last_neon_count INTEGER,
+       known_gap INTEGER NOT NULL DEFAULT 0,
+       consecutive_errors INTEGER NOT NULL DEFAULT 0,
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS disco_fm_sync_watch_checked_idx ON disco_fm_sync_watch (last_checked_at)`,
     // Which restaurants reconcile-stripe-links has ALREADY reported as needing
     // the restaurant to reconnect Stripe. One row per restaurant, so the job can
     // alert when one ENTERS the set and when one LEAVES it, and stay quiet about

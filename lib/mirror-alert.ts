@@ -15,7 +15,8 @@ import { alertOps } from './ops-alert'
  * fail the cron that raised it.
  */
 export async function mirrorAlert(
-  kind: 'cursor-stalled' | 'restaurants-failed' | 'order-gap' | 'run-failed',
+  kind: 'cursor-stalled' | 'restaurants-failed' | 'order-gap' | 'run-failed'
+    | 'watch-stale' | 'watch-fetch-failed',
   message: string,
   detail?: Record<string, unknown>,
 ): Promise<void> {
