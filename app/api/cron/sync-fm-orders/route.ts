@@ -99,7 +99,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // after page 0 as before; this only pages further when a restaurant has
     // genuinely accumulated more than a page's worth of orders since the last
     // hourly pass.
-    const { restaurants, processed, exhausted, budgetStopped, rowsRead, results, mismatches, bareRepairs } =
+    const { restaurants, processed, exhausted, budgetStopped, rowsRead, results, mismatches, bareRepairs, failures } =
       await syncAllRestaurantOrders({
         withItems: true, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true,
         // Persist the cursor AS THE RUN PROGRESSES, not only at the end. The
@@ -144,8 +144,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} rowsRead=${rowsRead} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, orphansDeleted, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} rowsRead=${rowsRead} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} failures=${failures.length} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, failures, orphansDeleted, duration_ms })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/sync-fm-orders] failed:', error)

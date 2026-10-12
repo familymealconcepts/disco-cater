@@ -1016,6 +1016,10 @@ export async function syncAllRestaurantOrders(
   results: SyncResult[]
   mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[]
   bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[]
+  /** Restaurants whose work threw and was skipped. Before this existed a single
+   *  throw ended the whole run before the cursor was ever written — see the
+   *  guards below. */
+  failures: { restaurantReference: string; stage: 'urgent' | 'converted' | 'rotation'; error: string }[]
 }> {
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
@@ -1051,6 +1055,30 @@ export async function syncAllRestaurantOrders(
   const results: SyncResult[] = []
   const mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] = []
   const bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[] = []
+  // ── ONE RESTAURANT MUST NEVER END THE RUN ──────────────────────────────────
+  // Every per-restaurant call below reaches FamilyMeal, and fmFetch THROWS on a
+  // timeout ("FM request timed out") rather than returning a response. Until
+  // this existed, none of the three loops caught it: a single throw unwound out
+  // of this function, the cron's catch returned 500, and writeCursor was never
+  // reached — so the cursor could not advance past the restaurant that threw.
+  //
+  // That is not hypothetical. Apollo Bagels - Hoboken's page-0 order fetch takes
+  // 9.6-10.2s against fmFetch's 10s timeout, so it throws intermittently. It sat
+  // in the converted sweep's slice, the sweep runs BEFORE the rotation, and the
+  // sweep's own slice is keyed on the same frozen offset — so every hourly run
+  // died on the same restaurant, the cursor stayed at 906 for 51 hours, and
+  // Rooted Cafe Catering (rotation position 3373, and outside the pinned sweep
+  // slice) never got synced. Its FM order 81305372, $958.23 for 13 Oct, was
+  // still invisible in Disco two days after it was placed.
+  //
+  // So: record and skip. A restaurant that fails is a restaurant that waits for
+  // the next run, not a run that ends.
+  const failures: { restaurantReference: string; stage: 'urgent' | 'converted' | 'rotation'; error: string }[] = []
+  const noteFailure = (ref: string, stage: 'urgent' | 'converted' | 'rotation', e: unknown) => {
+    const error = e instanceof Error ? e.message : String(e)
+    console.error(`[fm-orders-sync] ${stage} stage FAILED for restaurant=${ref} — skipped, run continues: ${error}`)
+    failures.push({ restaurantReference: ref, stage, error })
+  }
   let auth: Record<string, string> | null = null
 
   // ── TARGETED PRE-PASS: RESTAURANTS WITH UPCOMING BARE ORDERS, WHEREVER THEY SIT
@@ -1103,7 +1131,10 @@ export async function syncAllRestaurantOrders(
       break
     }
     if (!isUuid(u.ref)) continue
-    const res = await repairBareOrderDetail(u.ref)
+    let res: { bareBefore: number; repaired: number }
+    try {
+      res = await repairBareOrderDetail(u.ref)
+    } catch (e) { noteFailure(u.ref, 'urgent', e); urgentDone.add(u.ref); continue }
     urgentDone.add(u.ref)
     if (res.bareBefore > 0) {
       console.warn(`[fm-orders-sync] URGENT bare-order repair: restaurant=${u.ref} upcomingBare=${u.n} soonest=${u.soonest} bareBefore=${res.bareBefore} repaired=${res.repaired}`)
@@ -1165,14 +1196,16 @@ export async function syncAllRestaurantOrders(
       // stopped being repaired the moment the sweep started covering it, and bare
       // FM_LIST rows accumulated behind it — 28 of them, across 13 restaurants,
       // every one at a converted restaurant.
-      if (!urgentDone.has(ref)) {
-        const swept = await repairBareOrderDetail(ref)
-        if (swept.bareBefore > 0) {
-          console.warn(`[fm-orders-sync] converted-sweep bare repair: restaurant=${ref} bareBefore=${swept.bareBefore} repaired=${swept.repaired}`)
-          bareRepairs.push({ restaurantReference: ref, ...swept })
+      try {
+        if (!urgentDone.has(ref)) {
+          const swept = await repairBareOrderDetail(ref)
+          if (swept.bareBefore > 0) {
+            console.warn(`[fm-orders-sync] converted-sweep bare repair: restaurant=${ref} bareBefore=${swept.bareBefore} repaired=${swept.repaired}`)
+            bareRepairs.push({ restaurantReference: ref, ...swept })
+          }
         }
-      }
-      results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 50, maxPages: 1, stopAtKnownDate: true }))
+        results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 50, maxPages: 1, stopAtKnownDate: true }))
+      } catch (e) { noteFailure(ref, 'converted', e); continue }
     }
     console.log(`[fm-orders-sync] converted-restaurant sweep: ${convertedDone.size} of ${convertedAll.length} (offset=${offset})`)
   }
@@ -1226,17 +1259,22 @@ export async function syncAllRestaurantOrders(
     // cheap when there's no backlog (one COUNT query), and "no FM order sits
     // bare indefinitely" shouldn't depend on an opt-in flag.
     // Skipped when the urgent pre-pass above already handled this restaurant this run.
-    const bareResult = urgentDone.has(ref) ? { bareBefore: 0, repaired: 0 } : await repairBareOrderDetail(ref)
-    if (bareResult.bareBefore > 0) {
-      console.warn(`[fm-orders-sync] bare-order repair: restaurant=${ref} bareBefore=${bareResult.bareBefore} repaired=${bareResult.repaired}`)
-      bareRepairs.push({ restaurantReference: ref, ...bareResult })
-    }
+    try {
+      const bareResult = urgentDone.has(ref) ? { bareBefore: 0, repaired: 0 } : await repairBareOrderDetail(ref)
+      if (bareResult.bareBefore > 0) {
+        console.warn(`[fm-orders-sync] bare-order repair: restaurant=${ref} bareBefore=${bareResult.bareBefore} repaired=${bareResult.repaired}`)
+        bareRepairs.push({ restaurantReference: ref, ...bareResult })
+      }
 
-    results.push(await syncRestaurantOrders(ref, {
-      withItems: opts.withItems ?? false,
-      maxPages,
-      stopAtKnownDate,
-    }))
+      results.push(await syncRestaurantOrders(ref, {
+        withItems: opts.withItems ?? false,
+        maxPages,
+        stopAtKnownDate,
+      }))
+    } catch (e) { noteFailure(ref, 'rotation', e) }
+    // Counted whether or not the work above threw. A restaurant that cannot be
+    // synced must still move the cursor past itself, or it pins the rotation on
+    // itself forever — which is the failure this whole block exists to end.
     processed++
     // Persist progress as we go. Best-effort: a failed cursor write must not
     // abort a sync that is otherwise working, and the next tick will try again.
@@ -1249,7 +1287,7 @@ export async function syncAllRestaurantOrders(
   // final batch must not wrap the cursor, or the rotation restarts having
   // skipped the tail.
   const exhausted = rows.length < limit && processed >= refs.length
-  return { restaurants: refs.length, processed, exhausted, budgetStopped, results, mismatches, bareRepairs, rowsRead: rows.length }
+  return { restaurants: refs.length, processed, exhausted, budgetStopped, results, mismatches, bareRepairs, failures, rowsRead: rows.length }
 }
 
 // Cache-independent history sync for restaurants disco_restaurant_cache's own
