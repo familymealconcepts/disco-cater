@@ -145,7 +145,7 @@ export async function GET(req: NextRequest) {
     if (!token) {
       // No FM session — fall back to the permanent Neon receipt if authorized.
       if (nr && await authorizeStatusViewer(req, nr)) return NextResponse.json(await buildNeonStatus(nr), { status: 200 })
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      return NextResponse.json({ error: 'Please sign in to view this order.' }, { status: 401 })
     }
 
     let res: Response

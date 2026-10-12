@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const customer = await getCustomer()
-    if (!customer) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!customer) return NextResponse.json({ error: 'Please sign in or create an account to use saved addresses.' }, { status: 401 })
     try { await runCustomerAddressMigrations() } catch (e) { console.error('[customer-addresses] migration warning (non-fatal):', e) }
 
     const { id } = await params
@@ -57,7 +57,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const customer = await getCustomer()
-    if (!customer) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!customer) return NextResponse.json({ error: 'Please sign in or create an account to use saved addresses.' }, { status: 401 })
     try { await runCustomerAddressMigrations() } catch (e) { console.error('[customer-addresses] migration warning (non-fatal):', e) }
 
     const { id } = await params

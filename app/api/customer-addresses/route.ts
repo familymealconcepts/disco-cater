@@ -22,7 +22,7 @@ interface AddressRow {
 export async function GET() {
   try {
     const customer = await getCustomer()
-    if (!customer) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!customer) return NextResponse.json({ error: 'Please sign in or create an account to use saved addresses.' }, { status: 401 })
 
     try { await runCustomerAddressMigrations() } catch (e) { console.error('[customer-addresses] migration warning (non-fatal):', e) }
 
@@ -44,7 +44,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const customer = await getCustomer()
-    if (!customer) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!customer) return NextResponse.json({ error: 'Please sign in or create an account to use saved addresses.' }, { status: 401 })
 
     try { await runCustomerAddressMigrations() } catch (e) { console.error('[customer-addresses] migration warning (non-fatal):', e) }
 

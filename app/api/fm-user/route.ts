@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   // 2) Legacy fallback — FM JWT in disco_token.
   const token = getToken(req)
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (!token) return NextResponse.json({ error: 'Please sign in or create an account to continue.' }, { status: 401 })
   try {
     const res = await fetch(`${FM_API}/api/users`, { headers: { Authorization: token, Accept: 'application/json' } })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch profile' }, { status: res.status })

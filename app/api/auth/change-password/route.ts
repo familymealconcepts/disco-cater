@@ -44,7 +44,7 @@ export async function PUT(req: NextRequest) {
     await runDiscoOrderMigrations()
 
     const session = await getCustomerSession(req)
-    if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!session) return NextResponse.json({ error: 'Please sign in again to continue.' }, { status: 401 })
 
     const { currentPassword, newPassword } = await req.json()
     if (!currentPassword || !newPassword) {
@@ -55,7 +55,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const customer = await getDiscoCustomer(session.email)
-    if (!customer) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!customer) return NextResponse.json({ error: 'Please sign in again to continue.' }, { status: 401 })
 
     // Same two-branch verification the login route uses, so a customer still on
     // the FM_MIGRATED sentinel (no real hash yet) can change their password

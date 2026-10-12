@@ -11,11 +11,11 @@ export async function GET(req: NextRequest) {
     const userRes = await fetch(new URL('/api/fm-user', req.url), {
       headers: { cookie: req.headers.get('cookie') || '' },
     })
-    if (userRes.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (userRes.status === 401) return NextResponse.json({ error: 'Please sign in or create an account to use a saved card.' }, { status: 401 })
     if (!userRes.ok) return NextResponse.json(null)
     const user = await userRes.json().catch(() => ({}))
     const email: string = user?.email || ''
-    if (!email) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!email) return NextResponse.json({ error: 'Please sign in or create an account to use a saved card.' }, { status: 401 })
 
     await runDiscoOrderMigrations()
     const rows = await sql`

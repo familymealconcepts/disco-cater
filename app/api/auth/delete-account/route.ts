@@ -18,7 +18,7 @@ function decodeEmail(token: string): string {
 // localStorage and redirects home.
 export async function POST(req: NextRequest) {
   const token = getToken(req)
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (!token) return NextResponse.json({ error: 'Please sign in again to continue.' }, { status: 401 })
 
   const email = decodeEmail(token)
   // TODO: replace with a real FM deletion call / ticket once available.

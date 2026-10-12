@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   try {
     const token = getToken(req)
     if (!token) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      return NextResponse.json({ error: 'Please sign in to see your orders.' }, { status: 401 })
     }
 
     let res = await fetch(`${FM_API}/api/userOrder?page=0&size=50`, {

@@ -1987,7 +1987,19 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           <header className="header-scroll-mobile" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '9px 18px', minHeight: 34, boxSizing: 'border-box', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', position: 'sticky', top: 0, zIndex: 200 }}>
             {!authLoading && (user
               ? <UserMenu />
-              : <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Log In</button>
+              : (
+                /* Log In AND Sign Up, not Log In alone. Ordering requires an
+                   account (the checkout gate opens on 'signup' for the same
+                   reason), so a header offering only Log In tells a first-time
+                   customer the opposite of what is true — two of them asked
+                   whether they needed to create an account at all. Neither
+                   button changes who may order; both open the same modal, on
+                   the tab the customer actually wants. */
+                <>
+                  <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Log In</button>
+                  <button onClick={() => openAuthModal(undefined, 'signup')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: '#1A1028', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Sign Up</button>
+                </>
+              )
             )}
           </header>
           <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} defaultTab={authModalDefaultTab} />

@@ -6,12 +6,12 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export async function GET(req: NextRequest) {
   try {
     const token = getToken(req)
-    if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (!token) return NextResponse.json({ error: 'Please sign in or create an account to use a saved card.' }, { status: 401 })
 
     const res = await fetch(`${FM}/api/users/payment/defaultSource`, {
       headers: { Accept: 'application/json', Authorization: token },
     })
-    if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (res.status === 401) return NextResponse.json({ error: 'Please sign in or create an account to use a saved card.' }, { status: 401 })
     // FM 404 (and sometimes 204) = no card on file. That's the empty state, not
     // an error — return 200 null so the page renders a fresh Stripe Element
     // (matches fm-payment-source/route.ts).
