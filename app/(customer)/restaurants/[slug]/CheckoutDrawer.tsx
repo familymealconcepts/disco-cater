@@ -322,7 +322,13 @@ export default function CheckoutDrawer({
   // never on Direct Entry, where the person typing is staff, not the customer.
   // Fire-and-forget: postCheckoutContact never throws and nothing awaits it.
   useEffect(() => {
-    if (isDirectEntry || !authUser || !funnelSessionId || !fmRef || !contactCompletedRef.current) return
+    // NOT GATED ON authUser ANY MORE. It was, and that is why this failure was
+    // invisible in Disco's own analytics: a guest, or a customer whose server
+    // session had expired, left no trace at all — so the funnel showed nothing
+    // for exactly the population that could not pay. The server already ignores
+    // anything it should not store, so the gate bought nothing and cost the
+    // evidence.
+    if (isDirectEntry || !funnelSessionId || !fmRef || !contactCompletedRef.current) return
     const t = setTimeout(() => {
       postCheckoutContact({
         restaurantReference: fmRef,
@@ -331,7 +337,7 @@ export default function CheckoutDrawer({
       })
     }, 1000)
     return () => clearTimeout(t)
-  }, [contactFirst, contactLast, contactEmail, contactPhone, contactCompany, isDirectEntry, authUser, funnelSessionId, fmRef])
+  }, [contactFirst, contactLast, contactEmail, contactPhone, contactCompany, isDirectEntry, funnelSessionId, fmRef])
 
   // Continue checkout after login via AuthModal
   useEffect(() => {
@@ -341,6 +347,48 @@ export default function CheckoutDrawer({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser, waitingForAuth])
+
+  // ── THE SESSION IS CHECKED WHEN CHECKOUT OPENS, NOT AT SUBMIT ─────────────
+  // AuthContext hydrates optimistically from localStorage, and when the server
+  // says "no session" it deliberately keeps that user rather than signing them
+  // out over a possible blip. So `authUser` can be truthy while the server has
+  // nothing — and the gate in processOrder, which only tests `authUser`, waves
+  // them straight through to the card form. /api/order/place then refuses with
+  // 401 "Please log in to place your order" AFTER the card is entered, and
+  // because Stripe is never reached it fails identically for every card. That
+  // is what one customer hit, twice, and read as "not authorized".
+  //
+  // Asking the server once, on open, turns that dead end into the sign-in
+  // prompt they should have had first. It reuses waitingForAuth + openAuthModal,
+  // so completing sign-in resumes checkout exactly as the existing flow does.
+  //
+  // NO FRICTION FOR A WORKING SESSION: a valid session answers 200 here and
+  // nothing happens. Nothing blocks on this check — the drawer renders while it
+  // is in flight — and a NETWORK FAILURE IS NOT A LOGOUT: only an explicit
+  // 401/403 prompts, so an unreachable endpoint leaves checkout exactly as it is.
+  const sessionCheckedRef = useRef(false)
+  useEffect(() => {
+    if (isDirectEntry || !authUser || sessionCheckedRef.current) return
+    sessionCheckedRef.current = true
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/fm-user', { credentials: 'include' })
+        if (cancelled || res.ok) return
+        if (res.status !== 401 && res.status !== 403) return
+        // One forced refresh, same as AuthContext, before concluding anything.
+        try { await fetch('/api/auth/refresh?force=1', { method: 'POST', credentials: 'include' }) } catch { return }
+        const retry = await fetch('/api/fm-user', { credentials: 'include' })
+        if (cancelled || retry.ok) return
+        if (retry.status !== 401 && retry.status !== 403) return
+        setError('Please sign in again to finish your order.')
+        setWaitingForAuth(true)
+        openAuthModal(() => {}, 'login')
+      } catch { /* unreachable endpoint: leave checkout alone */ }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Lock body scroll when open
   useEffect(() => {
@@ -1007,8 +1055,27 @@ export default function CheckoutDrawer({
             ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
           }),
         })
-        const placeData = await placeRes.json()
-        if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
+        const placeData = await placeRes.json().catch(() => ({} as any))
+        // ── A REFUSAL MUST ALWAYS SURFACE, AND MUST SAY WHAT THE SERVER SAID ──
+        // This threw only when the body happened to carry an `error` key, so a
+        // non-OK response without one — an edge 401, a gateway page, anything
+        // that is not this route's own JSON — threw nothing, and checkout
+        // carried on into the Stripe step with no client_secret and failed
+        // there instead, as a generic "Payment could not be processed".
+        //
+        // Now any non-OK status stops the flow, and the message is the server's
+        // own wherever there is one: /api/order/place answers 401 "Please log in
+        // to place your order" for a customer whose session has expired, which
+        // is the one message that actually tells them what to do. Falling back
+        // to the status only when the body says nothing.
+        if (!placeRes.ok) {
+          throw new Error(
+            placeData?.error || placeData?.message ||
+            (placeRes.status === 401 || placeRes.status === 403
+              ? 'Please sign in again to place your order.'
+              : `We could not place your order (error ${placeRes.status}). Please try again.`),
+          )
+        }
         finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
         placedOrderNumber = placeData.data?.orderNumber ?? placeData.orderNumber ?? finalRef
 

@@ -70,12 +70,41 @@ function clearLocalUser() {
   try { window.localStorage.removeItem(DISCO_USER_KEY) } catch {}
 }
 
-async function fetchUser(): Promise<AuthUser | null> {
+/**
+ * THREE OUTCOMES, NOT TWO. This returned `null` for both "the server says you
+ * are signed out" and "the request did not complete", and the caller could not
+ * tell them apart — so it treated every null as transient and kept the
+ * optimistically-hydrated user. The comment there said as much: "this only
+ * bridges a transient cookie read failure".
+ *
+ * An EXPIRED SESSION produces the identical null, and that assumption is what
+ * stranded 116 of 338 customers signed-in on the client with no session on the
+ * server: the avatar stayed, and every authenticated write 401'd. At checkout
+ * that meant entering card details into a dead end — the customer read the
+ * refusal as "not authorized" and tried a second card, which failed the same
+ * way because Stripe was never reached.
+ *
+ *   'user'       the server returned an identity. Authoritative.
+ *   'signed-out' a 401/403 that SURVIVED the forced refresh retry. Authoritative.
+ *   'unknown'    the fetch threw, or the server answered something else (5xx).
+ *                Not authoritative — the caller must change nothing.
+ *
+ * ONLY 'signed-out' MAY CLEAR A SESSION, and it is deliberately the narrowest of
+ * the three. A thrown fetch is never signed-out, and neither is any status other
+ * than 401/403 — that guard is the whole protection against signing every
+ * customer out at once if /api/fm-user ever starts refusing incorrectly.
+ */
+type FetchUserResult =
+  | { state: 'user'; user: AuthUser }
+  | { state: 'signed-out' }
+  | { state: 'unknown' }
+
+async function fetchUser(): Promise<FetchUserResult> {
   try {
     const res = await fetch('/api/fm-user', { credentials: 'include' })
     if (res.ok) {
       const data = await res.json()
-      return {
+      return { state: 'user', user: {
         reference: data.reference || '',
         email: data.email || '',
         firstName: data.firstName || '',
@@ -85,9 +114,9 @@ async function fetchUser(): Promise<AuthUser | null> {
         companyName: data.companyName || '',
         address: data.address || '',
         deliveryInstructions: data.deliveryInstructions || '',
-      }
+      } }
     }
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
       // FM rejected the token — force a refresh regardless of our local exp guess.
       const refreshRes = await fetch('/api/auth/refresh?force=1', { method: 'POST', credentials: 'include' })
       if (refreshRes.ok) {
@@ -95,7 +124,7 @@ async function fetchUser(): Promise<AuthUser | null> {
         const retry = await fetch('/api/fm-user', { credentials: 'include' })
         if (retry.ok) {
           const data = await retry.json()
-          return {
+          return { state: 'user', user: {
             reference: data.reference || '',
             email: data.email || '',
             firstName: data.firstName || '',
@@ -104,13 +133,20 @@ async function fetchUser(): Promise<AuthUser | null> {
             role: data.role || '',
             address: data.address || '',
             deliveryInstructions: data.deliveryInstructions || '',
-          }
+          } }
         }
       }
+      // A 401/403 that survived the forced refresh. The server has had two
+      // chances to find a session and has none — the only authoritative
+      // signed-out signal there is.
+      return { state: 'signed-out' }
     }
-    return null
+    // Any other status (5xx, a gateway, an unexpected redirect) says nothing
+    // about this customer's session. Change nothing.
+    return { state: 'unknown' }
   } catch {
-    return null
+    // The request did not complete. Never signed-out.
+    return { state: 'unknown' }
   }
 }
 
@@ -133,19 +169,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // within 24h of expiry (no-op otherwise), so a returning visitor stays
       // logged in for the full 30-day window without any action.
       try { await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' }) } catch {}
-      const u = await fetchUser()
-      if (u) {
+      const r = await fetchUser()
+      if (r.state === 'user') {
         // Cookie is authoritative + fresh — adopt it and keep the localStorage
         // shadow in sync so the next load hydrates correctly.
-        setUser(u)
-        writeLocalUser(u)
+        setUser(r.user)
+        writeLocalUser(r.user)
+      } else if (r.state === 'signed-out') {
+        // AUTHORITATIVE: a 401/403 that survived the forced refresh. The stale
+        // localStorage shadow is what kept these customers looking signed in
+        // while every authenticated write failed, so it is cleared here — this
+        // is the only place that can reach it, since nothing server-side can
+        // touch another browser's storage.
+        clearLocalUser()
+        setUser(null)
       } else if (!local) {
+        // UNKNOWN — the fetch threw or the server answered something that says
+        // nothing about this session. Unchanged behaviour: an optimistically
+        // hydrated user is kept, so a network blip never signs anyone out.
         setUser(null)
       }
-      // If the cookie check returns null but we already hydrated a local user,
-      // keep showing the avatar: both login paths set the cookie, so this only
-      // bridges a transient cookie read failure. An explicit logout clears
-      // disco_user, so a genuinely logged-out user never lingers here.
       setIsLoading(false)
     })()
   }, [])
@@ -205,9 +248,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshUser = useCallback(async () => {
-    const u = await fetchUser()
-    setUser(u)
-    if (u) writeLocalUser(u); else clearLocalUser()
+    const r = await fetchUser()
+    if (r.state === 'user') { setUser(r.user); writeLocalUser(r.user) }
+    else if (r.state === 'signed-out') { setUser(null); clearLocalUser() }
+    // 'unknown' leaves the current user alone — a failed refresh is not a logout.
   }, [])
 
   const openAuthModal = useCallback((action?: () => void, defaultTab: 'login' | 'signup' = 'login') => {
