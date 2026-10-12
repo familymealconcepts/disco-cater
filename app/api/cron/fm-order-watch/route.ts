@@ -40,12 +40,15 @@
 //
 // ── LOAD ON FAMILYMEAL ──────────────────────────────────────────────────────
 // Deliberately gentle, because FamilyMeal still serves its own customers. The
-// count call is the lightest request the API has. Concurrency is 3, so at most
-// three lightweight reads are ever in flight. At 30-minute cadence that is ~796
-// count calls an hour. In exchange CONVERTED_CAP in the rotation's own sweep
-// drops from 60 to 20, removing ~40 of the much heavier per-restaurant page
-// pulls an hour — so total FamilyMeal load goes DOWN in bytes and query weight
-// while freshness improves by an order of magnitude.
+// count call is the lightest request the API has, ONE request per restaurant
+// (see fmCount — the public-api shape was dropped after production showed it
+// 404ing for every restaurant, which had been doubling the request count for
+// nothing). Concurrency is 3, so at most three lightweight reads are ever in
+// flight. At 30-minute cadence that is ~796 count calls an hour.
+//
+// In exchange CONVERTED_CAP in the rotation's own sweep drops from 60 to 20,
+// removing ~40 of the much heavier per-restaurant page pulls an hour. Lighter
+// in bytes and query weight than before, an order of magnitude fresher.
 //
 // REQUIRED ENV: CRON_SECRET.
 
@@ -85,20 +88,45 @@ function hasCronSecret(req: NextRequest): boolean {
   return auth === `Bearer ${secret}` || auth === secret
 }
 
-/** Both URL shapes, same order and fallback as the mirror itself uses. */
-async function fmCount(ref: string, auth: Record<string, string>): Promise<number | null> {
-  for (const url of [
-    `${FM}/public-api/v2/restaurants/${ref}/orders?page=0&size=1`,
-    `${FM}/api/admin/restaurants/${ref}/orders?page=0&size=1`,
-  ]) {
+/**
+ * The count call, with the two outcomes kept apart.
+ *
+ * ONLY the admin endpoint is called. The mirror tries `public-api/v2` first and
+ * falls back, so this did too — until the first production run showed that
+ * endpoint returning 404 for EVERY restaurant, healthy or not (sampled across
+ * both working and failing ones). It was never answering; it was just doubling
+ * the request count against FamilyMeal and adding ~110ms to every check.
+ *
+ * 'absent' vs 'error' matters for the staleness alarm. A 404 from the admin
+ * endpoint is a definitive answer — FamilyMeal does not have this restaurant —
+ * and six converted restaurants are permanently in that state (Almost Home,
+ * Cafe Gia, Cena Vegan and three more). Treating that as a failed check would
+ * mean alerting about them every 30 minutes forever, which is how an alert
+ * channel gets muted. They count as checked. A timeout or 5xx is a genuine
+ * no-answer and does not.
+ */
+type CountResult =
+  | { state: 'ok'; total: number }
+  | { state: 'absent' }
+  | { state: 'error' }
+
+async function fmCount(ref: string, auth: Record<string, string>): Promise<CountResult> {
+  const url = `${FM}/api/admin/restaurants/${ref}/orders?page=0&size=1`
+  // Two attempts. The first run saw 32 of 398 fail, and re-probing them by hand
+  // minutes later found almost all answering 200 — transient, not broken. One
+  // cheap retry converts that into a non-event instead of a false alarm.
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' }, 30_000)
-      if (!res.ok) continue
-      const j = (await res.json().catch(() => null)) as Record<string, unknown> | null
-      if (j && typeof j.totalElements === 'number') return j.totalElements as number
-    } catch { /* try the next shape */ }
+      if (res.status === 404) return { state: 'absent' }
+      if (res.ok) {
+        const j = (await res.json().catch(() => null)) as Record<string, unknown> | null
+        if (j && typeof j.totalElements === 'number') return { state: 'ok', total: j.totalElements as number }
+      }
+    } catch { /* fall through to the retry */ }
+    if (attempt === 1) await new Promise(r => setTimeout(r, 300))
   }
-  return null
+  return { state: 'error' }
 }
 
 async function neonCountFor(ref: string): Promise<number> {
@@ -138,6 +166,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const needsFetch: { ref: string; fmTotal: number; neonCount: number; gap: number; was: number }[] = []
     let checked = 0
     let countErrors = 0
+    let absent = 0
     let i = 0
 
     const worker = async () => {
@@ -145,8 +174,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
         const k = i++
         if (k >= targets.length || Date.now() > deadline) return
         const ref = targets[k]
-        const fmTotal = await fmCount(ref, auth)
-        if (fmTotal == null) {
+        const res = await fmCount(ref, auth)
+        if (res.state === 'error') {
           countErrors++
           await sql`
             INSERT INTO disco_fm_sync_watch (restaurant_reference, consecutive_errors, updated_at)
@@ -156,6 +185,19 @@ async function handle(req: NextRequest): Promise<NextResponse> {
           `.catch(() => {})
           continue
         }
+        if (res.state === 'absent') {
+          // FamilyMeal answered, and the answer is "no such restaurant". That is
+          // a completed check — it just has nothing to mirror, now or ever.
+          absent++
+          await sql`
+            INSERT INTO disco_fm_sync_watch (restaurant_reference, last_checked_at, consecutive_errors, updated_at)
+            VALUES (${ref}::uuid, NOW(), 0, NOW())
+            ON CONFLICT (restaurant_reference) DO UPDATE
+              SET last_checked_at = NOW(), consecutive_errors = 0, updated_at = NOW()
+          `.catch(() => {})
+          continue
+        }
+        const fmTotal = res.total
         const neonCount = await neonCountFor(ref)
         const gap = fmTotal - neonCount
         const was = knownGap.get(ref) ?? 0
@@ -245,9 +287,9 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
     const inserted = fetched.reduce((a, f) => a + f.inserted, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/fm-order-watch] converted=${targets.length} checked=${checked} countErrors=${countErrors} pass1Ms=${pass1Ms} needsFetch=${needsFetch.length} fetched=${fetched.length} inserted=${inserted} failures=${failures.length} stale=${stale.length} (${duration_ms}ms)`)
+    console.log(`[cron/fm-order-watch] converted=${targets.length} checked=${checked} absent=${absent} countErrors=${countErrors} pass1Ms=${pass1Ms} needsFetch=${needsFetch.length} fetched=${fetched.length} inserted=${inserted} failures=${failures.length} stale=${stale.length} (${duration_ms}ms)`)
     return NextResponse.json({
-      converted: targets.length, checked, countErrors, pass1Ms,
+      converted: targets.length, checked, absent, countErrors, pass1Ms,
       needsFetch: needsFetch.length, fetched, inserted,
       failures, stale: stale.length, firstRun, duration_ms,
     })
