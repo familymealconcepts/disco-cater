@@ -76,3 +76,15 @@ const KNOWN_DUPLICATE_KEYS = new Set<string>(
 export function isKnownFmDuplicateOrderNumber(restaurantReference: string, orderNumber: string): boolean {
   return KNOWN_DUPLICATE_KEYS.has(`${restaurantReference}:${orderNumber}`)
 }
+
+/** How many known-duplicate (restaurant, order_number) pairs exist for this
+ *  restaurant. These can NEVER be inserted — disco_orders_restaurant_order_number_uq
+ *  permits only one row per colliding group — so FamilyMeal will always count
+ *  them and Neon will always be short by exactly this many. Reconciliation has
+ *  to subtract them the same way it subtracts carts, or the restaurant reports
+ *  a mismatch forever. See lib/fm-orders-sync.ts (checkFmSyncComplete). */
+export function knownFmDuplicateCount(restaurantReference: string): number {
+  let n = 0
+  for (const key of KNOWN_DUPLICATE_KEYS) if (key.startsWith(`${restaurantReference}:`)) n++
+  return n
+}

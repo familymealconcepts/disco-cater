@@ -16,7 +16,7 @@ import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-e
 import { fmFetch } from './fm-fetch'
 import { dispatchOrderConfirmations } from './order-notifications'
 import { alertOps } from './ops-alert'
-import { isKnownFmDuplicateOrderNumber } from './known-fm-order-duplicates'
+import { isKnownFmDuplicateOrderNumber, knownFmDuplicateCount } from './known-fm-order-duplicates'
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 import { fetchAllFmRestaurants } from './restaurant-cache'
 
@@ -746,11 +746,26 @@ export async function checkFmSyncComplete(
   // No apparent gap — nothing to explain, and no extra FM calls made.
   if (neonCount >= fmTotal) return { complete: true, fmTotal, nonOrderCount: 0 }
 
-  // FM's total counts carts; Neon's cannot. Subtract them before concluding
-  // anything is missing.
+  // FM's total counts rows Neon structurally cannot hold. Subtract BOTH kinds
+  // before concluding anything is missing:
+  //
+  //   • carts (CART/SELECTED) — FM counts them, Neon never stores them;
+  //   • known FM-side duplicate order_numbers — disco_orders_restaurant_order
+  //     _number_uq permits one row per colliding group, so the rest can never
+  //     be inserted. Not a gap: a permanent, expected, already-understood
+  //     difference (lib/known-fm-order-duplicates.ts).
+  //
+  // Leaving duplicates out made the mismatch PERMANENT for the one restaurant
+  // that has them. Mav's Top Buns reports FM 1200 vs Neon 1195 forever, and a
+  // mismatch sets stopAtKnownDate=false and maxPages=500 — so every hourly run
+  // re-pulled its entire history with withItems, measured at 674 SECONDS
+  // against a 300s maxDuration, consuming the whole window and starving the
+  // rotation behind it. It sits at rotation offset 906, which is where the
+  // cursor sat frozen while Rooted Cafe & Catering's order went missing.
   const gap = fmTotal - neonCount
   const nonOrderCount = await countFmNonOrders(restaurantReference, auth, gap)
-  return { complete: neonCount + nonOrderCount >= fmTotal, fmTotal, nonOrderCount }
+  const dupCount = knownFmDuplicateCount(restaurantReference)
+  return { complete: neonCount + nonOrderCount + dupCount >= fmTotal, fmTotal, nonOrderCount }
 }
 
 // Repairs "bare" FAMILYMEAL orders for one restaurant — a header row with no
