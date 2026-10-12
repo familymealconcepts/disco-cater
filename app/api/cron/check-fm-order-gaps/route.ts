@@ -37,6 +37,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { alertOps } from '../../../../lib/ops-alert'
+import { mirrorAlert } from '../../../../lib/mirror-alert'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { fmFetch } from '../../../../lib/fm-fetch'
 
@@ -174,7 +175,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
     const duration_ms = Date.now() - startedAt
     if (missing.length) {
-      await alertOps(
+      await mirrorAlert(
+        'order-gap',
         `FM order gap: ${missing.length} real FamilyMeal order(s) missing from Disco for more than 2 hours`,
         {
           orders: missing.slice(0, 25).map(m => `${m.restaurant} — FM #${m.orderNumber} ${m.total} (${m.status}, for ${m.orderDate})`),
@@ -192,7 +194,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/check-fm-order-gaps] failed:', error)
-    await alertOps(`check-fm-order-gaps FAILED (the mirror is now unwatched): ${error}`)
+    await mirrorAlert('run-failed', `check-fm-order-gaps FAILED (the mirror is now unwatched): ${error}`, { error })
     return NextResponse.json({ error: 'gap check failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

@@ -44,6 +44,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { syncAllRestaurantOrders, cleanupOrphanedDraftMirrors } from '../../../../lib/fm-orders-sync'
 import { alertOps } from '../../../../lib/ops-alert'
+import { mirrorAlert } from '../../../../lib/mirror-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -96,7 +97,8 @@ async function alertIfCursorStalled(): Promise<void> {
     if (!rows[0]) return
     const hours = Number(rows[0].hours_stale)
     if (!Number.isFinite(hours) || hours < STALL_ALERT_HOURS) return
-    await alertOps(
+    await mirrorAlert(
+      'cursor-stalled',
       `FM order mirror STALLED — the sync cursor has not advanced in ${hours.toFixed(1)} hours`,
       {
         cursorOffset: rows[0].offset_value,
@@ -206,7 +208,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // the summary line. Name them, so "it's been failing for days" is not a
     // thing anyone has to discover by hand.
     if (failures.length) {
-      await alertOps(
+      await mirrorAlert(
+        'restaurants-failed',
         `FM order mirror: ${failures.length} restaurant(s) failed and were skipped this run`,
         {
           failures: failures.slice(0, 20).map(f => `${f.restaurantReference} [${f.stage}] ${f.error}`),
@@ -230,7 +233,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // missing order. A platform timeout kills the function outright and never
     // reaches here, which is exactly why the time budget above matters more
     // than this alert does; this covers every other failure mode.
-    await alertOps(`sync-fm-orders FAILED (rotation may be stalled): ${error}`)
+    await mirrorAlert('run-failed', `sync-fm-orders FAILED (rotation may be stalled): ${error}`, { error })
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

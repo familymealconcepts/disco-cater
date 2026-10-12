@@ -88,6 +88,20 @@ export async function runMigrations(): Promise<void> {
     // re-processed the same first 150 restaurants forever — ~520 qualifying
     // restaurants were never synced at all. Dedicated table, integer offset.
     `CREATE TABLE IF NOT EXISTS fm_sanity_sync_cursor (key TEXT PRIMARY KEY, offset_value INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+    // An audit trail for the FM-mirror alarms. alertOps posts to Slack and
+    // prints [OPS-ALERT] to the Vercel log, and NEITHER can be queried after
+    // the fact: Slack is not readable from here, and `vercel logs` caps at 50
+    // mixed records on a busy site, so a cron's own lines are drowned within
+    // minutes. That left "did the alarm actually fire?" unanswerable — which is
+    // the same shape of problem as the 51-hour stall nobody saw. One row per
+    // alarm, so the answer is a query.
+    `CREATE TABLE IF NOT EXISTS disco_mirror_alerts (
+       id SERIAL PRIMARY KEY,
+       kind TEXT NOT NULL,
+       detail JSONB,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS disco_mirror_alerts_created_idx ON disco_mirror_alerts (created_at DESC)`,
     // Which restaurants reconcile-stripe-links has ALREADY reported as needing
     // the restaurant to reconnect Stripe. One row per restaurant, so the job can
     // alert when one ENTERS the set and when one LEAVES it, and stay quiet about
