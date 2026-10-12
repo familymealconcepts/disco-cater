@@ -74,6 +74,40 @@ async function readCursor(): Promise<number> {
     return Number.isFinite(n) && n >= 0 ? n : 0
   } catch { return 0 }
 }
+
+// ── THE STALL ALARM ─────────────────────────────────────────────────────────
+// This job runs hourly, so the cursor's updated_at should never be more than
+// about an hour old. In October 2026 it sat unchanged for FIFTY-ONE HOURS and
+// produced no signal anywhere: the run returned 500 before reaching any write,
+// and a 500 from a cron is invisible unless somebody goes looking. The stall
+// was found only because a human noticed one missing order.
+//
+// Three hours is deliberately loose — it tolerates two consecutive bad runs
+// before it speaks, so a single transient failure doesn't page anyone, while a
+// genuine stall surfaces the same morning instead of two days later.
+const STALL_ALERT_HOURS = 3
+
+async function alertIfCursorStalled(): Promise<void> {
+  try {
+    const rows = (await sql`
+      SELECT offset_value, EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600 AS hours_stale
+      FROM fm_orders_sync_cursor WHERE key = ${CURSOR_KEY}
+    `) as { offset_value: number; hours_stale: string | number }[]
+    if (!rows[0]) return
+    const hours = Number(rows[0].hours_stale)
+    if (!Number.isFinite(hours) || hours < STALL_ALERT_HOURS) return
+    await alertOps(
+      `FM order mirror STALLED — the sync cursor has not advanced in ${hours.toFixed(1)} hours`,
+      {
+        cursorOffset: rows[0].offset_value,
+        hoursStale: Number(hours.toFixed(1)),
+        meaning: 'FamilyMeal orders for converted restaurants are not reaching Disco',
+      },
+    )
+  } catch (e) {
+    console.error('[cron/sync-fm-orders] stall check failed (non-fatal):', e instanceof Error ? e.message : e)
+  }
+}
 async function writeCursor(offset: number): Promise<void> {
   // NOT best-effort-silent: a failed cursor write means the rotation never
   // advances (the bug this replaced). Surface it loudly if it ever fails again.
@@ -93,6 +127,9 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   const startedAt = Date.now()
   try {
     await runMigrations()
+    // Before this run claims its step — so the alarm reflects how long the
+    // mirror was actually stuck, not how long since this run started.
+    await alertIfCursorStalled()
     const offset = await readCursor()
 
     // ── THE ROTATION MOVES BEFORE THE WORK, NOT ONLY AFTER IT ────────────────
@@ -161,6 +198,22 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       orphansDeleted = (await cleanupOrphanedDraftMirrors()).deleted
     } catch (e) {
       console.error('[cron/sync-fm-orders] orphaned draft-mirror cleanup failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+
+    // A skipped restaurant is no longer fatal (lib/fm-orders-sync.ts guards each
+    // one), which is exactly why it has to be announced: a run that silently
+    // skips the same restaurant every hour looks identical to a healthy one on
+    // the summary line. Name them, so "it's been failing for days" is not a
+    // thing anyone has to discover by hand.
+    if (failures.length) {
+      await alertOps(
+        `FM order mirror: ${failures.length} restaurant(s) failed and were skipped this run`,
+        {
+          failures: failures.slice(0, 20).map(f => `${f.restaurantReference} [${f.stage}] ${f.error}`),
+          truncated: failures.length > 20 ? failures.length - 20 : 0,
+          offset,
+        },
+      )
     }
 
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)

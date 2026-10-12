@@ -105,6 +105,10 @@
     {
       "path": "/api/cron/reconcile-stripe-links",
       "schedule": "25 7 * * *"
+    },
+    {
+      "path": "/api/cron/check-fm-order-gaps",
+      "schedule": "30 11 * * *"
     }
   ]
 }

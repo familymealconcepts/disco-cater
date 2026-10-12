@@ -366,7 +366,13 @@ async function fetchAdminOrderFees(fmRef: string): Promise<{ serviceCharge?: unk
   if (!isUuid(fmRef)) return {}
   try {
     const auth = await getFmServiceAuthHeader()
-    const res = await fmFetch(`${FM}/api/orders/${fmRef}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+    // 30s, not fmFetch's 10s default. FamilyMeal's order endpoints are slow on
+    // the restaurants with the most history — the order-list page for Apollo
+    // Bagels - Hoboken measures 9.8-10.1s, right on the default — and this is an
+    // ORDER-SYNC request, so a longer ceiling here costs nothing but patience
+    // while an abort costs a missing order. Deliberately scoped to the sync's
+    // own calls: every other FamilyMeal call in the codebase keeps its timeout.
+    const res = await fmFetch(`${FM}/api/orders/${fmRef}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' }, 30_000)
     if (!res.ok) return {}
     const j = (await res.json().catch(() => null)) as Record<string, unknown> | null
     if (!j) return {}
@@ -685,7 +691,10 @@ async function fetchFmOrderTotalCount(restaurantReference: string, auth: Record<
   ]
   for (const url of urls) {
     try {
-      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+      // 30s, same reasoning as fetchAdminOrderFees: an order-sync request, and
+      // a null here is read as "no answer" and skips the reconciliation check
+      // entirely, so an abort quietly disables the very thing that detects a gap.
+      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' }, 30_000)
       if (!res.ok) continue
       const data = await res.json().catch(() => null) as Record<string, unknown> | null
       if (data && typeof data.totalElements === 'number') return data.totalElements
