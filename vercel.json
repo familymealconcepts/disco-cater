@@ -108,7 +108,7 @@
     },
     {
       "path": "/api/cron/check-fm-order-gaps",
-      "schedule": "25 19 * * *"
+      "schedule": "30 11 * * *"
     }
   ]
 }
