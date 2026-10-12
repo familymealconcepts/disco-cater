@@ -271,6 +271,22 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
         </div>
       </div>
 
+      {/* ── THE DISCOUNT, HIGH ON THE PAGE ──────────────────────────────────
+          It sat fourth, below status, progress and the ladder, which measured at
+          893px from the top — at the fold on a 1440x900 laptop and below it on a
+          1280x800, before the real page's header and account nav push it further.
+          It is the one surface that shows the benefit as money, so it goes
+          directly under the status card rather than being scrolled to. */}
+      {tier && (
+        <div style={{ ...card, borderLeft: `5px solid ${tier.colour}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 2 }}>Your last order</div>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
+            {DEMO_ORDER.restaurantName} · {DEMO_ORDER.dateLabel}
+          </div>
+          <DemoFeeLine tier={tier} />
+        </div>
+      )}
+
       {/* PROGRESS — both bars, because both conditions must be met */}
       {next && (
         <div style={{ ...card, borderLeft: `5px solid ${next.colour}` }}>
@@ -319,17 +335,6 @@ export function LoyaltyContent({ firstName }: { firstName?: string }) {
           )
         })}
       </div>
-
-      {/* THE DISCOUNT ON A REAL-LOOKING ORDER */}
-      {tier && (
-        <div style={{ ...card, borderLeft: `5px solid ${tier.colour}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 2 }}>Your last order</div>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
-            {DEMO_ORDER.restaurantName} · {DEMO_ORDER.dateLabel}
-          </div>
-          <DemoFeeLine tier={tier} />
-        </div>
-      )}
 
       {/* WHAT IT SAVED */}
       <div style={{ ...card, borderLeft: tier ? `5px solid ${tier.colour}` : card.border }}>

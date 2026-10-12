@@ -77,7 +77,11 @@ export default function HistoryPage() {
 
       {loading ? (
         <div style={{ color: '#727272', fontSize: 13 }}>Loading orders…</div>
-      ) : orders.length === 0 ? (
+      ) : (orders.length === 0 && !demoTier) ? (
+        // LOYALTY DEMO (temporary): the empty state must not swallow the demo
+        // row. The row lives inside the list branch below, so without this a
+        // diner whose real history is empty would see "No order history yet"
+        // and the demo order would silently not exist.
         <div style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🕐</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No order history yet</div>
