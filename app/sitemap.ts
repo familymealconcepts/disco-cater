@@ -89,7 +89,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE}/faq`, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${SITE}/become-a-partner`, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${SITE}/privacy`, changeFrequency: 'yearly', priority: 0.3 },
-    { url: `${SITE}/terms`, changeFrequency: 'yearly', priority: 0.3 },
+    // /terms is deliberately absent: it is noindex (see its page metadata), and a
+    // sitemap entry for a noindex page sends Google contradictory signals.
   ]
 
   // City landing pages — priority above restaurant pages (0.7), below the
