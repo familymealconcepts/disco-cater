@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="Effective June 2026">
+    <LegalShell title="Privacy Policy" updated="Effective October 2026">
       <p className="intro">
         This Privacy Policy describes how FamilyMeal Concepts Inc. (d/b/a Disco Cater) (&ldquo;Disco
         Cater,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) collects, uses, shares, and
@@ -65,6 +65,7 @@ export default function PrivacyPage() {
         <li><strong>For legal reasons</strong> — when we believe disclosure is necessary to comply with applicable law, legal process, or governmental request, or to protect the rights, property, or safety of Disco Cater, our users, or others.</li>
         <li><strong>In a business transaction</strong> — in connection with a merger, acquisition, financing, reorganization, or sale of assets, information may be transferred as part of that transaction.</li>
         <li><strong>With your consent</strong> — when you direct us to share your information.</li>
+        <li><strong>Advertising partners.</strong> We may share hashed (scrambled) contact information, such as your email address, with advertising partners to show you relevant Disco Cater ads. You can opt out at any time by emailing concierge@discocater.com.</li>
       </ul>
 
       {/* IV */}
