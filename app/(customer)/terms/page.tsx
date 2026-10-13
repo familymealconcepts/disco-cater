@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   description:
     'The Merchant Agreement Terms & Conditions governing restaurants and merchants that use the Disco Cater catering marketplace, software, and payment-processing services.',
   alternates: { canonical: 'https://www.discocater.com/terms' },
+  // Kept out of search results: Google was showing this merchant agreement as a
+  // sitelink for "disco cater". A robots meta tag rather than a robots.txt
+  // Disallow, because a disallowed page is never fetched, so Google could not see
+  // a noindex and would keep the URL indexed. `follow` keeps its links counting.
+  // Also removed from app/sitemap.ts, which would otherwise ask for it to be indexed.
+  robots: { index: false, follow: true },
 }
 
 export default function TermsPage() {
