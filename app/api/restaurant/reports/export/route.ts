@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { contentDisposition } from '../../../../../lib/download-filename'
 import { resolveDiscoGroupScope } from '../../../../../lib/restaurant-write-scope'
 import { visibleReportColumns } from '../../../../../lib/reports/visible-columns'
+import { provenanceCsvRows, provenanceSummary, type ProvenanceFacts } from '../../../../../lib/reports/report-provenance'
 import {
   ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
   reconcileRow, type OrderReportRow, type ReportColumnDef,
@@ -55,7 +56,7 @@ function rowValues(r: Partial<OrderReportRow>, cols: ReportColumnDef[]): string[
 }
 
 // ── Formatters ───────────────────────────────────────────────────────────────
-function toCsv(rows: OrderReportRow[], cols: ReportColumnDef[], totals: Partial<OrderReportRow>): string {
+function toCsv(rows: OrderReportRow[], cols: ReportColumnDef[], totals: Partial<OrderReportRow>, prov?: ProvenanceFacts): string {
   const esc = (v: string) => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
   const lines = [cols.map(c => c.label).join(',')]
   for (const r of rows) lines.push(rowValues(r, cols).map(esc).join(','))
@@ -65,6 +66,9 @@ function toCsv(rows: OrderReportRow[], cols: ReportColumnDef[], totals: Partial<
   const labelAt = cols.findIndex(c => !c.financial)
   if (labelAt >= 0) t[labelAt] = 'TOTAL'
   lines.push(t.map(esc).join(','))
+  // Trailing provenance, so this file and the weekly email can be told apart.
+  // See lib/reports/report-provenance.ts for the reconciliation this fixes.
+  if (prov) lines.push(...provenanceCsvRows(prov))
   return lines.join('\r\n')
 }
 
@@ -220,11 +224,19 @@ export async function GET(req: NextRequest) {
     const title = 'Orders Report'
     // "to" not "→" — pdf-lib's WinAnsi-encoded Helvetica can't draw that glyph
     // and throws, which made PDF export fail unconditionally on every request.
-    const sub = `${dateField === 'created' ? 'Created' : 'Order'} date ${from} to ${to} · ${rows.length} order${rows.length === 1 ? '' : 's'}`
+    // One set of facts, three formats — so a CSV, an XLS and a PDF of the same
+    // window can be laid side by side and any difference read off the page.
+    const prov: ProvenanceFacts = {
+      dateField: dateField === 'created' ? 'created_at' : 'order_date',
+      from, to,
+      locations: [...new Set(rows.map(r => r.location).filter(Boolean))],
+      rowCount: rows.length,
+    }
+    const sub = provenanceSummary(prov)
     const fnbase = `orders-report_${dateField}_${from}_${to}`
 
     if (format === 'csv') {
-      return new NextResponse(toCsv(rows, cols, totals), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.csv`) } })
+      return new NextResponse(toCsv(rows, cols, totals, prov), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.csv`) } })
     }
     if (format === 'xls') {
       return new NextResponse(toXls(rows, title, cols, totals), { headers: { 'Content-Type': 'application/vnd.ms-excel; charset=utf-8', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.xls`) } })

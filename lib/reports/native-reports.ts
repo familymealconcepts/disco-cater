@@ -9,6 +9,7 @@ import {
   reconcileRow, type OrderReportRow,
 } from './order-report-rows'
 import { resolvePeriod, type PeriodSpec, type Frequency } from './report-period'
+import { provenanceCsvRows, provenanceSummary } from './report-provenance'
 import { visibleReportColumns, rowsSpanLocations } from './visible-columns'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
@@ -219,7 +220,18 @@ export async function generateReportCsv(
   const t = useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(totals, k)) : ''))
   const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))
   if (labelAt >= 0) t[labelAt] = csvCell('TOTAL')
-  return { csv: [header, ...lines, t.join(',')].join('\n'), rowCount: rows.length, invalidColumns, rows }
+  // Trailing provenance — see lib/reports/report-provenance.ts. Without it this
+  // file and an on-demand download of the same window can differ by thousands of
+  // dollars with nothing on either explaining why.
+  const prov = provenanceCsvRows({
+    dateField: cfg.filter?.dateType === 'createdDate' ? 'created_at' : 'order_date',
+    from: period.from, to: period.to, timezone: cfg.timezone ?? null,
+    locations: [...new Set(rows.map(r => r.location).filter(Boolean))],
+    orderStatuses: cfg.filter?.orderStatuses ?? null,
+    deliveryTypes: cfg.filter?.deliveryTypes ?? null,
+    rowCount: rows.length,
+  })
+  return { csv: [header, ...lines, t.join(','), ...prov].join('\n'), rowCount: rows.length, invalidColumns, rows }
 }
 
 // ── PDF generation (pure-JS via pdf-lib — no native deps, serverless-safe; same
@@ -284,7 +296,15 @@ export async function generateReportPdf(
 
   const drawTableHead = () => {
     page.drawText('disco cater', { x: M, y, size: 13, font: bold, color: PDF_GRAD })
-    const meta = `${period.from} to ${period.to}  ·  ${rows.length} order${rows.length === 1 ? '' : 's'}`
+    // Says WHICH date the period is measured on, and how many locations — the
+    // two things that made this report and a download disagree without either
+    // being wrong. See lib/reports/report-provenance.ts.
+    const meta = provenanceSummary({
+      dateField: cfg.filter?.dateType === 'createdDate' ? 'created_at' : 'order_date',
+      from: period.from, to: period.to, timezone: cfg.timezone ?? null,
+      locations: [...new Set(rows.map(r => r.location).filter(Boolean))],
+      rowCount: rows.length,
+    })
     page.drawText(meta, { x: W - M - font.widthOfTextAtSize(meta, 9), y, size: 9, font, color: PDF_GREY })
     y -= 18
     page.drawText(truncateToWidth(cfg.name || 'Report', bold, 12, availW * 0.7), { x: M, y, size: 12, font: bold, color: PDF_DARK })
