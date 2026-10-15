@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { loadDeliveryTimeWindow } from '../../../../../lib/order/native-checkout'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
 import Stripe from 'stripe'
@@ -72,6 +73,11 @@ async function mirrorOrderToNeon(args: {
     const orderDate = toIsoDate(checkoutDetails.orderDate)
     const orderTime = str(checkoutDetails.orderTime)
     const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
+    // Same snapshot as every other place path — see confirm-payment. Direct
+    // entry (a restaurant keying an order in) was the one route that recorded
+    // nothing, so its orders fell back to a window the order page disagreed with.
+    const directDeliveryWindow = orderType === 'DELIVERY'
+      ? await loadDeliveryTimeWindow(String(restaurantRef ?? '')) : null
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
     const taxExemptId = str(checkoutDetails.taxExemptId)
@@ -90,11 +96,11 @@ async function mirrorOrderToNeon(args: {
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, source_of_order, is_direct_entry,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
-        order_date, order_time, tax_exempt_id, fm_order_reference, created_at, updated_at
+        order_date, order_time, delivery_time_window, tax_exempt_id, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'FAMILYMEAL', true,
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
-        ${orderDate}::date, ${orderTime}::time, ${taxExemptId}, ${str(orderRef)}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${directDeliveryWindow}, ${taxExemptId}, ${str(orderRef)}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO NOTHING
     `

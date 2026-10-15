@@ -10,6 +10,7 @@
 // disco_order_events guarantees the confirmations fire at most once per order.
 
 import { sql } from './db'
+import { loadDeliveryTimeWindow } from './order/native-checkout'
 import { fulfillmentLabel, fulfillmentTag } from './order/fulfillment-label'
 import {
   sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
@@ -480,6 +481,11 @@ export async function dispatchOrderConfirmations(
     }))
 
     const isDelivery = String(o.order_type) === 'DELIVERY'
+    // Resolve ONCE per render, and only for a delivery order that has no
+    // snapshot of its own — a pickup order never shows a range, and an order
+    // that recorded its window at placement is already authoritative.
+    const effectiveWindow = (o.delivery_time_window as string | null)
+      ?? (isDelivery ? await loadDeliveryTimeWindow(restRef) : null)
     const cityStateZip = [o.delivery_city, [o.delivery_state, o.delivery_zip].filter(Boolean).join(' ')]
       .filter(Boolean)
       .join(', ')
@@ -522,7 +528,12 @@ export async function dispatchOrderConfirmations(
       orderDate: fmtDate(o.order_date),
       // Delivery orders with a non-'exact' window snapshot show a time range;
       // pickup / null / 'exact' → exact time (formatTimeWindow handles the gating).
-      orderTime: formatTimeWindow(String(o.order_time ?? ''), o.delivery_time_window as string | null, isDelivery),
+      // The order's own snapshot first; if it has none (true of almost every
+      // delivery order placed before the snapshot was wired), the restaurant's
+      // CURRENT setting; then exact. Without the middle step this fell back to
+      // a hardcoded 30-minute range and disagreed with the order page, which
+      // has always read the live setting.
+      orderTime: formatTimeWindow(String(o.order_time ?? ''), effectiveWindow, isDelivery),
       // "Order Received" in the restaurant's local timezone (was UTC, which read
       // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
       orderReceived: o.created_at

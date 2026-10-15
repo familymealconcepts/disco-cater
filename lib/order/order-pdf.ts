@@ -4,6 +4,7 @@
 // its Disco reference from Neon (mirrors the fields the email/notifications use).
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { loadDeliveryTimeWindow } from './native-checkout'
 import { pdfSafe } from '../pdf-text'
 import { fulfillmentLabel } from './fulfillment-label'
 import { sql } from '../db'
@@ -121,6 +122,10 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   const hasTxn = txns.length > 0
 
   const restRef = String(o.restaurant_reference ?? '')
+  // Only looked up when the order carries no window of its own, and only for a
+  // delivery order — a pickup always prints the exact start time.
+  const pdfEffectiveWindow = (o.delivery_time_window as string | null)
+    ?? (String(o.order_type) === 'DELIVERY' ? await loadDeliveryTimeWindow(restRef) : null)
   let cacheName = '', cachePhone = '', cacheAddress = '', cacheTimezone = ''
   try {
     const rc = (await sql`SELECT name, address, address_line1, address_line2, city, state, zipcode, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null; address: string | null; address_line1: string | null; address_line2: string | null; city: string | null; state: string | null; zipcode: string | null; phone: string | null; timezone: string | null }[]
@@ -186,9 +191,12 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     // pickup. The isDelivery test is `order_type === 'DELIVERY'`, character for
     // character what order-notifications.ts:482 uses to build the subject line —
     // the two must not be able to disagree about the same order.
+    // Same chain as the confirmation email, and deliberately the same source:
+    // the order's snapshot, else the restaurant's CURRENT setting, else exact.
+    // These two artifacts go to the customer together and must not disagree.
     orderTime: formatTimeWindow(
       String(o.order_time ?? ''),
-      o.delivery_time_window as string | null,
+      pdfEffectiveWindow,
       String(o.order_type) === 'DELIVERY',
     ),
     ...(() => {

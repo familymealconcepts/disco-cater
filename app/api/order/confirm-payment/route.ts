@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { loadDeliveryTimeWindow } from '../../../../lib/order/native-checkout'
 import { waitUntil } from '@vercel/functions'
 import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
@@ -101,18 +102,24 @@ async function ensureRowFromPlaced(orderReference: string, p: PlacedOrderFallbac
   try {
     const orderType = String(p.orderType).toUpperCase() === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
     const deliveryType = orderType === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
+    // Snapshot the restaurant's delivery window AS IT IS NOW, so this order
+    // keeps what the customer was shown even if the setting changes later.
+    // Display only — it feeds formatTimeWindow in the email and PDF and nothing
+    // else. Pickup orders never show a range, so they store none.
+    const confirmDeliveryWindow = orderType === 'DELIVERY'
+      ? await loadDeliveryTimeWindow(String(p.restaurantRef ?? '')) : null
     const da = p.deliveryAddress || {}
     const rows = (await sql`
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, delivery_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone, company_name,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-        delivery_lat, delivery_lng, order_date, order_time, total, fm_order_reference, created_at, updated_at
+        delivery_lat, delivery_lng, delivery_time_window, order_date, order_time, total, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${orderReference}::uuid, ${p.orderNumber}::bigint, 'DUE', ${orderType}, ${deliveryType}, ${p.sourceOfOrder || 'DISCO'},
         ${p.restaurantRef}::uuid, ${p.email}, ${p.firstName || null}, ${p.lastName || null}, ${p.phone || null}, ${p.companyName || null},
         ${da.addressLine1 || null}, ${da.addressLine2 || null}, ${da.city || null}, ${da.state || null}, ${da.zip || null},
-        ${da.latitude ?? null}, ${da.longitude ?? null}, ${p.orderDate}::date, ${p.orderTime}::time,
+        ${da.latitude ?? null}, ${da.longitude ?? null}, ${confirmDeliveryWindow}, ${p.orderDate}::date, ${p.orderTime}::time,
         ${p.total ?? null}, ${orderReference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET order_status = 'DUE',

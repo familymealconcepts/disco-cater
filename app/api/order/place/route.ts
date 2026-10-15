@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { loadDeliveryTimeWindow } from '../../../../lib/order/native-checkout'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
 import Stripe from 'stripe'
@@ -207,7 +208,16 @@ async function mirrorOrderToNeon(args: {
 
     // Snapshot the restaurant's delivery time-window setting so the confirmation
     // page + emails can render the delivery time as a range. DELIVERY only.
-    const deliveryTimeWindow = orderType === 'DELIVERY' ? await fetchDeliveryTimeWindow(restaurantRef) : null
+    // THE RESTAURANT'S OWN SETTING FIRST. This read FamilyMeal's public DTO
+    // alone, which is the wrong authority for a converted restaurant: the
+    // order page, the portal editors and now the email and PDF all read
+    // disco_restaurant_overrides.delivery_order_time_windows, so snapshotting
+    // FM's value here was the one source that could disagree with all of them.
+    // FM stays as the fallback for a restaurant with no Disco overrides row,
+    // so FM-backed behaviour is unchanged.
+    const deliveryTimeWindow = orderType === 'DELIVERY'
+      ? (await loadDeliveryTimeWindow(restaurantRef)) ?? (await fetchDeliveryTimeWindow(restaurantRef))
+      : null
 
     // (a) disco_orders — upsert keyed by the FM order reference (== reference here),
     // DO UPDATE so retries refresh the money snapshot. RETURNING id for items.

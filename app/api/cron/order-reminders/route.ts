@@ -235,7 +235,12 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails, o.delivery_time_window, o.note
+             ov.notification_emails AS notif_emails,
+             -- The order's own snapshot, else the restaurant's CURRENT setting,
+             -- else exact (formatTimeWindow's default). Resolved here because
+             -- this query already joins the overrides row, so it costs nothing.
+             COALESCE(o.delivery_time_window, ov.delivery_order_time_windows) AS delivery_time_window,
+             o.note
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
@@ -295,7 +300,12 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails, o.delivery_time_window, o.note
+             ov.notification_emails AS notif_emails,
+             -- The order's own snapshot, else the restaurant's CURRENT setting,
+             -- else exact (formatTimeWindow's default). Resolved here because
+             -- this query already joins the overrides row, so it costs nothing.
+             COALESCE(o.delivery_time_window, ov.delivery_order_time_windows) AS delivery_time_window,
+             o.note
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
