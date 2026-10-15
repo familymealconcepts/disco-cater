@@ -1198,9 +1198,45 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
     // ordering the order-edit invoice flow uses — a pending item on an empty draft
     // finalized $0.00 under the pinned API version). auto_advance off so the draft
     // can't finalize before the line item lands.
+    // ── A DESTINATION CHARGE, EXACTLY LIKE THE CARD PATH ───────────────────
+    // This used to be a bare platform charge: the whole customer payment landed
+    // in Disco's balance and the restaurant's share was pushed out afterwards by
+    // a manual transfer in the webhook. Two consequences, both real:
+    //
+    //   • Stripe Capital repays itself out of plain platform charges. It skimmed
+    //     20% of the FULL customer payment — the restaurant's money included —
+    //     and Disco still owed the restaurant its full share. 9 of 12 paid
+    //     invoices took the platform balance DOWN; order #900000339 by $205.84.
+    //     (Verified: of 120 sampled Capital paydowns, 0 were destination charges.)
+    //   • Refunds had nothing on the charge to reverse, so they needed a separate
+    //     transfers.createReversal with its own failure mode.
+    //
+    // transfer_data makes Stripe move the restaurant's share itself, so it never
+    // rests in Disco's balance; on_behalf_of makes the restaurant the settlement
+    // merchant, as lib/order/native-payment.ts:113-116 already does for cards.
+    // Stripe's own wording: "the funds from the invoice will be transferred to
+    // the destination and the ID of the resulting transfer will be found on the
+    // invoice's charge."
+    //
+    // FEES ARE UNCHANGED. transfer_data.amount is `transfer` — the same figure
+    // the webhook used to push — so the restaurant receives exactly what it
+    // received before, still net of the Stripe fee, and Disco keeps the same
+    // customer service fee. No application_fee_amount and no lead-gen: direct
+    // entry is 1P, and the 1P path takes neither (verified: $0.00 lead-gen
+    // across all 247 regular 1P and 18 direct-entry orders; lead-gen appears
+    // only on DISCO/3P orders).
+    //
+    // Omitted when there is no connected account or payouts are withheld — the
+    // platform then holds the funds deliberately, which is the existing
+    // behaviour and must not change.
+    const routeToRestaurant = !pay.withholdPayouts && !!pay.connectedAccountId && transfer > 0
     const invoice = await stripe.invoices.create({
       customer: customerId,
       collection_method: 'send_invoice',
+      ...(routeToRestaurant ? {
+        on_behalf_of: pay.connectedAccountId as string,
+        transfer_data: { destination: pay.connectedAccountId as string, amount: cents(transfer) },
+      } : {}),
       // Due the day it is sent. Stripe accepts days_until_due: 0 and resolves it
       // to end-of-day in the account's timezone (verified against the API), which
       // is what "due today" should mean — an explicit due_date of NOW() would read
@@ -1217,6 +1253,12 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
         transferDollars: String(transfer),
         connectedAccountId: pay.connectedAccountId ?? '',
         withholdPayouts: pay.withholdPayouts ? '1' : '0',
+        // 'destination' → Stripe moves the restaurant's share itself and the
+        // webhook must NOT transfer again. Absent/'manual' → an invoice created
+        // before this change, whose share the webhook still has to push. The
+        // webhook also checks invoice.transfer_data directly; this is the
+        // human-readable half of the same fact.
+        transferMode: routeToRestaurant ? 'destination' : 'manual',
       },
     })
     await stripe.invoiceItems.create({

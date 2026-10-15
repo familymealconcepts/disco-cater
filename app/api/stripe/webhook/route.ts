@@ -323,7 +323,12 @@ export async function POST(request: NextRequest) {
           const transferDollars = Number(invoice.metadata?.transferDollars || 0)
           const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
           const withhold = invoice.metadata?.withholdPayouts === '1'
-          if (!withhold && connectedAccountId && transferDollars > 0) {
+          // Same guard as the native-invoice payout below: if the invoice carries
+          // transfer_data, Stripe has already moved the share and a second
+          // transfer here would pay twice.
+          const editStripeMovedIt = !!(invoice as unknown as { transfer_data?: unknown }).transfer_data
+            || invoice.metadata?.transferMode === 'destination'
+          if (!editStripeMovedIt && !withhold && connectedAccountId && transferDollars > 0) {
             const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
             const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
             try {
@@ -403,6 +408,20 @@ export async function POST(request: NextRequest) {
           const withhold = invoice.metadata?.withholdPayouts === '1'
           const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
           const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
+          // ── WHICH INVOICE IS THIS? ──────────────────────────────────────────
+          // Invoices created from now on carry transfer_data, so STRIPE moves the
+          // restaurant's share as part of the charge and this webhook must not
+          // move it again — that would pay the restaurant twice.
+          //
+          // Invoices sent BEFORE this change have no transfer_data and still need
+          // the manual push below. Eight were open on live when this shipped, so
+          // this branch is not hypothetical and cannot be removed yet.
+          //
+          // Read from the Stripe object itself rather than only our metadata
+          // marker: transfer_data is Stripe's own record of what it did, and it
+          // is right even for an invoice created by some other path.
+          const stripeMovedIt = !!(invoice as unknown as { transfer_data?: unknown }).transfer_data
+            || invoice.metadata?.transferMode === 'destination'
           // The payout is gated on the status ACTUALLY having flipped. It used to
           // fire unconditionally, so a payment landing on an order that was no
           // longer UNPAID — cancelled, or already settled by a webhook retry —
@@ -414,6 +433,35 @@ export async function POST(request: NextRequest) {
             await alertOps('native invoice paid on an order that was not UNPAID — payout withheld', {
               invoiceId: invoice.id, orderReference: order.reference,
             })
+          } else if (stripeMovedIt) {
+            // Destination-charge invoice: Stripe already transferred the
+            // restaurant's share. Record the payment anyway — refundNativeOrder
+            // resolves its PaymentIntent from disco_stripe_payments, so without
+            // this row a paid order could never be refunded. The transfer id
+            // comes off the charge, where Stripe puts it.
+            const invPi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+            const invPiId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
+            let destTransferId: string | null = null
+            try {
+              if (chargeId) {
+                const c = await stripe.charges.retrieve(chargeId)
+                destTransferId = typeof c.transfer === 'string' ? c.transfer : (c.transfer?.id ?? null)
+              }
+            } catch (e) {
+              console.error('[Webhook] could not read the destination transfer off the charge (non-fatal):', e instanceof Error ? e.message : e)
+            }
+            await sql`
+              INSERT INTO disco_stripe_payments
+                (order_reference, restaurant_reference, stripe_payment_intent_id, stripe_transfer_id,
+                 charge_id, status, total, created_at)
+              VALUES (${order.reference}::uuid, ${order.restaurant_reference}::uuid, ${invPiId},
+                      ${destTransferId}, ${chargeId}, 'SUCCEEDED', ${(invoice.amount_paid ?? 0) / 100}, NOW())
+              ON CONFLICT (stripe_payment_intent_id) DO UPDATE
+                SET stripe_transfer_id = EXCLUDED.stripe_transfer_id,
+                    charge_id = EXCLUDED.charge_id,
+                    status = 'SUCCEEDED',
+                    updated_at = NOW()
+            `.catch(e => console.error('[Webhook] destination-invoice payment row insert failed (non-fatal):', e instanceof Error ? e.message : e))
           } else if (!withhold && connectedAccountId && transferDollars > 0) {
             try {
               // idempotencyKey → a webhook retry can't double-pay the restaurant.
