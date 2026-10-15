@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useState, use as usePromise } from 'react'
-import { SortableRows, DRAG_GLYPH } from '../../_components/SortableRows'
+import { SortableRows, SortableRow, DroppableTarget, DRAG_GLYPH } from '../../_components/SortableRows'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useRouter } from 'next/navigation'
 import { DiscoGroupFormDialog, type DiscoGroupSummary } from '../../_components/DiscoGroupFormDialog'
 
@@ -116,6 +118,68 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
     } catch { setItems(previous); flash('Could not save the new order'); return false }
   }
 
+  // ── Moving an item to another category ──────────────────────────────────
+  // Only category_reference and position change server-side; everything that
+  // makes the item — price, options, modifier groups, photo, dietary tags,
+  // visibility — is on the item row or keyed to it, so it travels untouched.
+  // See app/api/restaurant/disco-menu-items/move/route.ts.
+  async function moveItemToCategory(itemRef: string, toCat: string): Promise<void> {
+    const it = items.find(i => i.reference === itemRef)
+    if (!it || it.category_reference === toCat) return
+    const previous = items
+    // The destination's new membership, moved item appended — the same ordered
+    // list shape the reorder endpoint takes.
+    const targetRefs = [...items.filter(i => i.category_reference === toCat).map(i => i.reference), itemRef]
+    setItems(prev => prev.map(i => i.reference === itemRef
+      ? { ...i, category_reference: toCat, position: targetRefs.length - 1 } : i))
+    try {
+      const res = await fetch('/api/restaurant/disco-menu-items/move', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemReference: itemRef, toCategoryReference: toCat, references: targetRefs }),
+      })
+      if (!res.ok) { setItems(previous); flash('Could not move the item'); return }
+      const toName = cats.find(c => c.reference === toCat)?.name
+      flash(toName ? `Moved to ${toName}` : 'Item moved')
+      await load()
+    } catch { setItems(previous); flash('Could not move the item') }
+  }
+
+  // ── ONE DndContext FOR BOTH PANES ───────────────────────────────────────
+  // Categories reorder, items reorder, and an item can be dropped on a
+  // category. A droppable only ever registers with its NEAREST DndContext, so
+  // the sidebar and the table have to share one or a cross-pane drag can never
+  // be seen. That is why this page drives dnd-kit directly instead of using
+  // SortableRows, which creates a context per list.
+  const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const CAT_DROP = 'drop-cat:'
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const activeId = String(e.active.id)
+    const overId = e.over ? String(e.over.id) : ''
+    if (!overId || activeId === overId) return
+
+    // An item dropped on a category in the sidebar.
+    if (overId.startsWith(CAT_DROP)) {
+      if (!items.some(i => i.reference === activeId)) return   // a category, not an item
+      await moveItemToCategory(activeId, overId.slice(CAT_DROP.length))
+      return
+    }
+    // Reordering categories.
+    if (cats.some(c => c.reference === activeId) && cats.some(c => c.reference === overId)) {
+      const from = cats.findIndex(c => c.reference === activeId)
+      const to = cats.findIndex(c => c.reference === overId)
+      if (from < 0 || to < 0) return
+      const next = arrayMove(cats, from, to)
+      await reorderCats(next.map(c => c.reference), next)
+      return
+    }
+    // Reordering items inside the selected category.
+    const from = catItems.findIndex(i => i.reference === activeId)
+    const to = catItems.findIndex(i => i.reference === overId)
+    if (from < 0 || to < 0) return
+    await reorderItems(arrayMove(catItems, from, to).map(i => i.reference))
+  }
+
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
   return (
@@ -131,17 +195,25 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         <button onClick={() => router.push(`/restaurant/menu-manager/${ref}/edit`)} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Menu Settings</button>
       </div>
 
+      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
         {/* ── Category sidebar ── */}
         <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px 10px' }}>Categories</div>
           {cats.length === 0 && <div style={{ fontSize: 12, color: '#aaa', padding: '8px' }}>No categories yet.</div>}
-          <SortableRows items={cats} getKey={c => c.reference} as="div" onReorder={reorderCats}>
-            {(c, { handleProps }) => (
+          <SortableContext items={cats.map(c => c.reference)} strategy={verticalListSortingStrategy}>
+            {cats.map(c => (
+            <SortableRow key={c.reference} id={c.reference} as="div" disabled={false}>
+            {({ handleProps }) => (
+            <DroppableTarget id={`${CAT_DROP}${c.reference}`}>
+            {({ isOver }) => (
             <div
               onClick={() => setSelCat(c.reference)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 8px', borderRadius: 8, cursor: 'pointer', position: 'relative',
-                background: selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
+                // Lights up while an item is held over it, so a cross-pane drag
+                // shows where it will land.
+                outline: isOver ? `2px solid ${BLUE}` : 'none', outlineOffset: -2,
+                background: isOver ? '#EEF0FD' : selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
               <span {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: selCat === c.reference ? 700 : 500, color: DARK }}>{c.name}</span>
               <button onClick={e => { e.stopPropagation(); setKebab(kebab === c.reference ? '' : c.reference) }}
@@ -154,7 +226,11 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
               )}
             </div>
             )}
-          </SortableRows>
+            </DroppableTarget>
+            )}
+            </SortableRow>
+            ))}
+          </SortableContext>
           <button onClick={() => setCatDlg({ mode: 'create' })} style={{ width: '100%', marginTop: 8, background: 'none', border: '1px dashed #ccc', borderRadius: 8, padding: '9px', fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>+ Add Menu Category</button>
         </div>
 
@@ -180,12 +256,15 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                   <th style={{ padding: '6px 8px', width: 130, textAlign: 'right' }}></th>
                 </tr>
               </thead>
-              <SortableRows items={catItems} getKey={i => i.reference} onReorder={reorderItems}
-                getRowProps={it => ({
-                  style: { borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' },
-                  onClick: () => setItemDlg({ mode: 'edit', item: it }),
-                })}>
-                {(it, { handleProps }) => (<>
+              <tbody>
+              <SortableContext items={catItems.map(i => i.reference)} strategy={verticalListSortingStrategy}>
+                {catItems.map(it => (
+                <SortableRow key={it.reference} id={it.reference} as="tbody" disabled={false}
+                  rowProps={{
+                    style: { borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' },
+                    onClick: () => setItemDlg({ mode: 'edit', item: it }),
+                  }}>
+                {({ handleProps }) => (<>
                   <td {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), padding: '10px 8px' }}>{DRAG_GLYPH}</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>
                       {it.name}
@@ -202,11 +281,15 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                       <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>
                     </td>
                 </>)}
-              </SortableRows>
+                </SortableRow>
+                ))}
+              </SortableContext>
+              </tbody>
             </table>
           )}
         </div>
       </div>
+      </DndContext>
 
       {catDlg && <CategoryDialog mode={catDlg.mode} cat={catDlg.cat} onCancel={() => setCatDlg(null)} onSave={saveCat} />}
       {itemDlg && <ItemDialog mode={itemDlg.mode} item={itemDlg.item} categoryRef={selCat} onCancel={() => setItemDlg(null)} onSaved={async () => { setItemDlg(null); await load(); flash('Saved') }} />}
@@ -269,6 +352,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [containsNuts, setContainsNuts] = useState(ex.contains_nuts === true)
   const [glutenFree, setGlutenFree] = useState(ex.gluten_free === true)
   const [vegan, setVegan] = useState(ex.vegan === true)
+  const [dairyFree, setDairyFree] = useState(ex.dairy_free === true)
   // Max Inventory Per Day — optional, nullable. Blank = no cap (existing
   // unrestricted-ordering behavior), unaffected.
   const [maxInventoryPerDay, setMaxInventoryPerDay] = useState(ex.max_inventory_per_day != null ? String(ex.max_inventory_per_day) : '')
@@ -328,7 +412,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
       body: JSON.stringify({
         categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible,
         displayPrice, minQuantity: minQuantity.trim() === '' ? null : parseInt(minQuantity, 10) || 1,
-        allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan,
+        allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan, dairyFree,
         maxInventoryPerDay: maxInventoryPerDay.trim() === '' ? null : parseInt(maxInventoryPerDay, 10) || 1,
       }),
     })
@@ -374,7 +458,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         </label>
         <label style={dlgLabel}>Dietary</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
-          {([['Vegetarian', vegetarian, setVegetarian], ['Contains nuts', containsNuts, setContainsNuts], ['Gluten-free', glutenFree, setGlutenFree], ['Vegan', vegan, setVegan]] as [string, boolean, (v: boolean) => void][]).map(([lbl, val, set]) => (
+          {([['Vegetarian', vegetarian, setVegetarian], ['Vegan', vegan, setVegan], ['Gluten-free', glutenFree, setGlutenFree], ['Dairy-free', dairyFree, setDairyFree], ['Contains nuts', containsNuts, setContainsNuts]] as [string, boolean, (v: boolean) => void][]).map(([lbl, val, set]) => (
             <label key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: DARK, cursor: 'pointer' }}>
               <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} style={{ accentColor: BLUE }} /> {lbl}
             </label>

@@ -46,12 +46,12 @@ async function createNativeMenuItem(ref: string, body: Record<string, unknown>) 
     const rows = (await sql`
       INSERT INTO disco_menu_items (
         restaurant_reference, category_reference, name, description, price, serves, visible,
-        display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan,
+        display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, dairy_free,
         max_inventory_per_day, position)
       VALUES (${ref}::uuid, ${category.reference}::uuid, ${name},
               ${String(body?.description ?? '') || null}, ${Number.isFinite(price) ? price : 0},
               ${Number.isFinite(servesNum) && servesNum > 0 ? String(servesNum) : null}, true,
-              ${f.displayPrice}, ${f.minQuantity}, ${f.allowSpecialInstructions}, ${f.vegetarian}, ${f.containsNuts}, ${f.glutenFree}, ${f.vegan},
+              ${f.displayPrice}, ${f.minQuantity}, ${f.allowSpecialInstructions}, ${f.vegetarian}, ${f.containsNuts}, ${f.glutenFree}, ${f.vegan}, ${f.dairyFree},
               ${f.maxInventoryPerDay},
               (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${category.reference}::uuid))
       RETURNING reference::text AS reference

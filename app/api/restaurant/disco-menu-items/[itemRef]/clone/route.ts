@@ -19,7 +19,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ it
   const rows = (await sql`
     SELECT category_reference, name, description, price, serves, image_url, visible,
            display_price, min_quantity, allow_special_instructions,
-           vegetarian, contains_nuts, gluten_free, vegan
+           vegetarian, contains_nuts, gluten_free, vegan, dairy_free
     FROM disco_menu_items
     WHERE reference = ${itemRef}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as Record<string, unknown>[]
@@ -29,13 +29,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ it
     const out = (await sql`
       INSERT INTO disco_menu_items (
         restaurant_reference, category_reference, name, description, price, serves, image_url, visible,
-        display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, position)
+        display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, dairy_free, position)
       VALUES (
         ${scopeRef}::uuid, ${src.category_reference}::uuid, ${`${src.name} (Copy)`},
         ${src.description ?? null}, ${src.price ?? 0}, ${src.serves ?? null}, ${src.image_url ?? null}, ${src.visible ?? true},
         ${(src.display_price as string | null) ?? null}, ${(src.min_quantity as number | null) ?? null},
         ${src.allow_special_instructions ?? false}, ${src.vegetarian ?? false}, ${src.contains_nuts ?? false},
-        ${src.gluten_free ?? false}, ${src.vegan ?? false},
+        ${src.gluten_free ?? false}, ${src.vegan ?? false}, ${src.dairy_free ?? false},
         (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${src.category_reference}::uuid))
       RETURNING reference
     `) as { reference: string }[]

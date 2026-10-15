@@ -62,6 +62,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
   const [containsNuts, setContainsNuts] = useState(false)
   const [glutenFree, setGlutenFree] = useState(false)
   const [vegan, setVegan] = useState(false)
+  const [dairyFree, setDairyFree] = useState(false)
   const [containsAlcohol, setContainsAlcohol] = useState(false)
 
   // ── Availability ──
@@ -201,6 +202,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
         setContainsNuts(!!d.containsNuts)
         setGlutenFree(!!d.glutenFree)
         setVegan(!!d.vegan)
+        setDairyFree(!!d.dairyFree)
         setContainsAlcohol(!!d.containsAlcohol)
         if (d.from) setFrom(typeof d.from === 'string' ? d.from.split('T')[0] : '')
         if (d.to) setTo(typeof d.to === 'string' ? d.to.split('T')[0] : '')
@@ -273,6 +275,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
       containsNuts,
       glutenFree,
       vegan,
+      dairyFree,
       containsAlcohol,
       // FM's field is `visible` (not `available`). It MUST be non-null on update —
       // updateMealPackage calls getVisible().equals(oldVisible) and NPEs otherwise.
@@ -570,6 +573,10 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
             <label style={checkStyle}>
               <input type="checkbox" checked={vegan} onChange={e => setVegan(e.target.checked)} style={{ accentColor: BLUE }} />
               Vegan
+            </label>
+            <label style={checkStyle}>
+              <input type="checkbox" checked={dairyFree} onChange={e => setDairyFree(e.target.checked)} style={{ accentColor: BLUE }} />
+              Dairy Free
             </label>
           </div>
         </div>

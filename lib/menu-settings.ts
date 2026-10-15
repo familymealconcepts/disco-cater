@@ -56,6 +56,7 @@ export interface ItemFields {
   containsNuts: boolean
   glutenFree: boolean
   vegan: boolean
+  dairyFree: boolean
   // Max Inventory Per Day — NULL = unlimited (default, existing behavior
   // unaffected). See lib/order/native-inventory.ts for enforcement.
   maxInventoryPerDay: number | null
@@ -71,6 +72,7 @@ export function parseItemFields(body: Record<string, unknown>): ItemFields {
     containsNuts: body?.containsNuts === true,
     glutenFree: body?.glutenFree === true,
     vegan: body?.vegan === true,
+    dairyFree: body?.dairyFree === true,
     maxInventoryPerDay: mip == null || mip === '' ? null : Math.max(1, Math.trunc(Number(mip)) || 1),
   }
 }

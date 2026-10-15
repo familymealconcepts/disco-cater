@@ -92,7 +92,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       const items = (await sql`
         SELECT reference, category_reference, name, description, price, serves, visible, position,
                image_url, display_price, min_quantity, allow_special_instructions,
-               vegetarian, contains_nuts, gluten_free, vegan
+               vegetarian, contains_nuts, gluten_free, vegan, dairy_free, dairy_free
         FROM disco_menu_items WHERE category_reference = ANY(${oldCatRefs}) ORDER BY position, name
       `) as Array<Record<string, unknown>>
       for (const it of items) {
@@ -102,11 +102,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
           INSERT INTO disco_menu_items (
             restaurant_reference, category_reference, name, description, price, serves, visible, position,
             image_url, display_price, min_quantity, allow_special_instructions,
-            vegetarian, contains_nuts, gluten_free, vegan
+            vegetarian, contains_nuts, gluten_free, vegan, dairy_free
           ) VALUES (
             ${scope}::uuid, ${newCat}::uuid, ${it.name}, ${it.description}, ${it.price}, ${it.serves}, ${it.visible ?? true}, ${it.position ?? 0},
             ${it.image_url}, ${it.display_price}, ${it.min_quantity}, ${it.allow_special_instructions ?? false},
-            ${it.vegetarian ?? false}, ${it.contains_nuts ?? false}, ${it.gluten_free ?? false}, ${it.vegan ?? false}
+            ${it.vegetarian ?? false}, ${it.contains_nuts ?? false}, ${it.gluten_free ?? false}, ${it.vegan ?? false}, ${it.dairy_free ?? false}
           )
           RETURNING reference
         `) as { reference: string }[]

@@ -42,25 +42,32 @@
  *
  * Wording matches the restaurant portal's own checkboxes exactly
  * (menu-manager/[ref] and manage-v2's _MealPackageForm): "Vegetarian",
- * "Vegan", "Gluten-free", "Contains nuts". One word per thing, both sides.
+ * "Vegan", "Gluten-free", "Dairy-free", "Contains nuts". One word per thing,
+ * both sides.
  */
 
 export interface DietaryFlags {
   vegetarian?: boolean
   vegan?: boolean
   glutenFree?: boolean
+  dairyFree?: boolean
   containsNuts?: boolean
 }
 
 /** True when the restaurant has said anything at all about this item. */
 export function hasDietaryInfo(p: DietaryFlags | null | undefined): boolean {
-  return !!p && (p.vegetarian === true || p.vegan === true || p.glutenFree === true || p.containsNuts === true)
+  return !!p && (p.vegetarian === true || p.vegan === true || p.glutenFree === true
+    || p.dairyFree === true || p.containsNuts === true)
 }
 
 const DIETARY: { key: keyof DietaryFlags; label: string }[] = [
   { key: 'vegan', label: 'Vegan' },
   { key: 'vegetarian', label: 'Vegetarian' },
   { key: 'glutenFree', label: 'Gluten-free' },
+  // Disco-only. FamilyMeal has no dairy field anywhere in its schema, so an
+  // imported or mirrored item simply arrives without one — there is nothing to
+  // map, and false here means unticked, not "contains dairy" (see the header).
+  { key: 'dairyFree', label: 'Dairy-free' },
 ]
 
 // Reuses the green already established in this codebase for a positive pill

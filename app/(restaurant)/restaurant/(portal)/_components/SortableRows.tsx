@@ -14,7 +14,8 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
+  DndContext, closestCenter, PointerSensor, useDroppable, useSensor, useSensors,
+  type DragEndEvent,
 } from '@dnd-kit/core'
 import {
   arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
@@ -110,7 +111,7 @@ export function SortableRows<T>({
   )
 }
 
-function SortableRow({
+export function SortableRow({
   id, as, disabled, children, rowProps,
 }: {
   id: string
@@ -140,3 +141,28 @@ function SortableRow({
 
 /** The handle glyph, so every table shows the same affordance. */
 export const DRAG_GLYPH = '⋮⋮'
+
+
+/**
+ * A drop target that is not itself sortable — used to drag a menu item out of
+ * its list and onto a category in the sidebar.
+ *
+ * Must be rendered inside the SAME DndContext as the draggable, which is why
+ * the menu manager owns one context around both panes rather than letting
+ * SortableRows create one per list: a droppable registers with its nearest
+ * context, so a sidebar target inside its own context would never see an item
+ * dragged from the table.
+ *
+ * `isOver` is passed back so the caller can show the target lighting up —
+ * without it a cross-pane drag gives the user no indication it will land.
+ */
+export function DroppableTarget({
+  id, disabled = false, children,
+}: {
+  id: string
+  disabled?: boolean
+  children: (args: { isOver: boolean }) => React.ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id, disabled })
+  return <div ref={setNodeRef}>{children({ isOver: isOver && !disabled })}</div>
+}

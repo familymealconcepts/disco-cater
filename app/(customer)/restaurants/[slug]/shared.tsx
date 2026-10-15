@@ -478,7 +478,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,
-             vegetarian, contains_nuts, gluten_free, vegan, max_inventory_per_day,
+             vegetarian, contains_nuts, gluten_free, vegan, dairy_free, max_inventory_per_day,
              image_url
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
@@ -486,7 +486,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     `) as {
       reference: string; category_reference: string | null; name: string; description: string | null
       price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
-      allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean
+      allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean; dairy_free: boolean
       image_url: string | null
       max_inventory_per_day: number | null
     }[]
@@ -550,7 +550,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       imageUrl: it.image_url || undefined,
       allowedSpecialInstructions: it.allow_special_instructions === true,
       vegetarian: it.vegetarian === true, containsNuts: it.contains_nuts === true,
-      glutenFree: it.gluten_free === true, vegan: it.vegan === true,
+      glutenFree: it.gluten_free === true, vegan: it.vegan === true, dairyFree: it.dairy_free === true,
       maxInventoryPerDay: it.max_inventory_per_day ?? null,
       extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })

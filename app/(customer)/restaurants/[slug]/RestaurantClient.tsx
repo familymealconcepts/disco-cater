@@ -100,6 +100,9 @@ interface FmPackage {
   vegetarian?: boolean
   vegan?: boolean
   glutenFree?: boolean
+  // Disco-only — FamilyMeal has no dairy field, so this is always undefined for
+  // an FM-backed restaurant, exactly like the four above.
+  dairyFree?: boolean
   containsNuts?: boolean
 }
 interface FmCategory { reference: string; name: string; description?: string | null; mealPackages: FmPackage[] }

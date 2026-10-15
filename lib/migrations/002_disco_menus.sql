@@ -43,6 +43,11 @@ ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS vegetarian BOOLEAN NOT NUL
 ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS contains_nuts BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS gluten_free BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS vegan BOOLEAN NOT NULL DEFAULT false;
+-- Dairy free. Disco-only: FamilyMeal's dietary set is vegetarian/vegan/glutenFree/
+-- containsNuts and has no dairy field at all, so nothing maps in from FM and the
+-- importer never sets this. Same false default as the other four, which means
+-- unticked, NOT "contains dairy" (see DietaryBadges.tsx on why that matters).
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS dairy_free BOOLEAN NOT NULL DEFAULT false;
 
 -- Superseded below (menu_reference section) — a restaurant can have multiple
 -- menus that legitimately share a category name (e.g. "Appetizers" in both a
