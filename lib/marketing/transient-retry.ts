@@ -60,7 +60,7 @@ const BUDGET_SEC = 601
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 /** Which subsystem is being waited on — only used to word the alerts. */
-export type RetryKind = 'database' | 'Mailgun'
+export type RetryKind = 'database' | 'Mailgun' | 'NM OS'
 
 export async function withTransientRetry<T>(
   kind: RetryKind,

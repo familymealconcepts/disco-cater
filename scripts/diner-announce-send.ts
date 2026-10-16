@@ -36,6 +36,7 @@ import { CampaignHealth } from '../lib/marketing/campaign-health'
 import { inSendWindow } from '../lib/marketing/send-window'
 import { dinerGreeting } from '../lib/marketing/diner-greeting'
 import { sql, runMigrations } from '../lib/db'
+import { nmBlockedEmails } from '../lib/marketing/nm-do-not-contact'
 
 const argv = process.argv.slice(2)
 const has = (f: string) => argv.includes(f)
@@ -126,7 +127,12 @@ async function main() {
   }
   console.log(`exclusions loaded: ${excluded.size}`)
 
-  const recipients = await buildRecipients(excluded)
+  // NM OS's do-not-contact list, before anything else uses the recipient list.
+  // Throws (and the run stops) if NM OS cannot answer; see nm-do-not-contact.ts.
+  const built = await buildRecipients(excluded)
+  const dnc = await nmBlockedEmails(built.map(r => r.email))
+  const recipients = built.filter(r => !dnc.blocked.has(r.email))
+  console.log(`do-not-contact (NM OS): ${built.length - recipients.length} excluded of ${built.length} (${dnc.activeSuppressions} active suppressions)`)
   console.log(`eligible recipients: ${recipients.length}`)
 
   if (has('--status')) {
