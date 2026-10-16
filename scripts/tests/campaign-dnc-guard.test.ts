@@ -9,6 +9,7 @@
 //      file text and requiring the guard to fail, so none of them is vacuous.
 import { readFileSync } from 'node:fs'
 import { parseCheckResponse, NmDoNotContactUnavailable } from '../../lib/marketing/nm-do-not-contact'
+import { campaignTags, STANDING_MARKETING_TAG } from '../../lib/marketing/campaign-send'
 
 let passed = 0
 const failures: string[] = []
@@ -58,6 +59,18 @@ for (const g of GUARDS) {
     ok(guardHolds(src(g.file).replace(g.call, 'removedForControl()'), g) !== null, 'guard is vacuous')
   })
 }
+
+console.log('\n=== every campaign send carries the standing marketing tag ===')
+check('a tagged profile sends [campaign, marketing]; an untagged one sends [marketing]', () => {
+  ok(JSON.stringify(campaignTags({ tag: 'diner-announce-20261007' })) === JSON.stringify(['diner-announce-20261007', 'marketing']), 'tagged')
+  ok(JSON.stringify(campaignTags({})) === JSON.stringify(['marketing']), 'untagged (rebrand)')
+  ok(STANDING_MARKETING_TAG === 'marketing', 'must match NM OS MAILGUN_MARKETING_TAG')
+})
+check('both sendEmail calls in runCampaign use campaignTags, not the bare profile tag', () => {
+  const t = src('lib/marketing/campaign-send.ts')
+  ok((t.match(/tags: campaignTags\(profile\)/g) ?? []).length === 2, 'two call sites')
+  ok(!t.includes('tags: profile.tag ? [profile.tag] : undefined'), 'old form gone')
+})
 
 console.log(`\n${passed} passed, ${failures.length} failed`)
 if (failures.length) process.exit(1)

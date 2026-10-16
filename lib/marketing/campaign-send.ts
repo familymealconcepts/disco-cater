@@ -134,6 +134,24 @@ export const DINER_PROFILE: CampaignProfile = {
   tag: 'diner-announce-20261007',
 }
 
+// ── THE STANDING TAG (2026-10-16) ────────────────────────────────────────────
+// EVERY campaign send carries 'marketing', whatever its own campaign tag (and
+// the rebrand profile, which has none). mg.familymeal.com also carries
+// FamilyMeal's transactional mail, so NM OS scopes its do-not-contact
+// unsubscribes there to this tag instead of '*': a suppressed person stops
+// getting campaigns and still gets their order confirmations. A send WITHOUT
+// this tag would not be blocked by those unsubscribes, which is why it is
+// added here, in the one function every campaign goes through, and not per
+// profile. NM OS side: MAILGUN_MARKETING_TAG in noise-machine's
+// src/lib/doNotContactSync.ts -- the two must match.
+//
+// The campaign's own tag goes FIRST: NM OS's webhook records the first tag
+// that is not 'marketing' as the campaign, and Mailgun caps a message at 3.
+export const STANDING_MARKETING_TAG = 'marketing'
+export function campaignTags(profile: Pick<CampaignProfile, 'tag'>): string[] {
+  return profile.tag ? [profile.tag, STANDING_MARKETING_TAG] : [STANDING_MARKETING_TAG]
+}
+
 // Floor, not a target. 30s is the minimum; the jitter only ever adds.
 const MIN_GAP_MS = 30_000
 const JITTER_MS = 15_000
@@ -433,7 +451,7 @@ export async function runCampaign(
       replyTo: profile.replyTo,
       domain: profile.domain,
       skipStandingBcc: true,
-      tags: profile.tag ? [profile.tag] : undefined,
+      tags: campaignTags(profile),
     })
     if (!res.success && PRE_DELIVERY.test(res.error ?? '')) {
       let alerted = false
@@ -457,7 +475,7 @@ export async function runCampaign(
           replyTo: profile.replyTo,
           domain: profile.domain,
           skipStandingBcc: true,
-          tags: profile.tag ? [profile.tag] : undefined,
+          tags: campaignTags(profile),
         })
         // Stop retrying the moment the failure stops being provably pre-delivery.
         if (!res.success && !PRE_DELIVERY.test(res.error ?? '')) break
