@@ -39,6 +39,7 @@ import {
   type CampaignRecipient, type SendOutcome,
 } from '../lib/marketing/campaign-send'
 import { sql, runMigrations } from '../lib/db'
+import { nmBlockedEmails } from '../lib/marketing/nm-do-not-contact'
 
 const DEFAULT_CSV = resolve(homedir(), 'Desktop/rebrand-recipient-export/rebrand-recipients.csv')
 
@@ -164,6 +165,14 @@ async function main() {
   const skippedAlreadySent = targets.filter(r => logged.has(r.email))
   targets = targets.filter(r => !NEVER_SEND[r.email] && !logged.has(r.email))
 
+  // NM OS's do-not-contact list. This script used to check nothing beyond
+  // NEVER_SEND and its own log -- not even marketing_email_opt_outs, which NM OS
+  // now imports nightly, so asking NM OS covers those too. Throws (and nothing
+  // is sent) if NM OS cannot answer; see lib/marketing/nm-do-not-contact.ts.
+  const dnc = await nmBlockedEmails(targets.map(r => r.email))
+  const skippedDoNotContact = targets.filter(r => dnc.blocked.has(r.email))
+  targets = targets.filter(r => !dnc.blocked.has(r.email))
+
   const invalid = targets.filter(r => !EMAIL_RE.test(r.email))
   const noGreeting = targets.filter(r => !r.greetingName)
   const seen = new Set<string>()
@@ -180,6 +189,7 @@ async function main() {
   console.log(`to send          : ${targets.length}`)
   console.log(`  skipped, never-send : ${skippedNeverSend.length}${skippedNeverSend.length ? ' — ' + skippedNeverSend.map(r => r.email).join(', ') : ''}`)
   console.log(`  skipped, already in log : ${skippedAlreadySent.length}`)
+  console.log(`  skipped, do not contact (NM OS) : ${skippedDoNotContact.length} (${dnc.activeSuppressions} active suppressions)`)
   console.log('=== validation ===')
   console.log(`  invalid addresses  : ${invalid.length}${invalid.length ? ' — ' + invalid.map(r => r.email).join(', ') : ''}`)
   console.log(`  duplicates         : ${dupes.length}${dupes.length ? ' — ' + dupes.map(r => r.email).join(', ') : ''}`)

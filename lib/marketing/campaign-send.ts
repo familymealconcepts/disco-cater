@@ -5,6 +5,7 @@ import { inSendWindow, msUntilWindowOpen, describeWindow } from './send-window'
 import { CampaignHealth } from './campaign-health'
 import { alertOps } from '../ops-alert'
 import { withTransientRetry, PRE_DELIVERY, RETRY_ATTEMPTS } from './transient-retry'
+import { NmDoNotContactGuard } from './nm-do-not-contact'
 
 // The ONE code path every rebrand-announcement email goes through, draft or
 // real. A draft that bypasses this proves nothing about the real send, so the
@@ -146,6 +147,8 @@ export interface CampaignRecipient {
 export type SendOutcome =
   | { email: string; status: 'sent'; messageId: string | null }
   | { email: string; status: 'skipped-already-sent' }
+  /** NM OS's do-not-contact list said no. Never claimed, so a later lift lets a re-run reach them. */
+  | { email: string; status: 'skipped-do-not-contact' }
   | { email: string; status: 'halted' }
   | { email: string; status: 'auto-halted'; reason: string }
   | { email: string; status: 'failed'; error: string }
@@ -318,6 +321,16 @@ export async function runCampaign(
   const healthEvery = opts?.healthEvery ?? 20
   await runMigrations()
 
+  // NM OS'S DO-NOT-CONTACT LIST, BEFORE ANYTHING IS CLAIMED OR SENT. Loading it
+  // throws if NM OS cannot answer (lib/marketing/nm-do-not-contact.ts), so a run
+  // that cannot check refuses to start. It is checked here as well as in each
+  // script's recipient list so that no caller of runCampaign -- a new campaign, a
+  // --test, an --only file -- can send without it, and it refreshes every 30
+  // minutes because a run lasts days. Mailgun's unsubscribe lists remain the
+  // second layer at send time.
+  const dnc = new NmDoNotContactGuard(recipients.map(r => r.email))
+  await dnc.load()
+
   const results: SendOutcome[] = []
   let sentThisRun = 0
 
@@ -381,6 +394,12 @@ export async function runCampaign(
       }
       const verdict = health.evaluate()
       if (verdict.halt) { await autoHalt(r.email, verdict.reason ?? 'unspecified'); break }
+    }
+
+    if (await dnc.isBlocked(r.email)) {
+      const out: SendOutcome = { email: r.email, status: 'skipped-do-not-contact' }
+      results.push(out); opts?.onProgress?.(out)
+      continue
     }
 
     if (!(await withDbRetry('claim', () => claim(r, campaign)))) {
