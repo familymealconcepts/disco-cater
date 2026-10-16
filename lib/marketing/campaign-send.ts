@@ -4,6 +4,7 @@ import { layout } from '../email/layout'
 import { inSendWindow, msUntilWindowOpen, describeWindow } from './send-window'
 import { CampaignHealth } from './campaign-health'
 import { alertOps } from '../ops-alert'
+import { withTransientRetry, PRE_DELIVERY, RETRY_ATTEMPTS } from './transient-retry'
 
 // The ONE code path every rebrand-announcement email goes through, draft or
 // real. A draft that bypasses this proves nothing about the real send, so the
@@ -276,43 +277,18 @@ const TRANSIENT = /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket 
 //     retries pass a minute, ops is alerted, and alerted again when the budget
 //     is spent. alertOps writes to the console and a webhook and touches no
 //     database, so it still works when the database is the thing that is gone.
-const DB_RETRY_ATTEMPTS = 25
+const DB_RETRY_ATTEMPTS = RETRY_ATTEMPTS
 // Alert once the outage is clearly not a blip — after the 1+2+4+8+16s ramp.
 const DB_RETRY_ALERT_AFTER = 6
+/** Same ramp as the shared helper, for the send's own narrower retry. */
+const RETRY_ALERT_AFTER_SEND = 6
 
 export async function withDbRetry<T>(label: string, fn: () => Promise<T>, attempts = DB_RETRY_ATTEMPTS): Promise<T> {
-  let lastErr: unknown
-  let alerted = false
-  const startedAt = Date.now()
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const out = await fn()
-      if (alerted) {
-        await alertOps(`campaign DB connectivity RECOVERED on ${label} after ${Math.round((Date.now() - startedAt) / 1000)}s — the run continued`)
-      }
-      return out
-    } catch (e) {
-      lastErr = e
-      const msg = e instanceof Error ? `${e.message} ${String((e as { sourceError?: unknown }).sourceError ?? '')}` : String(e)
-      if (!TRANSIENT.test(msg)) throw e          // a real error is not a blip
-      if (i === attempts - 1) break
-      if (i === DB_RETRY_ALERT_AFTER && !alerted) {
-        alerted = true
-        await alertOps('campaign DB unreachable — still retrying, the run has NOT stopped', {
-          label, error: msg.slice(0, 200), elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-          budgetSec: 601,
-        })
-      }
-      const backoff = Math.min(1000 * 2 ** i, 30_000) + Math.floor(Math.random() * 1000)
-      console.warn(`[campaign] ${label} failed (${msg.slice(0, 90)}) — retry ${i + 1}/${attempts - 1} in ${Math.round(backoff / 1000)}s`)
-      await sleep(backoff)
-    }
-  }
-  await alertOps('campaign STOPPING — database unreachable for the whole retry budget', {
-    label, attempts, elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-    error: lastErr instanceof Error ? lastErr.message.slice(0, 200) : String(lastErr),
-  })
-  throw lastErr
+  // The body moved to lib/marketing/transient-retry.ts so campaign-health.ts can
+  // use the SAME retry for its Mailgun reads without a circular import (this file
+  // already imports that one). Behaviour for database calls is unchanged; this
+  // wrapper is kept because scripts/ imports it by name.
+  return withTransientRetry('database', label, fn, attempts)
 }
 
 /**
@@ -388,7 +364,20 @@ export async function runCampaign(
     // every single time regardless.
     if (health) {
       if (sentThisRun > 0 && sentThisRun % healthEvery === 0 && opts?.mailgunKey) {
-        await health.poll(opts.mailgunKey)
+        // The poll itself retries transient Mailgun errors (see transient-retry).
+        // This catch is the backstop for everything else: a health poll is an
+        // OBSERVATION, and failing to observe is not a reason to stop sending.
+        // The counters that need no network — consecutive failures, auth errors —
+        // are still evaluated below on every single recipient regardless.
+        try {
+          await health.poll(opts.mailgunKey)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          console.warn(`[campaign] health poll failed, keeping the previous snapshot: ${msg.slice(0, 120)}`)
+          await alertOps('campaign health poll failed — the run continued on the previous snapshot', {
+            error: msg.slice(0, 200), sentThisRun,
+          })
+        }
       }
       const verdict = health.evaluate()
       if (verdict.halt) { await autoHalt(r.email, verdict.reason ?? 'unspecified'); break }
@@ -403,7 +392,21 @@ export async function runCampaign(
     const html = profile.render(r.greetingName)
     // text is intentionally NOT passed — sendEmail derives it via htmlToText so
     // the plain part cannot drift from the HTML.
-    const res = await sendEmail({
+    // ── SEND, WITH A DELIBERATELY NARROWER RETRY THAN EVERYTHING ELSE ──────
+    // sendEmail never throws — it returns { success:false, error } — so a network
+    // failure here has never ended the run, and the 15 Oct crash came from the
+    // health poll, not from here. What it DID do was burn the recipient: claim()
+    // has already written their row, so a send that fails is a person who never
+    // receives the announcement and is never retried.
+    //
+    // So this retries, but ONLY on PRE_DELIVERY errors — a connect timeout or a
+    // DNS failure, where the request provably never reached Mailgun and so cannot
+    // have been delivered. Anything else (a 4xx, a response that failed to read,
+    // a socket dropped mid-request) stays single-shot, because Mailgun may have
+    // accepted the message and lost the response, and re-sending would deliver
+    // the same announcement twice to a real person. That ambiguity is why sends
+    // were left un-retried in the first place, and it still stands.
+    let res = await sendEmail({
       to: r.email,
       subject: profile.subject,
       html,
@@ -413,6 +416,37 @@ export async function runCampaign(
       skipStandingBcc: true,
       tags: profile.tag ? [profile.tag] : undefined,
     })
+    if (!res.success && PRE_DELIVERY.test(res.error ?? '')) {
+      let alerted = false
+      const startedAt = Date.now()
+      for (let attempt = 1; attempt < RETRY_ATTEMPTS && !res.success; attempt++) {
+        if (attempt === RETRY_ALERT_AFTER_SEND && !alerted) {
+          alerted = true
+          await alertOps('campaign Mailgun unreachable on send — still retrying, the run has NOT stopped', {
+            email: r.email, error: (res.error ?? '').slice(0, 200),
+            elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+          })
+        }
+        const backoff = Math.min(1000 * 2 ** (attempt - 1), 30_000) + Math.floor(Math.random() * 1000)
+        console.warn(`[campaign] send to ${r.email} could not reach Mailgun (${(res.error ?? '').slice(0, 70)}) — retry ${attempt}/${RETRY_ATTEMPTS - 1} in ${Math.round(backoff / 1000)}s`)
+        await sleep(backoff)
+        res = await sendEmail({
+          to: r.email,
+          subject: profile.subject,
+          html,
+          from: profile.from,
+          replyTo: profile.replyTo,
+          domain: profile.domain,
+          skipStandingBcc: true,
+          tags: profile.tag ? [profile.tag] : undefined,
+        })
+        // Stop retrying the moment the failure stops being provably pre-delivery.
+        if (!res.success && !PRE_DELIVERY.test(res.error ?? '')) break
+      }
+      if (res.success && alerted) {
+        await alertOps(`campaign Mailgun connectivity RECOVERED on send after ${Math.round((Date.now() - startedAt) / 1000)}s — the run continued`)
+      }
+    }
 
     health?.recordSend(res.success, res.error ?? null)
 

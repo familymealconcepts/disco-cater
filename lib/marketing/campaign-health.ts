@@ -10,6 +10,7 @@
 // is why the tag is load-bearing rather than cosmetic.
 
 // No import from campaign-send: that module imports THIS one, and a cycle
+import { withTransientRetry } from './transient-retry'
 // between them is how a safety check ends up undefined at call time. The halt
 // itself is performed by the caller, which already holds haltCampaign.
 
@@ -175,7 +176,12 @@ export class CampaignHealth {
     const complainedSet = new Set<string>()
 
     while (page) {
-      const res: Response = await fetch(page, { headers: { Authorization: auth } })
+      // RETRIED, because an unguarded fetch here is what ended the 15 Oct run:
+      // the DB layer recovered from the same network blip and this call did not.
+      // A paged read is idempotent, so retrying costs nothing but patience — and
+      // a poll is a READ, never a send, so no message can be duplicated by it.
+      const res: Response = await withTransientRetry('Mailgun', 'health-poll',
+        () => fetch(page as string, { headers: { Authorization: auth } }))
       if (res.status === 401 || res.status === 403) {
         this.authError = `Mailgun events API returned ${res.status}`
         return

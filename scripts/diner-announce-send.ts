@@ -26,6 +26,7 @@
  * campaign key fixes, and it is why --status reads the log rather than Mailgun.
  */
 import { config } from 'dotenv'
+import { alertOps } from '../lib/ops-alert'
 config({ path: '.env.local', quiet: true })
 import {
   runCampaign, isCampaignHalted, DINER_PROFILE, DINER_CAMPAIGN,
@@ -258,10 +259,58 @@ async function main() {
   const sent = out.filter(o => o.status === 'sent').length
   const failed = out.filter(o => o.status === 'failed').length
   const halted = out.find(o => o.status === 'auto-halted') as { reason: string } | undefined
+  // So the exit handler can tell "finished or halted deliberately" from "died".
+  RUN_STATE.sent = sent
+  RUN_STATE.endedCleanly = true
+  RUN_STATE.haltReason = halted?.reason ?? null
   console.log(`\n--- run summary ---`)
   console.log(`sent: ${sent}  failed: ${failed}  elapsed: ${Math.round((Date.now() - started) / 60000)} min`)
   console.log(`health: ${JSON.stringify(health.snapshot())}`)
   if (halted) console.log(`AUTO-HALTED: ${halted.reason}`)
 }
 
-main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1) })
+// ── IF THIS PROCESS DIES, SOMEONE IS TOLD ───────────────────────────────────
+// On 15 Oct 2026 an unguarded Mailgun fetch threw and ended a 75-hour run at 53%
+// sent. There was no halt line, no alert, and no non-zero exit anybody saw — the
+// log simply stopped, and it was a day before a human looked. The retries added
+// alongside this make that specific crash survivable; this makes ANY future one
+// audible, whatever its cause.
+//
+// Only an unplanned exit alerts. Finishing the list and tripping a halt rule are
+// both deliberate endings and already reported through their own channels.
+const RUN_STATE: { sent: number; endedCleanly: boolean; haltReason: string | null } =
+  { sent: 0, endedCleanly: false, haltReason: null }
+
+async function alertUnplannedExit(why: string, detail?: unknown): Promise<void> {
+  if (RUN_STATE.endedCleanly) return
+  try {
+    await alertOps('diner campaign STOPPED unexpectedly — it is no longer sending', {
+      why,
+      sentThisRun: RUN_STATE.sent,
+      detail: detail instanceof Error ? detail.message.slice(0, 300) : String(detail ?? '').slice(0, 300),
+      note: 'Not a halt rule and not the end of the list. Relaunch to resume; already-sent recipients are skipped.',
+    })
+  } catch { /* alerting must never be the thing that throws here */ }
+}
+
+// A thrown error, including one that escapes the retries.
+main()
+  .then(async () => {
+    if (RUN_STATE.haltReason) {
+      console.log(`[campaign] ended on a halt rule: ${RUN_STATE.haltReason}`)
+    }
+    process.exit(0)
+  })
+  .catch(async e => {
+    console.error(e)
+    await alertUnplannedExit('the run threw', e)
+    process.exit(1)
+  })
+
+// Anything that bypasses the promise chain entirely — an async throw with no
+// handler, or the machine/terminal taking the process down.
+process.on('uncaughtException', async e => { await alertUnplannedExit('uncaughtException', e); process.exit(1) })
+process.on('unhandledRejection', async e => { await alertUnplannedExit('unhandledRejection', e); process.exit(1) })
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(sig, async () => { await alertUnplannedExit(`received ${sig}`); process.exit(1) })
+}
