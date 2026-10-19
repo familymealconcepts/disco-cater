@@ -24,6 +24,7 @@ import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
 import { formatDisplayAddress, dedupeAddressString } from './address-display'
+import { notifyNmOrderEvent } from './nm-order-event'
 
 // Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
 // creates for a login-disabled holder row — provably never deliverable (confirmed
@@ -757,6 +758,8 @@ export async function dispatchOrderConfirmations(
         serviceLabel: shared.orderService,
         isDirectEntry,
       })
+      // Additive: tell NM OS too. After the Slack post; never awaited, never throws.
+      notifyNmOrderEvent(reference, source)
     } else {
       console.log('[order-notifications] Slack already notified, skipping:', reference)
     }
