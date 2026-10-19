@@ -733,10 +733,15 @@ export async function dispatchOrderConfirmations(
     // visibility into FM's send.
     //
     // Native restaurants have no FM record at all, so FM never sees those orders
-    // and never notifies — Disco remains their only notification. This also
-    // covers the FM_SYNC_BACKFILL path for free: those orders were pulled FROM
-    // FM, so they are FM-backed by definition and FM already announced them.
-    const slackOk = cacheIsNative && (reference ? await claimSlackNotified(reference) : true)
+    // and never notifies — Disco remains their only notification.
+    //
+    // FM_SYNC_BACKFILL IS EXCLUDED BY THE source CHECK BELOW, NOT BY cacheIsNative.
+    // Those orders were pulled FROM FM, so FM already announced them. This used to
+    // be covered "for free" on the assumption that a backfilled order is never at a
+    // native restaurant, but converted restaurants are is_disco_native = true and
+    // are still synced from FM, so cacheIsNative alone would let a backfilled DISCO
+    // order at one of them post a second ping beside FM's.
+    const slackOk = cacheIsNative && source !== 'FM_SYNC_BACKFILL' && (reference ? await claimSlackNotified(reference) : true)
     if (!cacheIsNative) {
       console.log('[order-notifications] FM-backed order — FM sends the Slack ping, skipping Disco\'s:', reference)
     }
