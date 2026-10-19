@@ -240,6 +240,18 @@ async function claim(r: CampaignRecipient, campaign: string): Promise<boolean> {
   return rows.length > 0
 }
 
+/**
+ * Hand a claim back, so a recipient we decided NOT to send to right now returns
+ * to the pool instead of sitting at 'claimed' forever. Scoped to outcome
+ * 'claimed' so it can never erase a row that already recorded a real send.
+ */
+async function releaseClaim(email: string, campaign: string): Promise<void> {
+  await sql`
+    DELETE FROM marketing_send_log
+     WHERE campaign = ${campaign} AND email = ${email.toLowerCase().trim()} AND outcome = 'claimed'
+  `
+}
+
 async function recordResult(
   email: string, campaign: string, outcome: 'sent' | 'failed',
   messageId: string | null, error: string | null,
@@ -424,6 +436,32 @@ export async function runCampaign(
       const out: SendOutcome = { email: r.email, status: 'skipped-already-sent' }
       results.push(out); opts?.onProgress?.(out)
       continue
+    }
+
+    // ── THE WINDOW, RE-CHECKED IMMEDIATELY BEFORE THE SEND ─────────────────
+    // The gate above runs before the claim, which is right — but everything
+    // between them can take HOURS. The halt-check and the claim each retry a
+    // flaky database for up to the full budget, and on 18 Oct that pushed a
+    // message out at 1:23 AM ET, two and a half hours after the window closed.
+    // The clock was simply read too early.
+    //
+    // So check again here, with nothing left to do but send. If the window has
+    // closed in the meantime the claim is HANDED BACK before we wait, so this
+    // cannot strand a recipient at 'claimed' the way a bare pause-after-claim
+    // would, and then re-claimed when the window reopens. If someone else has
+    // taken it by then, we skip rather than send twice.
+    if (opts?.window && !inSendWindow(new Date())) {
+      await withDbRetry('release-claim', () => releaseClaim(r.email, campaign)).catch(() => {})
+      while (!inSendWindow(new Date())) {
+        const waitMs = msUntilWindowOpen(new Date())
+        console.log(`[campaign] window closed while preparing ${r.email} — claim released, pausing ${Math.round(waitMs / 60000)} min`)
+        await sleep(Math.min(waitMs, 5 * 60_000) + Math.floor(Math.random() * 30_000))
+      }
+      if (!(await withDbRetry('reclaim', () => claim(r, campaign)))) {
+        const out: SendOutcome = { email: r.email, status: 'skipped-already-sent' }
+        results.push(out); opts?.onProgress?.(out)
+        continue
+      }
     }
 
     const html = profile.render(r.greetingName)
