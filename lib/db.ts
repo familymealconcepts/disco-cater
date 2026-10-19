@@ -129,6 +129,21 @@ export async function runMigrations(): Promise<void> {
        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS disco_fm_sync_watch_checked_idx ON disco_fm_sync_watch (last_checked_at)`,
+    // THE BASELINE IS A SET OF ORDER REFERENCES, NOT A COUNT.
+    //
+    // known_gap was a bare number, and a number cannot tell a cart from a real
+    // order. On 19 Oct three live orders were swallowed by it: Almost Home's gap
+    // reached exactly its baseline of 1 and `gap > known_gap` was false, so the
+    // watcher never fetched — and the same for Beach Buns. A $149.55 order and a
+    // $57.42 order sat invisible until the daily gap check caught them.
+    //
+    // baseline_refs holds the FamilyMeal order references CONFIRMED
+    // non-mirrorable — carts, EXPIRED/CANCELED rows with no customer email, and
+    // known duplicate order numbers. A reference may only enter it after being
+    // classified, so a real order can never be absorbed: if it is missing and it
+    // is not one of those shapes, it stays missing and keeps asking to be
+    // fetched. known_gap is kept alongside purely for reporting.
+    `ALTER TABLE disco_fm_sync_watch ADD COLUMN IF NOT EXISTS baseline_refs JSONB NOT NULL DEFAULT '[]'::jsonb`,
     // Which restaurants reconcile-stripe-links has ALREADY reported as needing
     // the restaurant to reconnect Stripe. One row per restaurant, so the job can
     // alert when one ENTERS the set and when one LEAVES it, and stay quiet about

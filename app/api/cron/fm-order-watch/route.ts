@@ -58,6 +58,7 @@ import { mirrorAlert } from '../../../../lib/mirror-alert'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
+import { isKnownFmDuplicateOrderNumber } from '../../../../lib/known-fm-order-duplicates'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -105,13 +106,64 @@ function hasCronSecret(req: NextRequest): boolean {
  * channel gets muted. They count as checked. A timeout or 5xx is a genuine
  * no-answer and does not.
  */
+type FmOrderBrief = {
+  reference: string
+  orderNumber: string
+  orderStatus: string
+  hasEmail: boolean
+}
+
 type CountResult =
-  | { state: 'ok'; total: number }
+  | { state: 'ok'; total: number; recent: FmOrderBrief[] }
   | { state: 'absent' }
   | { state: 'error' }
 
+/**
+ * How many of the newest orders to read back on every check.
+ *
+ * ── WHY THIS IS NOT size=1 ANY MORE ─────────────────────────────────────────
+ * The old call asked only for totalElements and compared counts. Counts are
+ * blind to substitution: Local Smoke BBQ showed FM 453 = Neon 453, gap zero,
+ * while order #23186878 ($367.30, for the next day) was genuinely missing —
+ * FamilyMeal had stopped counting something else at the same moment. A count
+ * can only ever say "how many", never "which".
+ *
+ * Reading the newest five by order date gives totalElements AND the identity of
+ * the recent orders in the SAME request, so a missing one is caught whatever
+ * the counts say.
+ *
+ * COST, MEASURED AGAINST PRODUCTION FM before choosing (40-restaurant sample):
+ *     size=1   p50 139ms  mean 168ms  -> ~22s for all 399 at concurrency 3
+ *     size=5   p50 438ms  mean 422ms  -> ~56s for all 399 at concurrency 3
+ *     size=10  p50 562ms  mean 635ms  -> ~84s
+ *     size=25  p50 1105ms mean 1315ms -> ~175s
+ *
+ * Five is the smallest window that cannot realistically miss an arrival: the
+ * measured fleet-wide maximum is 6 new orders in an HOUR across every converted
+ * restaurant, and this runs every 30 minutes, so five at a SINGLE restaurant is
+ * far beyond anything observed. 56s leaves the 300s ceiling untouched.
+ *
+ * FamilyMeal's request count is UNCHANGED — still exactly one per restaurant
+ * per cycle. The expensive half of that query is the COUNT behind
+ * totalElements, which is identical; returning 5 rows instead of 1 is
+ * negligible server-side.
+ */
+const RECENT_WINDOW = 5
+
+/** Statuses FamilyMeal counts and Neon deliberately never stores. */
+const NON_ORDER = new Set(['CART', 'SELECTED'])
+
+/** One full page of a restaurant's newest orders, for the post-fetch classification. */
+async function fmGet(path: string, auth: Record<string, string>): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fmFetch(`${FM}/api/admin/${path}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' }, 30_000)
+    if (!res.ok) return null
+    return (await res.json().catch(() => null)) as Record<string, unknown> | null
+  } catch { return null }
+}
+
 async function fmCount(ref: string, auth: Record<string, string>): Promise<CountResult> {
-  const url = `${FM}/api/admin/restaurants/${ref}/orders?page=0&size=1`
+  const url = `${FM}/api/admin/restaurants/${ref}/orders?page=0&size=${RECENT_WINDOW}&sort=orderDate,desc`
   // Two attempts. The first run saw 32 of 398 fail, and re-probing them by hand
   // minutes later found almost all answering 200 — transient, not broken. One
   // cheap retry converts that into a non-event instead of a false alarm.
@@ -121,7 +173,16 @@ async function fmCount(ref: string, auth: Record<string, string>): Promise<Count
       if (res.status === 404) return { state: 'absent' }
       if (res.ok) {
         const j = (await res.json().catch(() => null)) as Record<string, unknown> | null
-        if (j && typeof j.totalElements === 'number') return { state: 'ok', total: j.totalElements as number }
+        if (j && typeof j.totalElements === 'number') {
+          const items = (j.content as Record<string, unknown>[] | undefined) ?? []
+          const recent: FmOrderBrief[] = items.map(o => ({
+            reference: String(o.reference ?? ''),
+            orderNumber: String(o.orderNumber ?? ''),
+            orderStatus: String(o.orderStatus ?? '').toUpperCase(),
+            hasEmail: !!o.email,
+          })).filter(o => o.reference)
+          return { state: 'ok', total: j.totalElements as number, recent }
+        }
       }
     } catch { /* fall through to the retry */ }
     if (attempt === 1) await new Promise(r => setTimeout(r, 300))
@@ -159,11 +220,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
     // ── PASS 1: one cheap count per restaurant ───────────────────────────────
     const baseline = (await sql`
-      SELECT restaurant_reference::text AS ref, known_gap FROM disco_fm_sync_watch
-    `.catch(() => [])) as { ref: string; known_gap: number }[]
+      SELECT restaurant_reference::text AS ref, known_gap, baseline_refs FROM disco_fm_sync_watch
+    `.catch(() => [])) as { ref: string; known_gap: number; baseline_refs: unknown }[]
     const knownGap = new Map(baseline.map(b => [b.ref, Number(b.known_gap) || 0]))
+    // The set of references already CONFIRMED non-mirrorable for each restaurant.
+    const baselineRefs = new Map<string, Set<string>>(
+      baseline.map(b => [b.ref, new Set(Array.isArray(b.baseline_refs) ? (b.baseline_refs as string[]).map(String) : [])]),
+    )
 
-    const needsFetch: { ref: string; fmTotal: number; neonCount: number; gap: number; was: number }[] = []
+    const needsFetch: { ref: string; fmTotal: number; neonCount: number; gap: number; was: number; reason: string }[] = []
     let checked = 0
     let countErrors = 0
     let absent = 0
@@ -201,7 +266,26 @@ async function handle(req: NextRequest): Promise<NextResponse> {
         const neonCount = await neonCountFor(ref)
         const gap = fmTotal - neonCount
         const was = knownGap.get(ref) ?? 0
+        const base = baselineRefs.get(ref) ?? new Set<string>()
         checked++
+
+        // ── SET COMPARISON, NOT JUST COUNTS ────────────────────────────────
+        // Which of FamilyMeal's newest orders is Disco actually missing? This
+        // is what catches a missing order when the counts happen to match, as
+        // they did for Local Smoke BBQ.
+        let missingRecent: FmOrderBrief[] = []
+        if (res.recent.length) {
+          const refs = res.recent.map(o => o.reference)
+          const have = (await sql`
+            SELECT fm_order_reference::text AS fr FROM disco_orders
+            WHERE restaurant_reference::text = ${ref}
+              AND fm_order_reference = ANY(${refs}::uuid[]) AND is_deleted = false
+          `.catch(() => [])) as { fr: string }[]
+          const haveSet = new Set(have.map(h => String(h.fr)))
+          // A reference already proven non-mirrorable is not news. Everything
+          // else that is absent IS, whatever the counts say.
+          missingRecent = res.recent.filter(o => !haveSet.has(o.reference) && !base.has(o.reference))
+        }
         // last_checked_at is written for EVERY successful check, fetch or not —
         // it answers "is this restaurant being watched", not "did it change".
         await sql`
@@ -211,8 +295,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
             SET last_checked_at = NOW(), last_fm_total = ${fmTotal}, last_neon_count = ${neonCount},
                 consecutive_errors = 0, updated_at = NOW()
         `.catch(() => {})
-        // Only a gap LARGER than this restaurant's permanent baseline is news.
-        if (gap > was) needsFetch.push({ ref, fmTotal, neonCount, gap, was })
+        // Two independent triggers. Either is enough.
+        //   • a NAMED recent order Disco does not have — immune to count maths
+        //   • the count gap exceeding the number of confirmed-unmirrorable rows
+        if (missingRecent.length) {
+          needsFetch.push({ ref, fmTotal, neonCount, gap, was,
+            reason: `missing recent order(s): ${missingRecent.map(o => '#' + o.orderNumber).join(', ')}` })
+        } else if (gap > base.size) {
+          needsFetch.push({ ref, fmTotal, neonCount, gap, was, reason: `count gap ${gap} exceeds ${base.size} confirmed-unmirrorable` })
+        }
       }
     }
     await Promise.all(Array.from({ length: COUNT_CONCURRENCY }, () => worker()))
@@ -221,7 +312,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // ── PASS 2: pull orders, only where the gap grew ─────────────────────────
     // Sorted newest-first by fetchFmOrdersPage, so one page covers up to 50 new
     // orders — far beyond the measured maximum of 6 in any hour.
-    const fetched: { ref: string; inserted: number; updated: number; residualGap: number; ms: number }[] = []
+    const fetched: { ref: string; inserted: number; updated: number; residualGap: number; baselined: number; stillMissing: number; ms: number }[] = []
     const failures: { ref: string; error: string }[] = []
     for (const n of needsFetch.slice(0, FETCH_CAP)) {
       if (Date.now() > deadline) break
@@ -229,16 +320,60 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       try {
         const out = await syncRestaurantOrders(n.ref, { withItems: true, pageSize: 50, maxPages: 2, stopAtKnownDate: true })
         const after = await neonCountFor(n.ref)
-        // Whatever is still missing after a real pull is unmirrorable — carts,
-        // or rows with no customer email. Record it so this restaurant stops
-        // asking to be fetched until something genuinely new arrives.
+
+        // ── THE BASELINE ONLY EVER ABSORBS CLASSIFIED ROWS ──────────────────
+        // This used to be `residual = fmTotal - after` — "whatever remains
+        // becomes the new baseline". That sentence is what swallowed three live
+        // orders on 19 Oct: a real order that failed to arrive became an
+        // anonymous +1 on a counter, and every later run compared against it and
+        // saw nothing wrong.
+        //
+        // Now a reference enters the baseline ONLY after being named and
+        // classified as something Neon structurally cannot hold:
+        //   • a cart (CART / SELECTED) — FamilyMeal counts them, Neon never
+        //     stores them;
+        //   • EXPIRED or CANCELED with no customer email — disco_orders
+        //     .customer_email is NOT NULL, so upsertOne can only skip it;
+        //   • a known duplicate order number — one row per colliding group can
+        //     ever exist (lib/known-fm-order-duplicates.ts).
+        //
+        // Anything else still missing stays OUT of the baseline. It will trigger
+        // again next cycle, which is the correct outcome: a real order that
+        // cannot be mirrored should keep asking, loudly, not disappear into a
+        // number.
+        const page = await fmGet(`restaurants/${n.ref}/orders?page=0&size=100&sort=orderDate,desc`, auth)
+        const items = (page?.content as Record<string, unknown>[] | undefined) ?? []
+        const have2 = (await sql`
+          SELECT fm_order_reference::text AS fr FROM disco_orders
+          WHERE restaurant_reference::text = ${n.ref}
+            AND fm_order_reference IS NOT NULL AND is_deleted = false
+        `.catch(() => [])) as { fr: string }[]
+        const haveSet2 = new Set(have2.map(h => String(h.fr)))
+        const confirmed: string[] = []
+        const stillReal: string[] = []
+        for (const o of items) {
+          const oref = String(o.reference ?? '')
+          if (!oref || haveSet2.has(oref)) continue
+          const st = String(o.orderStatus ?? '').toUpperCase()
+          const num = String(o.orderNumber ?? '')
+          const isCart = NON_ORDER.has(st)
+          const isDeadNoEmail = (st === 'EXPIRED' || st === 'CANCELED') && !o.email
+          const isDup = isKnownFmDuplicateOrderNumber(n.ref, num)
+          if (isCart || isDeadNoEmail || isDup) confirmed.push(oref)
+          else stillReal.push(num)
+        }
+        if (stillReal.length) {
+          console.warn(`[cron/fm-order-watch] ${n.ref}: ${stillReal.length} order(s) still missing after a fetch and NOT baselined: ${stillReal.slice(0, 10).join(', ')}`)
+        }
         const residual = Math.max(0, n.fmTotal - after)
         await sql`
           UPDATE disco_fm_sync_watch
-          SET known_gap = ${residual}, last_neon_count = ${after}, last_synced_at = NOW(), updated_at = NOW()
+          SET known_gap = ${residual}, baseline_refs = ${JSON.stringify(confirmed)}::jsonb,
+              last_neon_count = ${after}, last_synced_at = NOW(), updated_at = NOW()
           WHERE restaurant_reference = ${n.ref}::uuid
         `.catch(() => {})
-        fetched.push({ ref: n.ref, inserted: out.inserted, updated: out.updated, residualGap: residual, ms: Date.now() - t0 })
+        fetched.push({ ref: n.ref, inserted: out.inserted, updated: out.updated, residualGap: residual,
+          baselined: confirmed.length, stillMissing: stillReal.length, ms: Date.now() - t0 })
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e)
         console.error(`[cron/fm-order-watch] fetch failed for ${n.ref} — skipped, run continues: ${error}`)
