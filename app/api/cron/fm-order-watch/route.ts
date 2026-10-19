@@ -153,6 +153,35 @@ const RECENT_WINDOW = 5
 /** Statuses FamilyMeal counts and Neon deliberately never stores. */
 const NON_ORDER = new Set(['CART', 'SELECTED'])
 
+/**
+ * Can this FamilyMeal row ever become a Disco order? Decided from the row AS IT
+ * IS RIGHT NOW, never from stored state.
+ *
+ * Three shapes can never mirror, and each is a fact about the row rather than a
+ * guess:
+ *   - CART / SELECTED: a basket FamilyMeal counts and Neon deliberately omits.
+ *   - no customer email: disco_orders.customer_email is NOT NULL, so the insert
+ *     is refused by the schema. This is the same test the daily gap check makes
+ *     (`if (!o.email) unmirrorable++`), and it is status-blind on purpose.
+ *     #92117192 at Local Smoke BBQ is RESERVED, not EXPIRED, with a null email,
+ *     null name and null total: an abandoned reservation FM never attached a
+ *     customer to. Reading only EXPIRED/CANCELED missed it.
+ *   - a known duplicate order number: Neon's key is (restaurant, orderNumber),
+ *     so the second row has nowhere to go.
+ *
+ * -- WHY THIS IS RE-DECIDED EVERY CYCLE INSTEAD OF REMEMBERED ----------------
+ * Because all three are states, not identities. A CART becomes an order when
+ * somebody checks out; a RESERVED row with no email gains one at payment, and
+ * it keeps the SAME reference when it does. Remembering "this reference is not
+ * mirrorable" would therefore re-create the exact bug this file was rewritten
+ * to kill, with a reference in place of a count. So the named check asks FM
+ * afresh on every pass, and baseline_refs is left to the count rule alone,
+ * where being stale is harmless because the named rule catches the real orders.
+ */
+function nonMirrorable(ref: string, o: { orderStatus: string; orderNumber: string; hasEmail: boolean }): boolean {
+  return NON_ORDER.has(o.orderStatus) || !o.hasEmail || isKnownFmDuplicateOrderNumber(ref, o.orderNumber)
+}
+
 /** One full page of a restaurant's newest orders, for the post-fetch classification. */
 async function fmGet(path: string, auth: Record<string, string>): Promise<Record<string, unknown> | null> {
   try {
@@ -282,9 +311,10 @@ async function handle(req: NextRequest): Promise<NextResponse> {
               AND fm_order_reference = ANY(${refs}::uuid[]) AND is_deleted = false
           `.catch(() => [])) as { fr: string }[]
           const haveSet = new Set(have.map(h => String(h.fr)))
-          // A reference already proven non-mirrorable is not news. Everything
-          // else that is absent IS, whatever the counts say.
-          missingRecent = res.recent.filter(o => !haveSet.has(o.reference) && !base.has(o.reference))
+          // A row that CANNOT mirror is not news -- but that is judged from the
+          // row FM just returned, not from what was true last time. Everything
+          // else that is absent IS news, whatever the counts say.
+          missingRecent = res.recent.filter(o => !haveSet.has(o.reference) && !nonMirrorable(ref, o))
         }
         // last_checked_at is written for EVERY successful check, fetch or not —
         // it answers "is this restaurant being watched", not "did it change".
@@ -354,12 +384,12 @@ async function handle(req: NextRequest): Promise<NextResponse> {
         for (const o of items) {
           const oref = String(o.reference ?? '')
           if (!oref || haveSet2.has(oref)) continue
-          const st = String(o.orderStatus ?? '').toUpperCase()
           const num = String(o.orderNumber ?? '')
-          const isCart = NON_ORDER.has(st)
-          const isDeadNoEmail = (st === 'EXPIRED' || st === 'CANCELED') && !o.email
-          const isDup = isKnownFmDuplicateOrderNumber(n.ref, num)
-          if (isCart || isDeadNoEmail || isDup) confirmed.push(oref)
+          if (nonMirrorable(n.ref, {
+            orderStatus: String(o.orderStatus ?? '').toUpperCase(),
+            orderNumber: num,
+            hasEmail: !!o.email,
+          })) confirmed.push(oref)
           else stillReal.push(num)
         }
         if (stillReal.length) {
