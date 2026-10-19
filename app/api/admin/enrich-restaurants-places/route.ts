@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
     // The initial SELECTs get one transient-connection retry (Neon can drop the
     // first request after an idle period); a second connection failure → 503.
     let total = 0
-    let restaurants: { restaurant_reference: string; name: string; address: string | null }[] = []
+    let restaurants: { restaurant_reference: string; name: string; address: string | null; cuisine: string | null }[] = []
     const runSelects = async () => {
       const totalRows = (await sql`
         SELECT COUNT(*)::int AS n FROM disco_restaurant_cache c
@@ -207,13 +207,13 @@ export async function POST(req: NextRequest) {
       `) as { n: number }[]
       total = totalRows[0]?.n ?? 0
       restaurants = (await sql`
-        SELECT c.restaurant_reference, c.name, c.address FROM disco_restaurant_cache c
+        SELECT c.restaurant_reference, c.name, c.address, c.cuisine FROM disco_restaurant_cache c
         JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
         WHERE o.visible = true AND o.stripe_connected = true
           AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR c.image_url IS NULL OR c.description IS NULL)
         ORDER BY c.restaurant_reference
         LIMIT ${batchSize} OFFSET ${offset}
-      `) as { restaurant_reference: string; name: string; address: string | null }[]
+      `) as { restaurant_reference: string; name: string; address: string | null; cuisine: string | null }[]
     }
     try {
       await runSelects()
@@ -236,6 +236,11 @@ export async function POST(req: NextRequest) {
 
     for (let i = 0; i < restaurants.length; i++) {
       const r = restaurants[i]
+      // A row is in this queue for a missing image or description as much as for its cuisine, so its
+      // cuisine is only ever filled, never replaced: a real one (often set by hand, sometimes several
+      // values like "Salads, Vegan, Bowls") is kept as it is, and no cuisine is guessed for it. Before
+      // this, a failed guess wrote 'Other' over it (Kevin, 2026-10-19).
+      const needsCuisine = r.cuisine == null || r.cuisine === 'Other'
       let result: PlaceResult | null = null
       try {
         result = await lookupPlace(r.name, r.address)
@@ -245,12 +250,12 @@ export async function POST(req: NextRequest) {
 
       if (!result) {
         // No Google match — still infer cuisine from the name alone (Claude can
-        // read "El Gallo Taqueria" → Mexican) so the row never stays "Other".
-        // Only cuisine is written; description/image are left untouched.
-        const cuisine = (await inferCuisineWithClaude(r.name, null, null)) || 'Other'
+        // read "El Gallo Taqueria" → Mexican) when the row has none, so it does
+        // not stay "Other". Only cuisine is written; description/image are left untouched.
+        const cuisine = needsCuisine ? (await inferCuisineWithClaude(r.name, null, null)) || 'Other' : null
         await sql`
           UPDATE disco_restaurant_cache
-          SET cuisine = COALESCE(${cuisine}, cuisine),
+          SET cuisine = CASE WHEN cuisine IS NULL OR cuisine = 'Other' THEN COALESCE(${cuisine}, cuisine) ELSE cuisine END,
               description = COALESCE(${null}, description),
               image_url = COALESCE(${null}, image_url),
               cached_at = NOW()
@@ -263,17 +268,16 @@ export async function POST(req: NextRequest) {
 
       // Infer cuisine with Claude (more accurate than the Places type map),
       // falling back to the Places type mapping, then "Other".
-      result.cuisine =
-        (await inferCuisineWithClaude(r.name, result.types, result.description))
-        || result.cuisine
-        || 'Other'
+      result.cuisine = needsCuisine
+        ? (await inferCuisineWithClaude(r.name, result.types, result.description)) || result.cuisine || 'Other'
+        : null
 
       // Only update fields Google actually returned; leave the rest untouched.
       // COALESCE keeps the existing value when the parameter is null.
       if (result.cuisine || result.description || result.imageUrl) {
         await sql`
           UPDATE disco_restaurant_cache
-          SET cuisine = COALESCE(${result.cuisine}, cuisine),
+          SET cuisine = CASE WHEN cuisine IS NULL OR cuisine = 'Other' THEN COALESCE(${result.cuisine}, cuisine) ELSE cuisine END,
               description = COALESCE(${result.description}, description),
               image_url = COALESCE(${result.imageUrl}, image_url),
               cached_at = NOW()
