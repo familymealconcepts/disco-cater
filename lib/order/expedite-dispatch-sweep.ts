@@ -90,6 +90,23 @@ import { sql } from '../db'
 import { alertOps, alertOnce } from '../ops-alert'
 import { buildPayloadFromNeon, dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
 
+/**
+ * Refusals Expedite will give again for the same order, forever.
+ *
+ * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
+ * Order #900000463 (Apollo Bagels - Hoboken, pickup 20 Oct 07:45) was refused
+ * SIXTY-TWO times with HTTP 400 "Not operational in this region." — once per
+ * sweep from 19 Oct 15:44 to 20 Oct 06:52. Every one of those calls was going
+ * to fail: the answer depended on the address and the time, neither of which a
+ * retry changes. The retries also buried the one thing that mattered, which is
+ * that a human had to arrange this delivery another way.
+ *
+ * A TIMEOUT OR A 5xx IS NOT IN HERE, deliberately. Those are the failures a
+ * retry exists for and they keep retrying exactly as before — this list is only
+ * for answers that are about the order itself rather than the moment.
+ */
+const PERMANENT_REFUSAL = /not operational in this region|outside (the )?(delivery|service) area|no coverage|address is not serviceable|unserviceable/i
+
 /** Minimum runway between now and pickup for a dispatch to be worth making. See the header. */
 export const DISPATCH_MARGIN_MINUTES = 20
 
@@ -161,6 +178,8 @@ export interface SweepSummary {
   scanned: number
   dispatched: SweepCandidate[]
   failed: SweepCandidate[]
+  /** Refused for a reason that cannot change — alerted once, never retried again. */
+  permanentlyRefused: SweepCandidate[]
   tooLate: SweepCandidate[]
   /** Past the alert cutoff — counted, never alerted. */
   silentlyStale: SweepCandidate[]
@@ -170,7 +189,7 @@ export interface SweepSummary {
 
 export async function sweepFailedExpediteDispatches(now: Date = new Date()): Promise<SweepSummary> {
   const summary: SweepSummary = {
-    scanned: 0, dispatched: [], failed: [], tooLate: [], silentlyStale: [], unbuildable: [], skippedDisabled: false,
+    scanned: 0, dispatched: [], failed: [], permanentlyRefused: [], tooLate: [], silentlyStale: [], unbuildable: [], skippedDisabled: false,
   }
 
   // Same flag the live path is gated on. If native dispatch is off, this must not quietly become
@@ -200,6 +219,16 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
        AND expedite_delivery_id IS NULL
        AND order_status = ANY(${DISPATCHABLE_STATUSES})
        AND order_date >= CURRENT_DATE - (${LOOKBACK_DAYS}::int)
+       -- Already refused for a reason that cannot change. See PERMANENT_REFUSAL:
+       -- #900000463 was asked the same question 62 times and given the same
+       -- answer. Ops is told ONCE (below) and the order stops being a candidate.
+       AND NOT EXISTS (
+         SELECT 1 FROM disco_expedite_deliveries d
+          WHERE d.order_reference = disco_orders.reference
+            AND d.event = 'delivery_created'
+            AND d.ok = false
+            AND d.response_body ~* 'not operational in this region|outside (the )?(delivery|service) area|no coverage|address is not serviceable|unserviceable'
+       )
      ORDER BY order_date, order_time
   `) as Array<{ id: number; order_number: string; reference: string; restaurant_name: string; total: string }>
 
@@ -287,6 +316,30 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
       // dispatchExpediteForOrder already alerted with the specific reason (failed dlivrd call,
       // menu-method disagreement, unbuildable payload) or simply lost the claim to another run.
       summary.failed.push(candidate)
+
+      // Was this a refusal that will never change? If so this is the LAST attempt
+      // — the query above will not pick the order up again — so ops gets one
+      // alert naming everything needed to act on it by hand, and no more noise.
+      const lastRef = (await sql`
+        SELECT response_body FROM disco_expedite_deliveries
+         WHERE order_reference = ${row.reference}::uuid AND event = 'delivery_created' AND ok = false
+         ORDER BY created_at DESC LIMIT 1
+      `.catch(() => [])) as Array<{ response_body: string | null }>
+      const body = String(lastRef[0]?.response_body ?? '')
+      if (PERMANENT_REFUSAL.test(body)) {
+        let message = body
+        try { message = String((JSON.parse(body) as { message?: string }).message ?? body) } catch { /* not JSON */ }
+        summary.permanentlyRefused.push(candidate)
+        await alertOnce(
+          `expedite-sweep:refused:${row.reference}`,
+          'expedite REFUSED this delivery and will keep refusing it — no courier will be booked automatically',
+          {
+            orderNumber: row.order_number, restaurant: row.restaurant_name, total: row.total,
+            deliveryTime: pickupAt, expediteSaid: message.slice(0, 200),
+            action: 'arrange this delivery another way, and take it up with Expedite — Disco has stopped retrying',
+          },
+        )
+      }
     }
   }
 
