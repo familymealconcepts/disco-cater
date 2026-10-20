@@ -27,6 +27,7 @@ import Stripe from 'stripe'
 import { runDiscoOrderMigrations, sql } from '../db'
 import { sendOrderCancellationEmail } from './cancellation-email'
 import { voidUnpaidOrderInvoice } from './invoice-void'
+import { alertOps } from '../ops-alert'
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 export const ALLOWED_ORDER_STATUSES = new Set([
@@ -94,8 +95,8 @@ export async function applyNativeStatusChange(
     const rows = (await sql`
       UPDATE disco_orders SET order_status = ${status}, updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
-      RETURNING reference
-    `) as Array<{ reference: string }>
+      RETURNING reference, id, expedite_delivery_id
+    `) as Array<{ reference: string; id: number; expedite_delivery_id: string | null }>
 
     if (!rows.length) return { ok: true, orderStatus: status, neon: false }
 
@@ -107,6 +108,51 @@ export async function applyNativeStatusChange(
     // Tell the customer. Idempotent, DISCO-source-only and non-throwing inside
     // the helper, so a repeat call or an email failure can never turn a
     // successful cancellation into an error response.
+    // ── STAND THE COURIER DOWN ──────────────────────────────────────────────
+    // Cancelling an order left a BOOKED Expedite courier booked. Void has
+    // always cancelled it (app/api/restaurant/orders/[ref]/void/route.ts:60),
+    // and so do both refund routes and the Stripe webhook — Cancel was the one
+    // path that did not, so a driver still turned up for an order nobody was
+    // making. Found on #900000473 (Apollo Bagels - Hoboken, 19 Oct 2026):
+    // delivery_created ok, $30.00 courier fee, cancelled in Disco, never
+    // cancelled at Expedite.
+    //
+    // This sits in applyNativeStatusChange rather than in the status route so
+    // EVERY caller that cancels gets it, which is the mistake that created the
+    // gap in the first place — the behaviour lived in routes instead of in the
+    // one function they all go through.
+    //
+    // Best-effort and never throws: a courier API that is down must not turn a
+    // successful cancellation into an error, because the cancellation is the
+    // part the customer and the kitchen depend on. The outcome is written to
+    // disco_expedite_deliveries either way, so "was the courier told?" is a
+    // query and not a guess — the same reason disco_mirror_alerts exists.
+    if ((status === 'CANCELED' || status === 'CANCELLED') && rows[0].expedite_delivery_id) {
+      const deliveryId = rows[0].expedite_delivery_id
+      let okFlag = false
+      let detail = ''
+      try {
+        const { cancelDelivery } = await import('../expedite')
+        const res = await cancelDelivery(deliveryId)
+        okFlag = !!res.success
+        detail = res.success ? 'cancelled' : String(res.error ?? 'unknown error')
+      } catch (e) {
+        detail = e instanceof Error ? e.message : String(e)
+      }
+      console.log(`[native-status] expedite cancel for ${rows[0].reference}: ${okFlag ? 'ok' : 'FAILED — ' + detail}`)
+      await sql`
+        INSERT INTO disco_expedite_deliveries
+          (order_reference, order_id, event, external_delivery_id, ok, response_body, parsed_status)
+        VALUES (${rows[0].reference}::uuid, ${rows[0].id}, 'delivery_cancel', ${deliveryId}, ${okFlag},
+                ${detail.slice(0, 500)}, ${okFlag ? 'success' : 'failed'})
+      `.catch(e => console.error('[native-status] expedite cancel log failed (non-fatal):', e instanceof Error ? e.message : e))
+      if (!okFlag) {
+        await alertOps('order cancelled but the Expedite courier was NOT stood down', {
+          orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200),
+        }).catch(() => {})
+      }
+    }
+
     if (status === 'CANCELED' || status === 'CANCELLED') {
       const r = await sendOrderCancellationEmail(rows[0].reference, 'DISCO_STATUS')
       if (!r.sent && r.reason !== 'not-disco-source' && r.reason !== 'already-sent') {
