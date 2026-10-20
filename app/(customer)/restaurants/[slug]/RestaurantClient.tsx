@@ -58,7 +58,9 @@ interface FmSettings {
   // When true the ordering page shows a search box that filters menu items.
   enableMenuSearch?: boolean
 }
-interface FmMenu { reference: string; name: string; scheduleOption?: FmSchedule; settings?: FmSettings }
+// `url` is the menu's own slug (disco_menus.url) — what /order/{restaurant}/{menu}
+// matches on. Optional because the FM-backed path has no such concept.
+interface FmMenu { reference: string; name: string; url?: string | null; scheduleOption?: FmSchedule; settings?: FmSettings }
 interface FmAddOn { reference: string; name: string; price: number; visible?: boolean; position?: number }
 interface FmExtraItemsGroup {
   reference: string; name: string
@@ -309,7 +311,7 @@ function MonthCalendar({ year, month, availSet, todayIso, selDate, onSelect }: {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug, isFirstParty = false, restaurantSettings }: {
+export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug, isFirstParty = false, initialMenuSlug, restaurantSettings }: {
   restaurant: Restaurant; fmSlug: string | null; fmRef: string | null
   menuData: MenuSection[]; slug: string
   // True only on the 1st-party /order/[slug] route. Flows straight to
@@ -317,6 +319,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ("FAMILYMEAL" when true, "DISCO" when false). Defaults false so the
   // existing 3P /restaurants/[slug] behavior is unchanged.
   isFirstParty?: boolean
+  /** Menu slug from /order/{restaurant}/{menu}; unknown slugs are ignored. */
+  initialMenuSlug?: string
   // Restaurant-LEVEL FM settings (feesAndTips / RestaurantSimplePublicResponseDto).
   // FM exposes these on the restaurant, not the menu, so they're threaded in here
   // rather than read off menu.settings (which never carries them).
@@ -337,7 +341,23 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // stay open). openAuthModal stores a pending action AuthModal resumes on a
   // successful sign-in, so checkout continues automatically.
   const { user, isLoading: authLoading, openAuthModal, authModalOpen, closeAuthModal, authModalDefaultTab } = useAuthContext()
-  const [activeMenuIdx, setActiveMenuIdx] = useState(0)
+  // ── WHICH MENU THE PAGE OPENS ON ────────────────────────────────────────
+  // 0 is the restaurant's default menu (lowest position). A menu slug in the
+  // URL — /order/{restaurant}/{menu} — opens that menu instead.
+  //
+  // An unknown slug deliberately resolves to 0 rather than 404ing: these links
+  // live on restaurants' own sites and in printed material, so a menu that was
+  // renamed, hidden or seasonally retired must still land the customer on the
+  // restaurant's page rather than a dead end. Same reason the lookup only
+  // considers menus that are already in menuData, which is the visible,
+  // in-season set.
+  const initialIdx = (() => {
+    const want = String(initialMenuSlug || '').trim().toLowerCase()
+    if (!want) return 0
+    const i = menuData.findIndex(m => String(m.menu?.url || '').toLowerCase() === want)
+    return i >= 0 ? i : 0
+  })()
+  const [activeMenuIdx, setActiveMenuIdx] = useState(initialIdx)
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)

@@ -560,7 +560,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // only one. Same query as before, minus LIMIT 1: still one round-trip,
     // returning N rows instead of 1.
     const menuRows = (await sql`
-      SELECT reference, name, schedule_config, availability_mode,
+      SELECT reference, name, url, schedule_config, availability_mode,
              to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
              offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
              tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
@@ -639,7 +639,10 @@ async function loadDiscoNativeRestaurant(slug: string) {
       const settings = m ? menuRowToSettings(m) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
 
       return {
-        menu: { reference: m?.reference || 'disco-catering', name: m?.name || 'Catering Menu', scheduleOption, settings, includeUtensils: (m as { include_utensils?: boolean } | undefined)?.include_utensils === true },
+        // `url` is the menu's own slug, the one the menu manager shows and the
+        // one a restaurant puts in a link. Carried so /order/{restaurant}/{menu}
+        // can open the menu it names — see the route of that shape.
+        menu: { reference: m?.reference || 'disco-catering', name: m?.name || 'Catering Menu', url: (m as { url?: string | null } | undefined)?.url ?? null, scheduleOption, settings, includeUtensils: (m as { include_utensils?: boolean } | undefined)?.include_utensils === true },
         categories,
       }
     })
@@ -679,9 +682,16 @@ async function loadDiscoNativeRestaurant(slug: string) {
 export async function RestaurantView({
   slug,
   isFirstParty = false,
+  menuSlug,
 }: {
   slug: string
   isFirstParty?: boolean
+  /**
+   * Which menu to open, by the menu's own slug (disco_menus.url). From
+   * /order/{restaurant}/{menu}. An unknown or missing slug is NOT an error —
+   * the page opens on its default menu exactly as /order/{restaurant} does.
+   */
+  menuSlug?: string
 }) {
   // Archive is checked FIRST, ahead of everything else in this function —
   // it's a fourth, stronger gate than is_live/visible/online_ordering_enabled
@@ -787,6 +797,7 @@ export async function RestaurantView({
           menuData={native.menuData}
           slug={slug}
           isFirstParty={isFirstParty}
+          initialMenuSlug={menuSlug}
           restaurantSettings={{ onlineOrderingAllowed: native.acceptingOrders, enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined }}
         />
       </>
