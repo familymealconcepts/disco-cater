@@ -318,7 +318,11 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 
   // ── Subject box + "Received on" ──
   const custName = (d.customerName && d.customerName !== '—') ? d.customerName : ''
-  const subject = `Disco Cater Order ${d.orderNumber} (${money(d.total)})${d.orderDate ? ` ${d.orderDate}` : ''}${d.orderTime ? `, ${d.orderTime}` : ''}${custName ? ` for ${custName}` : ''}`
+  // Net of any refund, for the same reason the Total row below is — and to stay
+  // level with the email subject, which already nets it (notifications.ts:333:
+  // `money(p.totalPrice - (p.refund && p.refund > 0 ? p.refund : 0))`).
+  const subjectTotal = d.total - (d.refund && d.refund > 0 ? d.refund : 0)
+  const subject = `Disco Cater Order ${d.orderNumber} (${money(subjectTotal)})${d.orderDate ? ` ${d.orderDate}` : ''}${d.orderTime ? `, ${d.orderTime}` : ''}${custName ? ` for ${custName}` : ''}`
   fullBox([{ t: subject, b: true, s: 12 }])
   if (d.orderReceived) fullBox([{ t: `Received on ${d.orderReceived}`, s: 9.5, c: GREY }])
 
@@ -410,8 +414,27 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   if (d.deliveryFee) totals.push(['Delivery Fee', d.deliveryFee])
   if (d.tip) totals.push(['Tips', d.tip])
   if (d.promo) totals.push(['Discount', -Math.abs(d.promo)])
-  if (d.refund) totals.push(['Refund', -Math.abs(d.refund)])
-  totals.push(['Total', d.total, true])
+  // ── THE REFUND MUST COME OFF THE TOTAL ──────────────────────────────────
+  // This printed a Refund line and then the UNREDUCED total, so the document
+  // contradicted its own arithmetic: order #900000448 showed Subtotal $110.00,
+  // Taxes $7.29, Fees $3.30, Tips $11.00, Refund -$24.12 and then a bold Total
+  // of $131.59 — the figure before the refund. The email for the same order,
+  // from the same data, said $107.47, so the customer and the kitchen were
+  // handed two different totals for one order.
+  //
+  // renderTotals() in lib/email/notifications.ts is the reference, and this is
+  // deliberately the same expression (guard included, so a null/negative stored
+  // refund is ignored rather than ADDED to the total):
+  //
+  //     const refund = p.refund && p.refund > 0 ? p.refund : 0
+  //     const net = p.totalPrice - refund
+  //
+  // Display only. Nothing here writes, and no stored amount changes — the
+  // order's own total, the refund row and every report still read exactly what
+  // they read before.
+  const refundOff = d.refund && d.refund > 0 ? d.refund : 0
+  if (refundOff > 0) totals.push(['Refund', -refundOff])
+  totals.push(['Total', d.total - refundOff, true])
   const tX = LEFT + CW * 0.5, tW = CW * 0.5, TROW = 19
   for (const [label, val, strong] of totals) {
     brk(TROW)
