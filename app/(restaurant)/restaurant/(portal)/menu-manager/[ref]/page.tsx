@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useState, use as usePromise } from 'react'
-import { SortableRows, SortableRow, DroppableTarget, DRAG_GLYPH } from '../../_components/SortableRows'
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { useEffect, useState, useCallback, use as usePromise } from 'react'
+import { SortableRows, SortableRow, DRAG_GLYPH } from '../../_components/SortableRows'
+import { DndContext, closestCenter, pointerWithin, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useRouter } from 'next/navigation'
 import { DiscoGroupFormDialog, type DiscoGroupSummary } from '../../_components/DiscoGroupFormDialog'
@@ -151,31 +151,77 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   // be seen. That is why this page drives dnd-kit directly instead of using
   // SortableRows, which creates a context per list.
   const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-  const CAT_DROP = 'drop-cat:'
 
+  // ── POINTER FIRST, THEN NEAREST ─────────────────────────────────────────
+  // closestCenter alone measures from the DRAGGED ROW's centre, and an item row
+  // spans the whole table, so its centre stays far to the right of the 260px
+  // sidebar — dragging an item onto a category never selected the category, no
+  // matter where the cursor was. Verified in a browser: the move request was
+  // simply never sent.
+  //
+  // pointerWithin asks the question the user is actually answering — "what is
+  // under my cursor" — which is what makes a narrow target in another pane
+  // reachable. It returns nothing once the cursor is over a gap, so
+  // closestCenter stays as the fallback and in-list sorting keeps the feel it
+  // has everywhere else in the portal.
+  const collisionDetection = useCallback<CollisionDetection>(args => {
+    const underPointer = pointerWithin(args)
+    return underPointer.length ? underPointer : closestCenter(args)
+  }, [])
+
+  // What is currently being dragged, and what it is hovering. Only used to
+  // light up a category while an ITEM is held over it — the drop decision
+  // itself is made from the ids in handleDragEnd, never from this.
+  const [dragId, setDragId] = useState('')
+  const [overId, setOverId] = useState('')
+  const draggingItem = !!dragId && items.some(i => i.reference === dragId)
+
+  // ── ONE DROPPABLE PER CATEGORY ──────────────────────────────────────────
+  // Each category row used to register TWICE: once as a sortable (id =
+  // c.reference, so categories can be reordered) and once as a DroppableTarget
+  // wrapped around it (id = `drop-cat:${c.reference}`, as an item's drop
+  // target). Both covered the same rectangle, so closestCenter had two equally
+  // close candidates and picked whichever the registry happened to yield first.
+  //
+  // That single ambiguity broke BOTH features, silently and intermittently:
+  //   - dragging a CATEGORY that resolved to the drop-cat id hit the
+  //     item-move branch, which found the dragged id was not an item and
+  //     returned — the category sprang back and nothing saved;
+  //   - dragging an ITEM that resolved to the bare category id fell through to
+  //     the item-reorder branch, where the category is not in catItems, so
+  //     findIndex returned -1 and it returned — the item sprang back.
+  // Neither path errored or logged, and both endpoints were fine, which is
+  // why this survived verification that went through SQL rather than a browser.
+  //
+  // So a category is now ONE droppable — its sortable — and what happens on
+  // drop is decided by WHAT IS BEING DRAGGED, not by a prefix on the id.
   async function handleDragEnd(e: DragEndEvent) {
     const activeId = String(e.active.id)
-    const overId = e.over ? String(e.over.id) : ''
-    if (!overId || activeId === overId) return
+    const overNow = e.over ? String(e.over.id) : ''
+    setDragId(''); setOverId('')
+    if (!overNow || activeId === overNow) return
 
-    // An item dropped on a category in the sidebar.
-    if (overId.startsWith(CAT_DROP)) {
-      if (!items.some(i => i.reference === activeId)) return   // a category, not an item
-      await moveItemToCategory(activeId, overId.slice(CAT_DROP.length))
-      return
-    }
-    // Reordering categories.
-    if (cats.some(c => c.reference === activeId) && cats.some(c => c.reference === overId)) {
+    const activeIsItem = items.some(i => i.reference === activeId)
+    const overIsCat = cats.some(c => c.reference === overNow)
+
+    // An item dropped on a category in the sidebar → move it there.
+    if (activeIsItem && overIsCat) { await moveItemToCategory(activeId, overNow); return }
+
+    // A category dropped on another category → reorder the sidebar.
+    if (!activeIsItem && overIsCat) {
       const from = cats.findIndex(c => c.reference === activeId)
-      const to = cats.findIndex(c => c.reference === overId)
+      const to = cats.findIndex(c => c.reference === overNow)
       if (from < 0 || to < 0) return
       const next = arrayMove(cats, from, to)
       await reorderCats(next.map(c => c.reference), next)
       return
     }
-    // Reordering items inside the selected category.
+
+    // An item dropped on another item → reorder within the selected category.
+    // A category dragged onto an item lands here too and is correctly ignored.
+    if (!activeIsItem) return
     const from = catItems.findIndex(i => i.reference === activeId)
-    const to = catItems.findIndex(i => i.reference === overId)
+    const to = catItems.findIndex(i => i.reference === overNow)
     if (from < 0 || to < 0) return
     await reorderItems(arrayMove(catItems, from, to).map(i => i.reference))
   }
@@ -195,7 +241,14 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         <button onClick={() => router.push(`/restaurant/menu-manager/${ref}/edit`)} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Menu Settings</button>
       </div>
 
-      <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={dragSensors}
+        collisionDetection={collisionDetection}
+        onDragStart={e => { setDragId(String(e.active.id)); setOverId('') }}
+        onDragOver={e => setOverId(e.over ? String(e.over.id) : '')}
+        onDragCancel={() => { setDragId(''); setOverId('') }}
+        onDragEnd={handleDragEnd}
+      >
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
         {/* ── Category sidebar ── */}
         <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
@@ -204,9 +257,12 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
           <SortableContext items={cats.map(c => c.reference)} strategy={verticalListSortingStrategy}>
             {cats.map(c => (
             <SortableRow key={c.reference} id={c.reference} as="div" disabled={false}>
-            {({ handleProps }) => (
-            <DroppableTarget id={`${CAT_DROP}${c.reference}`}>
-            {({ isOver }) => (
+            {({ handleProps }) => {
+            // Highlighted only while an ITEM is held over it. A category being
+            // dragged over another category is a reorder and must not look
+            // like a drop target.
+            const isOver = draggingItem && overId === c.reference
+            return (
             <div
               onClick={() => setSelCat(c.reference)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 8px', borderRadius: 8, cursor: 'pointer', position: 'relative',
@@ -225,9 +281,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                 </div>
               )}
             </div>
-            )}
-            </DroppableTarget>
-            )}
+            )}}
             </SortableRow>
             ))}
           </SortableContext>
