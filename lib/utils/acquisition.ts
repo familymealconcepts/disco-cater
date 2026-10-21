@@ -15,8 +15,9 @@ import {
   type AcquisitionSource,
 } from '../attribution'
 
-/** Same internal-traffic switch the GA/Clarity/RB2B/LinkedIn/Meta tags use in
- *  app/layout.tsx. Staff browsing must not look like customer acquisition. */
+/** Same internal-traffic switch the GA/Clarity/LinkedIn/Meta tags use in app/layout.tsx, and
+ *  RB2B/Apollo use in app/components/VisitorIdentification.tsx. Staff browsing must not look
+ *  like customer acquisition. */
 function isInternal(): boolean {
   try { return document.cookie.includes('disco_internal=true') } catch { return true }
 }
