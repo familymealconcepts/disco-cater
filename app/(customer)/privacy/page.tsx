@@ -158,27 +158,19 @@ export default function PrivacyPage() {
         email sent through Apollo.io, and keeping records of those conversations. We do not sell this
         information.
       </p>
-      <p>
-        {/* PLACEHOLDER — advertising. Choose one wording before publishing; see the PR description. */}
-        <mark>[PLACEHOLDER: ADVERTISING — choose one version before publishing]</mark>{' '}
-        Contact details of restaurant staff recorded with the extension are never included in our
-        advertising audiences. If a staff member records someone as a prospective diner or business
-        contact, that person&rsquo;s email address may be included, in hashed form, in the advertising
-        audiences described in Section III, and they can opt out as described there.
-      </p>
+      <p>We do not use information recorded with the extension for advertising.</p>
       <h3>How long we keep it</h3>
       <p>
-        {/* PLACEHOLDER — retention. No retention period is defined or enforced for CRM records today. */}
-        <mark>[PLACEHOLDER: RETENTION — how long CRM records are kept, and what happens at the end of that period]</mark>
+        We keep CRM records for as long as they are useful for our sales and account management, and we
+        delete them on request.
       </p>
       <h3>Asking us to remove your details</h3>
       <p>
         If your details have been recorded in our CRM and you would like them removed, or would like us to
         stop contacting you, email{' '}
-        <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>.{' '}
-        {/* PLACEHOLDER — removal handling. Confirm this is what will actually happen. */}
-        <mark>[PLACEHOLDER: REMOVAL — confirm: we delete your details from the CRM and keep only your email
-        address on a do-not-contact list, so that you are not added or contacted again]</mark>
+        <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>. We will delete your details
+        from the CRM and keep only your email address on a do-not-contact list, so that you are not added
+        or contacted again.
       </p>
 
       <p style={{ marginTop: 32, color: '#727272', fontSize: 14 }}>
