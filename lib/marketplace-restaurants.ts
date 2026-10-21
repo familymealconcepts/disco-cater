@@ -110,15 +110,28 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
           AND COALESCE(o.online_ordering_enabled, true) = true
           AND (o.stripe_account_id IS NOT NULL
                OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true))
-          -- AND STRIPE WILL ACTUALLY TAKE THE CHARGE. A restricted account is
-          -- CONNECTED (so the portal says "Restricted" rather than the useless
-          -- "Not connected") but cannot be paid, so the restaurant does not
-          -- belong on the marketplace. NULL is left alone deliberately: a
-          -- snapshot not yet taken is unknown, not broken, and refusing on
-          -- unknown would unlist every restaurant linked between two runs of
-          -- cron/refresh-stripe-capabilities.
-          AND COALESCE(o.stripe_charges_enabled, true) = true
-          AND COALESCE(o.stripe_status, '') <> 'restricted')
+          -- A RESTRICTED STRIPE ACCOUNT NO LONGER UNLISTS A RESTAURANT.
+          -- Peter's rule, 21 Oct 2026: Stripe LINKED + online ordering on +
+          -- map on = listed. Linked is the whole Stripe test; whether Stripe
+          -- will currently accept a charge is not a listing question.
+          --
+          -- This used to carry two more conditions here —
+          --   AND COALESCE(o.stripe_charges_enabled, true) = true
+          --   AND COALESCE(o.stripe_status, '') <> 'restricted'
+          -- — on the reasoning that an account that cannot be paid does not
+          -- belong on the marketplace. That hid 35 linked, switched-on
+          -- restaurants from the map, the feed and search, with nothing on
+          -- their own page to tell them why, and it made the listing rule four
+          -- conditions when the stated rule has three.
+          --
+          -- NOTHING HERE PROTECTS THE MONEY, AND IT DID NOT BEFORE EITHER.
+          -- A restricted restaurant is listed and browsable, and its page
+          -- refuses to start an order (RestaurantView's orderability gate);
+          -- checkout and placement keep their own independent refusals. So the
+          -- customer is told up front rather than discovering it at payment,
+          -- which is the outcome this filter was reaching for by the wrong
+          -- means.
+        )
       )
   `, runMigrations)) as {
     restaurant_reference: string; name: string; slug: string | null; cuisine: string | null

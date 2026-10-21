@@ -679,6 +679,14 @@ async function loadDiscoNativeRestaurant(slug: string) {
 // Shared page body for both routes. `isFirstParty` is the ONLY thing that
 // differs between them — it flows through RestaurantClient into CheckoutDrawer,
 // which uses it to send sourceoforder "FAMILYMEAL" (1P) instead of "DISCO" (3P).
+/**
+ * What a diner sees when the restaurant is listed but cannot currently take an
+ * order. Friendly, final, and deliberately free of any cause — no Stripe, no
+ * payments, no account state. The staff-facing and API wording lives in
+ * lib/restaurant-orderable.ts and is intentionally different.
+ */
+const ORDERING_UNAVAILABLE_MESSAGE = "This restaurant isn't able to accept orders right now. Please check back soon!"
+
 export async function RestaurantView({
   slug,
   isFirstParty = false,
@@ -731,7 +739,26 @@ export async function RestaurantView({
       />
     )
   }
-  if (orderable && !orderable.orderable) {
+  // ── A RESTRICTED PAYMENT ACCOUNT NO LONGER BLOCKS THE WHOLE PAGE ──────────
+  // Peter's rule, 21 Oct 2026: these restaurants ARE listed (see
+  // lib/marketplace-restaurants.ts), so the page they land on has to be a real
+  // storefront rather than a dead end. The menu stays browsable; ordering is
+  // switched off through the SAME onlineOrderingAllowed path a paused
+  // restaurant already uses, so Start Order and Add to Order are both disabled
+  // and no cart can be built.
+  //
+  // The customer is told plainly and is told nothing technical — not Stripe,
+  // not payments, not a reason. The predicate's own message names payments
+  // ("cannot take online payments at the moment"), which is right for the staff
+  // and for an API caller and wrong for a diner, so this path deliberately does
+  // NOT reuse it.
+  //
+  // Checkout and placement are untouched: assertRestaurantOrderable still
+  // refuses this restaurant at /api/order/init and at placement, so reaching
+  // checkout another way still cannot charge anybody.
+  const paymentRestricted = orderable?.reason === 'payment-restricted'
+
+  if (orderable && !orderable.orderable && !paymentRestricted) {
     // The predicate's own message is the headline, verbatim — there is no second wording
     // here to drift out of step with what /api/order/init would have said. The supporting
     // line is the archive page's existing sentence rather than anything new; the
@@ -798,7 +825,10 @@ export async function RestaurantView({
           slug={slug}
           isFirstParty={isFirstParty}
           initialMenuSlug={menuSlug}
-          restaurantSettings={{ onlineOrderingAllowed: native.acceptingOrders, enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined }}
+          restaurantSettings={{
+            onlineOrderingAllowed: native.acceptingOrders && !paymentRestricted,
+            ...(paymentRestricted ? { orderingUnavailableMessage: ORDERING_UNAVAILABLE_MESSAGE } : {}),
+            enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined }}
         />
       </>
     )

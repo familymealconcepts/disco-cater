@@ -327,7 +327,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // rather than read off menu.settings (which never carries them).
   // onlineOrderingAllowed=false → the restaurant has paused online ordering; the
   // checkout CTA is disabled and a notice is shown (the server also hard-gates it).
-  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string }
+  restaurantSettings?: {
+    enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string
+    /**
+     * Replaces the default "not accepting online orders" line when ordering is
+     * off for a reason that needs its own wording. Customer-facing, so it must
+     * never name a technical cause.
+     */
+    orderingUnavailableMessage?: string
+  }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
   // One-off restaurant-specific customization (requested by Almost Home, not a
@@ -2150,8 +2158,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 </div>
               )}
               {orderingPaused && (
-                <div style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10 }}>
-                  ⏸ This restaurant is not currently accepting online orders.
+                <div
+                  role="alert"
+                  data-testid="ordering-unavailable-notice"
+                  style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10, lineHeight: 1.45 }}
+                >
+                  ⏸ {restaurantSettings?.orderingUnavailableMessage ?? 'This restaurant is not currently accepting online orders.'}
                 </div>
               )}
               {/* The announcement now renders in the top announcement bar (above),
@@ -2799,9 +2811,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
-              <button onClick={confirmAddOns} disabled={!canConfirmAddOns()}
-                style={{ width: '100%', padding: '13px', background: canConfirmAddOns() ? BLUE : '#e8e8e8', color: canConfirmAddOns() ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: canConfirmAddOns() ? 'pointer' : 'default', fontFamily: F, boxShadow: canConfirmAddOns() ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
-                Add to Order — {formatPrice(addOnsRunningPrice())}
+              <button onClick={confirmAddOns} disabled={orderingPaused || !canConfirmAddOns()}
+                style={{ width: '100%', padding: '13px', background: (!orderingPaused && canConfirmAddOns()) ? BLUE : '#e8e8e8', color: (!orderingPaused && canConfirmAddOns()) ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: (!orderingPaused && canConfirmAddOns()) ? 'pointer' : 'default', fontFamily: F, boxShadow: (!orderingPaused && canConfirmAddOns()) ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
+                {orderingPaused ? 'Not accepting orders right now' : <>Add to Order — {formatPrice(addOnsRunningPrice())}</>}
               </button>
             </div>
           </div>
