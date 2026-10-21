@@ -75,9 +75,44 @@ import { alertOps } from '../ops-alert'
  * order refunded, writing an event, emailing the customer or standing down the
  * courier — so throwing is what makes "nothing moved" true.
  *
- * Only the AVAILABLE balance counts. A pending balance cannot fund a reversal
- * (that is exactly what Stripe's "does not have sufficient funds" error means),
- * so it is reported in the message as context but never treated as headroom.
+ * ── AVAILABLE *PLUS PENDING* IS THE HEADROOM (changed 21 Oct 2026) ─────────
+ * This used to count only the AVAILABLE balance, on the stated belief that "a
+ * pending balance cannot fund a reversal". THAT BELIEF WAS WRONG, and it was
+ * measured wrong in two independent places:
+ *
+ *   - LIVE, order #900000448 (The Speakeatery, 20 Oct 2026): available $0.00,
+ *     pending $1,967.25. A $22.76 reversal SUCCEEDED and came out of PENDING —
+ *     pending fell to $1,944.49 and available never moved. No negative balance.
+ *   - TEST MODE, same shape: available $0.00, pending $180.00, reverse $22.76 →
+ *     OK, pending $157.24, available $0.00.
+ *
+ * The practical cost of being wrong was large: every restaurant on a daily
+ * automatic payout sits at ~$0 available all day, because the day's takings are
+ * swept the moment they clear. So the old rule refused almost every refund on
+ * those accounts except inside a ~25-minute window each evening.
+ *
+ * ── BUT THE CHECK IS STILL LOAD-BEARING, AND STRIPE WILL NOT SAVE US ────────
+ * Stripe does NOT refuse a reversal that overdraws the connected account. Also
+ * measured in test mode: with available $0.00 AND pending $0.00, a $150.00
+ * reversal against a transfer that still had headroom SUCCEEDED and left the
+ * account at MINUS $150.00. Nothing errored.
+ *
+ * Who eats that negative balance depends on the account, and for 35 live
+ * restaurants it is Disco:
+ *
+ *   425  Standard, controller.losses.payments = 'stripe'   → Stripe bears it
+ *   129  Standard, classic (controller.type = 'account')   → the account bears it
+ *    35  Express,  controller.losses.payments = 'application' → DISCO BEARS IT
+ *
+ * So the rule is: allow the reversal only when available + pending COVERS it,
+ * which is exactly the case where Stripe draws from pending and the balance
+ * never goes negative. Beyond that we refuse, and Disco still never silently
+ * covers a refund — on any account type.
+ *
+ * Pending is not risk-free headroom (a pending charge can still be disputed or
+ * fail, which would take the balance negative later), but that is a second-order
+ * risk on funds that already exist, not the first-order one of overdrawing an
+ * account that has nothing in it.
  */
 async function assertReversalIsFunded(
   stripe: Stripe,
@@ -95,18 +130,26 @@ async function assertReversalIsFunded(
     (list ?? []).filter(b => b.currency === 'usd').reduce((t, b) => t + b.amount, 0)
   const available = sum(balance.available)
   const pending = sum(balance.pending)
-  if (available >= shareCents) return
+  // Stripe draws from pending when available is short, so BOTH count as
+  // headroom. See the header for the two measurements behind this, and for why
+  // the check still refuses beyond it.
+  const headroom = available + pending
+  if (headroom >= shareCents) return
 
   const money = (c: number) => `$${(c / 100).toFixed(2)}`
   await alertOps('refund REFUSED — the restaurant cannot fund the payout reversal', {
     ...ctx, connectedAccountId: acct,
-    reversalNeeded: money(shareCents), availableBalance: money(available), pendingBalance: money(pending),
+    reversalNeeded: money(shareCents),
+    availableBalance: money(available), pendingBalance: money(pending), combined: money(headroom),
+    shortfall: money(shareCents - headroom),
   })
   throw new Error(
-    `This refund needs ${money(shareCents)} back from the restaurant's Stripe balance, which currently holds ${money(available)} available` +
-    (pending > 0 ? ` (plus ${money(pending)} still pending, which cannot fund a reversal)` : '') +
-    `. Nothing has been refunded and no money has moved. The restaurant needs enough available balance to cover its share — ` +
-    `it usually arrives with the next day's orders — or Disco can choose to cover this refund itself as a deliberate exception.`,
+    `This refund needs ${money(shareCents)} back from the restaurant's Stripe balance, which holds ` +
+    `${money(available)} available plus ${money(pending)} pending — ${money(headroom)} in total, ` +
+    `${money(shareCents - headroom)} short. Nothing has been refunded and no money has moved. ` +
+    `Reversing more than the restaurant holds would put its Stripe balance into the negative, so this is refused ` +
+    `rather than covered. The balance usually recovers with the next day's orders — or Disco can choose to cover ` +
+    `this refund itself as a deliberate exception.`,
   )
 }
 
