@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { DietaryBadges, DietaryLegend, hasDietaryInfo } from './DietaryBadges'
 import { useSearchParams } from 'next/navigation'
+import { effectiveOrderMinimum, isThirdPartyDeliveryType, orderMinimumMessage } from '../../../../lib/order/platform-minimums'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import UserMenu from '../../../components/UserMenu'
@@ -583,9 +584,20 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // gate (lib/order/native-checkout.ts loadMenuOrderMinimums, enforced in
   // buildNativePlaceInput) is written against the real semantics and deliberately
   // does NOT reproduce this chain — don't "align" the two by adding it there.
-  const minOrder = orderType === 'DELIVERY'
+  const restaurantMinOrder = orderType === 'DELIVERY'
     ? (checkoutSettings?.deliveryOrderMinimum ?? checkoutSettings?.pickupOrderMinimum ?? 0)
     : (checkoutSettings?.pickupOrderMinimum ?? 0)
+  // ── DISCO'S OWN $100 COURIER-DELIVERY FLOOR ───────────────────────────────
+  // A platform rule, not the restaurant's, and the higher of the two wins. The
+  // menu already tells us which kind of delivery this is — menuRowToSettings
+  // sends deliveryType as OWN_DELIVERY or NASH_DELIVERY — so a restaurant that
+  // drives its own orders is unaffected, as is every pickup order.
+  const isThirdPartyDelivery = isThirdPartyDeliveryType(checkoutSettings?.deliveryType)
+  const minOrder = effectiveOrderMinimum({
+    orderType: orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+    isThirdPartyDelivery,
+    restaurantMinimum: restaurantMinOrder,
+  })
 
   const availDates = useMemo(() => sched ? computeDates(sched) : [], [sched])
   const availSet = useMemo(() => new Set(availDates), [availDates])
@@ -1946,8 +1958,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               )}
               {/* Below-min warning */}
               {belowMin && (
-                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 4, fontSize: 12, color: '#92400E' }}>
-                  {formatPrice(minOrder - subtotal)} more to meet the {formatPrice(minOrder)} minimum
+                <div
+                  role="alert"
+                  data-testid="order-minimum-notice"
+                  style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 4, fontSize: 12, color: '#92400E', lineHeight: 1.45 }}
+                >
+                  {orderMinimumMessage({
+                    minimum: minOrder,
+                    subtotal,
+                    orderType: orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+                    offersPickup: menuAvail.includes('PICKUP'),
+                  })}
                 </div>
               )}
               {/* Order fallback (no fmRef): ordering can't be resolved for this

@@ -2,11 +2,12 @@ import type Stripe from 'stripe'
 import { repriceCartFromMenu } from './native-cart-reprice'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  isNativeDateTimeValid, findCategoryLeadBreaches, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums,
+  isNativeDateTimeValid, findCategoryLeadBreaches, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadMenuIsThirdPartyDelivery,
   cartSubtotal, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   priceNativeCart, resolveCartMenuReference, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
 } from './native-checkout'
+import { effectiveOrderMinimum, orderMinimumMessage } from './platform-minimums'
 import { checkItemInventoryAvailability } from './native-inventory'
 import { checkCartMinimums } from './native-minimums'
 import {
@@ -242,14 +243,41 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // Checked before priceNativeCart because the raw subtotal needs no pricing pass,
   // so an under-minimum cart is refused before any promo/delivery/tax work happens.
   const orderMinimums = await loadMenuOrderMinimums(ref, menuReference)
-  const minForType = requestedOrderType === 'DELIVERY' ? orderMinimums.delivery : orderMinimums.pickup
+  const restaurantMin = requestedOrderType === 'DELIVERY' ? orderMinimums.delivery : orderMinimums.pickup
+
+  // ── DISCO'S $100 COURIER-DELIVERY FLOOR, ON TOP OF THE RESTAURANT'S ───────
+  // A platform rule (lib/order/platform-minimums.ts), so the storefront and
+  // this gate read ONE constant and cannot disagree about the number or the
+  // wording. The higher of the two minimums wins.
+  //
+  // CUSTOMER CHECKOUT ONLY. A restaurant or admin placing a direct-entry order
+  // is taking an order the restaurant has already agreed to — often by phone,
+  // often a regular — and Disco's consumer-side floor is not theirs to be held
+  // to. isDirectEntry is the same flag that already switches source_of_order to
+  // FAMILYMEAL above, so the two stay consistent.
+  //
+  // Pickup and the restaurant's OWN delivery are untouched: effectiveOrderMinimum
+  // returns the restaurant's own number unchanged for both.
+  const isCustomerCheckout = params.isDirectEntry !== true
+  const thirdPartyDelivery = requestedOrderType === 'DELIVERY' && isCustomerCheckout
+    ? await loadMenuIsThirdPartyDelivery(ref, menuReference)
+    : false
+  const minForType = isCustomerCheckout
+    ? effectiveOrderMinimum({ orderType: requestedOrderType, isThirdPartyDelivery: thirdPartyDelivery, restaurantMinimum: restaurantMin })
+    : restaurantMin
+
   if (minForType > 0) {
     const rawSubtotal = cartSubtotal(items)
     if (rawSubtotal < minForType) {
-      const short = Math.round((minForType - rawSubtotal) * 100) / 100
+      // Same helper the storefront renders, so a customer who somehow reaches
+      // here sees the sentence they already saw, not a second phrasing of it.
+      const avail = await loadMenuFulfillmentAvailability(ref, menuReference).catch(() => ({ offersPickup: true, offersDelivery: true }))
       return {
         ok: false, status: 400,
-        error: `This menu has a $${minForType.toFixed(2)} minimum for ${requestedOrderType === 'DELIVERY' ? 'delivery' : 'pickup'} orders — your subtotal is $${rawSubtotal.toFixed(2)}. Please add $${short.toFixed(2)} more.`,
+        error: orderMinimumMessage({
+          minimum: minForType, subtotal: rawSubtotal,
+          orderType: requestedOrderType, offersPickup: avail.offersPickup !== false,
+        }),
       }
     }
   }

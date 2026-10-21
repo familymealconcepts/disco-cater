@@ -206,6 +206,37 @@ export async function loadMenuFulfillmentAvailability(restaurantReference: strin
   return { offersPickup: rows[0]?.offers_pickup !== false, offersDelivery: rows[0]?.offers_delivery !== false }
 }
 
+/**
+ * Is this menu's delivery done by a COURIER (Disco dispatches) or by the
+ * restaurant's own driver? Read from disco_menus.delivery_settings.method, the
+ * same field resolveNativeDelivery branches on — but without its geocoding, so
+ * the placement gate can ask the question before doing any pricing work.
+ *
+ * Defaults to THIRD PARTY when the menu or the field is missing, matching
+ * parseTier and resolveNativeDelivery (`method === 'OWN_DELIVERY' ? ... :
+ * 'THIRD_PARTY'`). That default is the SAFE direction for the platform
+ * minimum: an unknown menu gets the floor rather than slipping under it.
+ */
+export async function loadMenuIsThirdPartyDelivery(restaurantReference: string, menuReference?: string): Promise<boolean> {
+  type Row = { delivery_settings: { method?: string } | null }
+  const isThird = (r: Row | undefined) =>
+    String(r?.delivery_settings?.method ?? '').toUpperCase() !== 'OWN_DELIVERY'
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as Row[]
+    if (exact.length) return isThird(exact[0])
+  }
+  const rows = (await sql`
+    SELECT delivery_settings FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as Row[]
+  return isThird(rows[0])
+}
+
 export interface MenuOrderMinimums { pickup: number; delivery: number }
 
 /**
