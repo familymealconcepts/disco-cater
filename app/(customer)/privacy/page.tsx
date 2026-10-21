@@ -104,6 +104,75 @@ export default function PrivacyPage() {
         Services after an update becomes effective constitutes your acceptance of the updated Policy.
       </p>
 
+      {/* VIII */}
+      <h2>VIII. Disco Cater CRM Extension</h2>
+      <p>
+        Disco Cater staff use a Chrome browser extension, &ldquo;Disco Cater CRM,&rdquo; to record
+        restaurants and other business prospects in our internal customer-relationship management
+        (&ldquo;CRM&rdquo;) system. The extension is available only to Disco Cater staff. This section
+        describes what it collects, both from the web pages staff view with it and about the people whose
+        details are recorded with it.
+      </p>
+      <h3>What the extension reads from web pages</h3>
+      <p>
+        When a staff member opens the extension&rsquo;s side panel, it reads information from the page they
+        are viewing to fill in a form: the business name (from the page title, the site&rsquo;s name, or the
+        site&rsquo;s structured data) and, where the page shows them, a person&rsquo;s name, job title,
+        company, and email address. On LinkedIn and Apollo.io it reads the profile being viewed. In Gmail it
+        reads the name and email address of the sender of the open message, but not the message itself.
+      </p>
+      <h3>Information sent automatically while the panel is open</h3>
+      <p>
+        While the side panel is open, each time a page loads the extension sends that page&rsquo;s website
+        address (the domain only, such as example.com, not the full web address) and the business name it
+        read from the page to our CRM, to check whether that business is already recorded. These lookups
+        are not saved to the CRM, though they may appear in our hosting provider&rsquo;s routine request
+        logs. Nothing else read from a page is sent until a staff member chooses to save it or to look up
+        contact details (described below).
+      </p>
+      <h3>Information saved to the CRM</h3>
+      <p>
+        When a staff member saves a record, the CRM stores the person&rsquo;s name, job title, company, email
+        address, phone number, and LinkedIn profile address where available, together with the website where
+        they were found and the staff member&rsquo;s categorization of the record. Staff can also create
+        follow-up tasks, with notes, against a record.
+      </p>
+      <h3>Contact details from Apollo.io</h3>
+      <p>
+        If a staff member chooses to look up a person&rsquo;s contact details, we send that person&rsquo;s
+        first name, last name, and company name to Apollo.io, a business-contact data provider, which
+        returns the business email address, phone number, job title, and LinkedIn profile it holds for that
+        person, if any. These requests and Apollo.io&rsquo;s responses may appear in our hosting
+        provider&rsquo;s routine request logs.
+      </p>
+      <h3>Information stored in the browser</h3>
+      <p>
+        The extension stores a Disco Cater access token, entered by the staff member, in the browser&rsquo;s
+        storage for the extension, along with whether its side panel is open. Removing the extension clears
+        this information.
+      </p>
+      <h3>How we use this information</h3>
+      <p>
+        We use information recorded with the extension only for Disco Cater&rsquo;s sales and account
+        management: deciding which businesses to contact, contacting them about Disco Cater, including by
+        email sent through Apollo.io, and keeping records of those conversations. We do not sell this
+        information.
+      </p>
+      <p>We do not use information recorded with the extension for advertising.</p>
+      <h3>How long we keep it</h3>
+      <p>
+        We keep CRM records for as long as they are useful for our sales and account management, and we
+        delete them on request.
+      </p>
+      <h3>Asking us to remove your details</h3>
+      <p>
+        If your details have been recorded in our CRM and you would like them removed, or would like us to
+        stop contacting you, email{' '}
+        <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>. We will delete your details
+        from the CRM and keep only your email address on a do-not-contact list, so that you are not added
+        or contacted again.
+      </p>
+
       <p style={{ marginTop: 32, color: '#727272', fontSize: 14 }}>
         Questions about this Policy or your information? Contact us at{' '}
         <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>.
