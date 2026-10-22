@@ -126,8 +126,10 @@ async function matchOrder(orderNumber: string, subject: string, recipient: strin
 /**
  * Record and alert every permanent order-email failure since `lookbackHours`
  * ago. Safe to run as often as wanted: an event already recorded is skipped.
+ * The default covers Mailgun's whole ~3-day retention, so a missed or failed
+ * cron run catches up on the next one instead of losing failures.
  */
-export async function checkEmailFailures(lookbackHours = 2): Promise<{ scanned: number; orderEmails: number; recorded: EmailFailure[] }> {
+export async function checkEmailFailures(lookbackHours = 72): Promise<{ scanned: number; orderEmails: number; recorded: EmailFailure[] }> {
   await ensureEmailFailures()
   const events = await fetchPermanentFailures(Date.now() / 1000 - lookbackHours * 3600)
   const recorded: EmailFailure[] = []
@@ -136,6 +138,8 @@ export async function checkEmailFailures(lookbackHours = 2): Promise<{ scanned: 
     const orderNumber = orderNumberOf(ev)
     if (!orderNumber || !ev.id) continue
     orderEmails++
+    const seen = (await sql`SELECT 1 FROM disco_email_failures WHERE event_id = ${ev.id}`) as unknown[]
+    if (seen.length) continue
     const recipient = String(ev.recipient || '').trim()
     const subject = String(ev.message?.headers?.subject || '')
     const order = await matchOrder(orderNumber, subject, recipient)

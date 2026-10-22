@@ -8,8 +8,8 @@
 // Triggers:
 //   • GET  — Vercel Cron + CLI. Requires `Authorization: Bearer <CRON_SECRET>`.
 //   • POST — super-admin session, or the same Bearer secret. `?hours=N` (max
-//            96) widens the look-back, e.g. to pick up Mailgun's ~3 days of
-//            retained history once.
+//            96) changes the look-back from its default of 72h (Mailgun keeps
+//            ~3 days of events), so a missed run catches up on the next.
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkEmailFailures } from '../../../../lib/email-failures'
@@ -39,12 +39,12 @@ async function handle(hours: number): Promise<NextResponse> {
 
 export async function GET(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return handle(2)
+  return handle(72)
 }
 
 export async function POST(req: NextRequest) {
   const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const h = Number(req.nextUrl.searchParams.get('hours'))
-  return handle(Number.isFinite(h) && h > 0 ? Math.min(h, 96) : 2)
+  return handle(Number.isFinite(h) && h > 0 ? Math.min(h, 96) : 72)
 }
