@@ -175,6 +175,12 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS lead_time_hours INTEGER NOT NUL
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS rolling_availability_days INTEGER NOT NULL DEFAULT 90;
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS daily_cutoff_time TIME; -- NULL = none
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL = none
+-- Optional TIME on the hard cutoff, in the RESTAURANT's local time
+-- (disco_restaurant_cache.timezone). NULL = date-only: ordering closes at the end
+-- of hard_cutoff_date, exactly as before this column existed. Set: ordering closes
+-- at hard_cutoff_date + hard_cutoff_time local (inclusive of that minute's :00).
+-- See isHardCutoffPassed in lib/scheduling/cutoffs.ts.
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_time TIME;
 
 -- Per-menu "Include Utensils" toggle (small extra). When on, the customer ordering
 -- page offers an optional utensils checkbox that writes "Include utensils" to the note.

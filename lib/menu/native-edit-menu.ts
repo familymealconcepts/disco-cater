@@ -18,7 +18,7 @@
 // This returns the SAME shape the FM path produced (MenuSection[] with
 // extraItemsGroups on each package) so the dialog renders it unchanged, and it
 // reads the same tables as the customer page so the two can no longer disagree.
-import { sql } from '../db'
+import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
 import { menuRowToScheduleExtras } from '../menu-settings'
 
@@ -50,6 +50,7 @@ type ScheduleColumns = {
   max_orders_per_day: number | null
   daily_cutoff_time: string | null
   hard_cutoff_date: string | null
+  hard_cutoff_time: string | null
   skipped_days: { fromDate: string; toDate: string }[] | null
 }
 
@@ -98,7 +99,9 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
   `.catch(() => [])) as { is_disco_native: boolean | null }[]
   if (!nativeRows[0]?.is_disco_native) return null
 
-  const menus = (await sql`
+  // withDiscoTables: names the additive hard_cutoff_time column — migrate and
+  // retry on a cold lambda rather than return an empty menu.
+  const menus = (await withDiscoTables(() => sql`
     SELECT reference, name, position,
            schedule_config, availability_mode,
            to_char(start_date, 'YYYY-MM-DD') AS start_date,
@@ -106,11 +109,12 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
            lead_time_hours, rolling_availability_days, max_orders_per_day,
            to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
            to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+           to_char(hard_cutoff_time, 'HH24:MI') AS hard_cutoff_time,
            skipped_days
     FROM disco_menus
     WHERE restaurant_reference = ${restaurantRef}::uuid AND visible = true AND archived = false
     ORDER BY position, name
-  `.catch(() => [])) as (ScheduleColumns & { reference: string; name: string; position: number | null })[]
+  `, runDiscoMenuMigrations).catch(() => [])) as (ScheduleColumns & { reference: string; name: string; position: number | null })[]
   if (!menus.length) return []
 
   // The RESTAURANT's clock. Lead times and cutoffs are counted on the kitchen's

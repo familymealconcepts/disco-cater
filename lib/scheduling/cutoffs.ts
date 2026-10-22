@@ -15,6 +15,9 @@
 //   Lead Time   → scheduleOption.prepTime   (total hours = days*24 + hours)
 //   Daily Cutoff→ scheduleOption.cutOff      ("HH:mm" time-of-day)
 //   Hard Cutoff → scheduleOption.cutOffDate  ("YYYY-MM-DD" or "YYYY-MM-DDTHH:mm")
+//                 Disco-native: disco_menus.hard_cutoff_date (+ optional
+//                 hard_cutoff_time, restaurant-local) via composeHardCutoff;
+//                 evaluated by isHardCutoffPassed.
 
 // ── Core (pure, testable) ────────────────────────────────────────────────────
 
@@ -255,6 +258,158 @@ function parseHardCutoff(raw?: string | null): Date | null {
   return raw.includes('T') ? new Date(raw) : new Date(`${raw}T23:59:59`)
 }
 
+// ── Hard cutoff: date, or date + restaurant-local time ───────────────────────
+//
+// disco_menus stores the hard cutoff as hard_cutoff_date (DATE) plus an
+// OPTIONAL hard_cutoff_time (TIME, restaurant-local). They reach this module
+// as ONE string in FM's cutOffDate shape, composed by composeHardCutoff():
+//
+//   time NULL  → "YYYY-MM-DD"        (exactly what was emitted before the time
+//                                      column existed — date-only is unchanged)
+//   time set   → "YYYY-MM-DDTHH:mm"  (a shape parseHardCutoff already accepted
+//                                      from FM, so nothing downstream changes)
+
+/** disco_menus.hard_cutoff_date + hard_cutoff_time → the cutOffDate string the
+ *  engine reads. A null/blank time yields the bare date, byte-for-byte what was
+ *  emitted before the time column existed. */
+export function composeHardCutoff(date: string | null | undefined, time: string | null | undefined): string | null {
+  const d = String(date || '').trim()
+  if (!d) return null
+  const t = String(time || '').trim()
+  const m = /^(\d{1,2}):(\d{2})/.exec(t)
+  if (!m) return d
+  return `${d}T${m[1].padStart(2, '0')}:${m[2]}`
+}
+
+/**
+ * The real UTC instant at which the wall clock in `tz` reads the given local
+ * date+time. DST is resolved through Intl (never a fixed offset), using the
+ * same disambiguation as Temporal's "compatible" mode:
+ *
+ *   • a time that occurs TWICE (fall back, e.g. 01:30 on the first Sunday of
+ *     November in the US) resolves to the FIRST occurrence — for a cutoff that
+ *     is the earlier, conservative close;
+ *   • a time that never occurs (spring forward, e.g. 02:30) resolves to the
+ *     instant the clock would show if it had not jumped — 02:30 → 03:30 DST.
+ *
+ * Returns null when `tz` is absent or not a zone Intl recognises, so the caller
+ * can fall back to the runtime's zone (the behaviour before timezones existed).
+ *
+ * This is the same Intl technique as lib/timezone.ts localDayBoundaryToUTC,
+ * which cannot be imported here: it imports lib/db, and this module ships in
+ * the customer's browser bundle.
+ */
+export function zonedLocalToInstant(
+  y: number, mo: number, d: number, h: number, mi: number, s: number, tz?: string | null,
+): number | null {
+  if (!tz) return null
+  let fmt: Intl.DateTimeFormat
+  try {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+  } catch {
+    return null
+  }
+  // offset(t) = (wall clock at t, read as if it were UTC) − t
+  const offsetAt = (t: number): number => {
+    const parts = fmt.formatToParts(new Date(t))
+    const get = (k: string) => Number(parts.find(p => p.type === k)?.value)
+    let hh = get('hour')
+    if (hh === 24) hh = 0
+    return Date.UTC(get('year'), get('month') - 1, get('day'), hh, get('minute'), get('second')) - Math.floor(t / 1000) * 1000
+  }
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, s)
+  if (!Number.isFinite(asUtc)) return null
+  // The offsets in force 12h either side bracket any transition on this date.
+  const before = offsetAt(asUtc - 12 * 3_600_000)
+  const after = offsetAt(asUtc + 12 * 3_600_000)
+  const candidates = [...new Set([before, after])]
+    .map(off => asUtc - off)
+    .filter(t => offsetAt(t) === asUtc - t)       // the wall clock really reads y-mo-d h:mi:s at t
+    .sort((a, b) => a - b)
+  if (candidates.length) return candidates[0]    // 1 = normal; 2 = repeated hour → first
+  return asUtc - before                          // skipped hour → shift forward by the gap
+}
+
+/**
+ * IS THE HARD CUTOFF PASSED AT INSTANT `instant`, FOR A RESTAURANT IN `tz`?
+ * Pure; the single rule the picker, the "ordering closed" banner and the
+ * server-side placement gate all evaluate (via orderingClosed /
+ * buildAvailableDates / buildAvailableTimes / isDateTimeBookable).
+ *
+ * `cutOffDate` is FM's / composeHardCutoff's shape:
+ *   "YYYY-MM-DD"            date-only  — the cutoff moment is 23:59:59 local
+ *   "YYYY-MM-DDTHH:mm[:ss]" with time  — the cutoff moment is that local time
+ *   ending "Z" / "±HH:mm"   an absolute instant — used as-is
+ *
+ * SEMANTICS — INCLUSIVE OF THE CUTOFF MOMENT, same rule as before the time
+ * existed. Ordering is closed once `instant`, truncated to the whole second,
+ * is STRICTLY AFTER the cutoff moment (the `now > hardCutoff` test this module
+ * has always used, and the reason parseHardCutoff resolves a bare date to
+ * 23:59:59). So:
+ *   date-only 2026-11-21        → open through 23:59:59.999 on the 21st,
+ *                                 closed from 00:00:00 on the 22nd (local);
+ *   2026-11-21 with time 17:00  → open through 17:00:00.999,
+ *                                 closed from 17:00:01 on the 21st (local).
+ * The truncation to whole seconds is what makes the date-only case identical
+ * to the old wall-clock comparison, which zeroed milliseconds (wallClockInZone
+ * does). In the zone-less runtime fallback the old code compared the raw
+ * instant, so that branch does too.
+ *
+ * TIMEZONE. `tz` is disco_restaurant_cache.timezone (IANA). When it is absent
+ * or unrecognised:
+ *   date-only → read in the RUNTIME's zone, exactly what the module did before
+ *               (wallClockInZone and parseHardCutoff both fall back that way),
+ *               so a zone-less restaurant's date cutoff behaves as it always has;
+ *   with time → read in HARD_CUTOFF_TIME_FALLBACK_TZ (America/New_York), so the
+ *               browser picker and the UTC placement gate agree on the instant.
+ *
+ * Unparseable input → false (never closed), matching the old `now > Invalid
+ * Date` result.
+ */
+/** Zone a TIMED hard cutoff is read in when the restaurant has none. Same value
+ *  and rationale as DEFAULT_RESTAURANT_TIMEZONE in lib/timezone.ts (not imported:
+ *  that module imports lib/db, and this one ships to the browser). */
+export const HARD_CUTOFF_TIME_FALLBACK_TZ = 'America/New_York'
+
+export function isHardCutoffPassed(instant: Date | number, cutOffDate: string | null | undefined, tz?: string | null): boolean {
+  const raw = String(cutOffDate || '').trim()
+  if (!raw) return false
+  const rawMs = typeof instant === 'number' ? instant : instant.getTime()
+  if (!Number.isFinite(rawMs)) return false
+  const nowMs = Math.floor(rawMs / 1000) * 1000
+
+  // An explicit offset is an absolute instant — no zone needed.
+  if (/T.*(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const abs = new Date(raw).getTime()
+    return Number.isFinite(abs) && nowMs > abs
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
+  if (!m) return false
+  const y = +m[1], mo = +m[2], d = +m[3]
+  const hasTime = m[4] != null
+  const h = hasTime ? +m[4] : 23, mi = hasTime ? +m[5] : 59, s = hasTime ? +(m[6] || 0) : 59
+
+  let cutoffMs = zonedLocalToInstant(y, mo, d, h, mi, s, tz)
+  // A TIMED cutoff with no usable zone is read in HARD_CUTOFF_TIME_FALLBACK_TZ,
+  // never the runtime's: the picker runs in the customer's browser and the
+  // placement gate in UTC on Vercel, and a runtime-zone read would let them
+  // disagree by hours about a 5pm deadline. Date-only cutoffs keep the runtime
+  // fallback below — that is what they always did, and they must not change.
+  if (cutoffMs == null && hasTime) cutoffMs = zonedLocalToInstant(y, mo, d, h, mi, s, HARD_CUTOFF_TIME_FALLBACK_TZ)
+  if (cutoffMs == null) {
+    // Runtime zone (pre-existing). The old comparison used the RAW instant here
+    // (wallClockInZone returns it untouched without a zone, milliseconds and
+    // all), so this branch compares untruncated to stay identical.
+    const local = new Date(y, mo - 1, d, h, mi, s, 0).getTime()
+    return Number.isFinite(local) && rawMs > local
+  }
+  return Number.isFinite(cutoffMs) && nowMs > cutoffMs
+}
+
 export function toCutoffConfig(s: FmScheduleLike): CutoffConfig {
   return {
     leadTimeMinutes: Math.max(0, Math.round((s.prepTime ?? 24) * 60)),
@@ -305,7 +460,17 @@ function localISODate(d: Date): string {
 }
 
 export function orderingClosed(s: FmScheduleLike, now = new Date()): boolean {
-  return isOrderingClosed(wallClockInZone(now, s.timezone), toCutoffConfig(s))
+  // Evaluated on the REAL instant against the cutoff resolved in the
+  // restaurant's zone — see isHardCutoffPassed for the semantics.
+  return isHardCutoffPassed(now, s.cutOffDate, s.timezone)
+}
+
+/** The engine's CutoffConfig with the hard cutoff REMOVED — the hard cutoff is
+ *  decided once per call by isHardCutoffPassed on the real instant (DST-exact),
+ *  and passed into datesFrom/timesFrom as `closed`. Lead time and the daily
+ *  cutoff stay in wall-clock space as before. */
+function slotConfig(s: FmScheduleLike): CutoffConfig {
+  return { ...toCutoffConfig(s), hardCutoff: null }
 }
 
 /** Slot start-times (minutes since midnight) a pickup window produces. A
@@ -415,15 +580,16 @@ export function buildAvailableDates(
 ): { date: string; disabled: boolean }[] {
   // Shift ONCE, here, into the restaurant's wall clock; the internal form below
   // must never shift again (isDateTimeBookable composes both).
-  return datesFrom(s, wallClockInZone(now, s.timezone), horizonDays)
+  return datesFrom(s, wallClockInZone(now, s.timezone), horizonDays, orderingClosed(s, now))
 }
 
 function datesFrom(
   s: FmScheduleLike,
   now: Date,
-  horizonDays?: number,
+  horizonDays: number | undefined,
+  closed: boolean,
 ): { date: string; disabled: boolean }[] {
-  const cfg = toCutoffConfig(s)
+  const cfg = slotConfig(s)
   const skipped = skippedDateSet(s)
   const horizon = horizonDays ?? s.rollingAvailability ?? 90
   const end = s.endDate ? new Date(`${s.endDate}T23:59:59`) : new Date(now.getTime() + horizon * DAY_MS)
@@ -448,7 +614,7 @@ function datesFrom(
       // Testing existence handles both and is identical to the old behaviour when
       // no intervals are present.
       const blockedIvs = skippedIntervalsFor(s, iso)
-      const enabled = windowSlotMinutes(win).some(m =>
+      const enabled = !closed && windowSlotMinutes(win).some(m =>
         isSlotEnabled(now, cfg, atTime(cur, m)) && !inBlockedInterval(m, blockedIvs))
       out.push({ date: iso, disabled: !enabled })
     }
@@ -467,13 +633,14 @@ export function buildAvailableTimes(
   dateStr: string,
   now = new Date(),
 ): { time: string; disabled: boolean }[] {
-  return timesFrom(s, dateStr, wallClockInZone(now, s.timezone))
+  return timesFrom(s, dateStr, wallClockInZone(now, s.timezone), orderingClosed(s, now))
 }
 
 function timesFrom(
   s: FmScheduleLike,
   dateStr: string,
   now: Date,
+  closed: boolean,
 ): { time: string; disabled: boolean }[] {
   if (!dateStr) return []
   if (s.startDate && dateStr < s.startDate) return []
@@ -486,7 +653,7 @@ function timesFrom(
   // functions disagreed about the same date, and this one is exported: any caller
   // reading it directly would have seen a closed day as fully open.
   if (skippedDateSet(s).has(dateStr)) return []
-  const cfg = toCutoffConfig(s)
+  const cfg = slotConfig(s)
   const day = new Date(`${dateStr}T12:00:00`)
   const win = windowForDay(s, DAY_NAMES[day.getDay()])
   if (!win) return []
@@ -495,7 +662,7 @@ function timesFrom(
   for (const m of windowSlotMinutes(win)) {
     const slot = atTime(new Date(`${dateStr}T00:00:00`), m)
     const time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
-    out.push({ time, disabled: !isSlotEnabled(now, cfg, slot) || inBlockedInterval(m, blocked) })
+    out.push({ time, disabled: closed || !isSlotEnabled(now, cfg, slot) || inBlockedInterval(m, blocked) })
   }
   return out
 }
@@ -515,10 +682,15 @@ export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: 
   // per-call here it would land twice and the gate would disagree with the
   // picker again — the exact failure this is fixing.
   const zNow = wallClockInZone(now, s.timezone)
-  const dateEntry = datesFrom(s, zNow).find(d => d.date === dateStr)
+  // The hard cutoff is decided ONCE, on the real instant, in the restaurant's
+  // zone (isHardCutoffPassed) — the same call the picker's builders make, so
+  // gate and picker cannot disagree about whether ordering has closed.
+  const closed = orderingClosed(s, now)
+  if (closed) return false
+  const dateEntry = datesFrom(s, zNow, undefined, closed).find(d => d.date === dateStr)
   if (!dateEntry || dateEntry.disabled) return false
   const hhmm = timeStr.slice(0, 5)
-  const timeEntry = timesFrom(s, dateStr, zNow).find(t => t.time.slice(0, 5) === hhmm)
+  const timeEntry = timesFrom(s, dateStr, zNow, closed).find(t => t.time.slice(0, 5) === hhmm)
   return !!timeEntry && !timeEntry.disabled
 }
 

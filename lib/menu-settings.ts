@@ -3,6 +3,7 @@
 // customer flow (pricer + availability engine) already consumes. Zero FM.
 
 import { r2 } from './promo-pricing'
+import { composeHardCutoff } from './scheduling/cutoffs'
 
 export interface MenuSettingsInput {
   offersPickup: boolean
@@ -18,12 +19,26 @@ export interface MenuSettingsInput {
   rollingAvailabilityDays: number
   dailyCutoffTime: string | null // 'HH:mm'
   hardCutoffDate: string | null  // 'yyyy-mm-dd'
+  // OPTIONAL time on the hard cutoff, 'HH:mm' in the RESTAURANT's local time
+  // (disco_restaurant_cache.timezone). NULL = date-only, which closes ordering
+  // at the end of hardCutoffDate exactly as before this field existed. Only
+  // meaningful with a date — stored NULL whenever the date is NULL.
+  hardCutoffTime: string | null
   includeUtensils: boolean
 }
 
 const n = (v: unknown, d = 0): number => { const x = Number(v); return Number.isFinite(x) ? x : d }
 const clampInt = (v: unknown, min: number, max: number, d: number): number => {
   const x = Math.trunc(Number(v)); return Number.isFinite(x) ? Math.max(min, Math.min(max, x)) : d
+}
+
+// 'HH:mm' (or 'H:mm', 'HH:mm:ss') → 'HH:mm'; anything else → null.
+function parseHhMm(v: unknown): string | null {
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(v ?? '').trim())
+  if (!m) return null
+  const h = Number(m[1]), mi = Number(m[2])
+  if (h > 23 || mi > 59) return null
+  return `${String(h).padStart(2, '0')}:${m[2]}`
 }
 
 // Normalize the admin form body into storable settings (safe defaults + clamping).
@@ -43,6 +58,7 @@ export function parseMenuSettingsInput(body: Record<string, unknown>): MenuSetti
     rollingAvailabilityDays: clampInt(body?.rollingAvailabilityDays, 1, 365, 90),
     dailyCutoffTime: String(body?.dailyCutoffTime || '').trim() || null,
     hardCutoffDate: String(body?.hardCutoffDate || '').trim() || null,
+    hardCutoffTime: String(body?.hardCutoffDate || '').trim() ? parseHhMm(body?.hardCutoffTime) : null,
     includeUtensils: body?.includeUtensils === true,
   }
 }
@@ -306,6 +322,7 @@ export interface MenuSettingsRow {
   rolling_availability_days?: number | null
   daily_cutoff_time?: string | null
   hard_cutoff_date?: string | null
+  hard_cutoff_time?: string | null // 'HH:mm' restaurant-local; NULL = date-only
 }
 
 // FM-shaped `settings` the client pricer/min-order gate read.
@@ -363,7 +380,9 @@ export function menuRowToScheduleExtras(row: MenuSettingsRow) {
     prepTimeExplicit: row.lead_time_hours != null && Number(row.lead_time_hours) !== 24,
     rollingAvailability: row.rolling_availability_days != null ? Number(row.rolling_availability_days) : 90,
     ...(row.daily_cutoff_time ? { cutOff: row.daily_cutoff_time } : {}),
-    ...(row.hard_cutoff_date ? { cutOffDate: row.hard_cutoff_date } : {}),
+    // Date-only → "YYYY-MM-DD" (unchanged); with a time → "YYYY-MM-DDTHH:mm",
+    // read in the restaurant's zone by lib/scheduling/cutoffs isHardCutoffPassed.
+    ...(row.hard_cutoff_date ? { cutOffDate: composeHardCutoff(row.hard_cutoff_date, row.hard_cutoff_time) as string } : {}),
     ...(row.max_orders_per_day != null ? { maxOrder: row.max_orders_per_day } : {}),
   }
 }

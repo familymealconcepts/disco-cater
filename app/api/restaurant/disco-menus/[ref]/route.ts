@@ -40,8 +40,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
            m.max_orders_per_day, m.lead_time_hours, m.rolling_availability_days,
            to_char(m.daily_cutoff_time,'HH24:MI') AS daily_cutoff_time,
            to_char(m.hard_cutoff_date,'YYYY-MM-DD') AS hard_cutoff_date,
+           to_char(m.hard_cutoff_time,'HH24:MI') AS hard_cutoff_time,
            m.delivery_settings, m.skipped_days, m.include_utensils, m.created_at, m.updated_at,
-           c.slug AS restaurant_slug
+           c.slug AS restaurant_slug, c.timezone AS restaurant_timezone
     FROM disco_menus m
     LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = m.restaurant_reference::text
     WHERE m.reference = ${ref}::uuid LIMIT 1
@@ -98,6 +99,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         max_orders_per_day = ${s.maxOrdersPerDay}, lead_time_hours = ${s.leadTimeHours},
         rolling_availability_days = ${s.rollingAvailabilityDays},
         daily_cutoff_time = ${s.dailyCutoffTime}::time, hard_cutoff_date = ${s.hardCutoffDate}::date,
+        hard_cutoff_time = ${s.hardCutoffTime}::time,
         delivery_settings = ${JSON.stringify(parseDeliverySettings(body))}::jsonb,
         skipped_days = ${JSON.stringify(parseSkippedDays(body))}::jsonb,
         include_utensils = ${s.includeUtensils},

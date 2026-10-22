@@ -6,7 +6,7 @@
 import type Stripe from 'stripe'
 import { MENU_ACTIVE_SQL } from '../menu-state'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
-import { sql, withDiscoTables } from '../db'
+import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
@@ -382,6 +382,7 @@ const SCHEDULE_MENU_COLUMNS = `
   lead_time_hours, rolling_availability_days, max_orders_per_day,
   to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
   to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+  to_char(hard_cutoff_time, 'HH24:MI') AS hard_cutoff_time,
   skipped_days
 `
 
@@ -483,20 +484,24 @@ export async function isNativeDateTimeValid(restaurantReference: string, orderDa
   }
   let menu: ScheduleMenuRow | undefined
   if (menuReference) {
-    const exact = (await sql`
+    // withDiscoTables: SCHEDULE_MENU_COLUMNS names hard_cutoff_time, an additive
+    // column. On a cold lambda that runs before the menu migration, the read
+    // would hit undefined_column, the catch below would return [], and the gate
+    // would FAIL OPEN ("no menu → pass"). Migrate-and-retry instead.
+    const exact = (await withDiscoTables(() => sql`
       SELECT ${sql.unsafe(SCHEDULE_MENU_COLUMNS)} FROM disco_menus
       WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
       LIMIT 1
-    `.catch(() => [])) as ScheduleMenuRow[]
+    `, runDiscoMenuMigrations).catch(() => [])) as ScheduleMenuRow[]
     if (exact.length) menu = exact[0]
     else console.warn('[native-checkout] isNativeDateTimeValid: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
   }
   if (!menu) {
-    const rows = (await sql`
+    const rows = (await withDiscoTables(() => sql`
       SELECT ${sql.unsafe(SCHEDULE_MENU_COLUMNS)} FROM disco_menus
       WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id LIMIT 1
-    `.catch(() => [])) as ScheduleMenuRow[]
+    `, runDiscoMenuMigrations).catch(() => [])) as ScheduleMenuRow[]
     menu = rows[0]
   }
   if (!menu) return true

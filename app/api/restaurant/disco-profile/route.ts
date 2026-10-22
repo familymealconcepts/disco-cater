@@ -44,9 +44,9 @@ export async function GET() {
   try {
     await runMigrations()
     const cache = (await sql`
-      SELECT name, phone, address, image_url, icon_url
+      SELECT name, phone, address, image_url, icon_url, timezone
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null; icon_url: string | null }[]
+    `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null; icon_url: string | null; timezone: string | null }[]
     const c = cache[0] || {}
     return NextResponse.json({
       restaurant_reference: ref,
@@ -55,6 +55,8 @@ export async function GET() {
       address: c.address || '',
       logoUrl: c.image_url || '', // Marketplace Image
       iconUrl: c.icon_url || '',  // Logo
+      // IANA zone the menu form labels its hard-cutoff time with. '' = not set.
+      timezone: c.timezone || '',
     })
   } catch (err) {
     console.error('[restaurant/disco-profile] GET failed:', err instanceof Error ? err.message : err)

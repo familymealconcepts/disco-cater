@@ -22,6 +22,16 @@ const DAYS: { key: string; label: string }[] = [
   { key: 'SATURDAY', label: 'Sa' },
 ]
 
+// "America/New_York" → "America/New_York (EDT)" — the zone the hard-cutoff time
+// is read in, with today's abbreviation so the label is unambiguous at a glance.
+function tzLabel(tz: string): string {
+  try {
+    const abbr = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+      .formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value
+    return abbr ? `${tz} (${abbr})` : tz
+  } catch { return tz }
+}
+
 function slugify(s: string): string {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 }
@@ -94,6 +104,12 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [rollingAvailabilityDays, setRollingAvailabilityDays] = useState('90')
   const [dailyCutoffTime, setDailyCutoffTime] = useState('')
   const [hardCutoffDate, setHardCutoffDate] = useState('')
+  // Optional time on the hard cutoff, in the RESTAURANT's timezone. '' = end of
+  // the cutoff date (date-only, the behaviour before this field existed).
+  const [hardCutoffTime, setHardCutoffTime] = useState('')
+  // IANA zone the time above is read in (disco_restaurant_cache.timezone), shown
+  // beside the input so nobody types a time in their own zone by mistake.
+  const [restaurantTimezone, setRestaurantTimezone] = useState('')
   const [includeUtensils, setIncludeUtensils] = useState(false)
 
   // Delivery settings (Stage 6)
@@ -125,7 +141,11 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   function loadRestaurantRef() {
     fetch('/api/restaurant/disco-profile')
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
+      .then(d => {
+        if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference)
+        // Edit mode overrides this with the menu's own restaurant's zone below.
+        if (typeof d?.timezone === 'string') setRestaurantTimezone(prev => prev || d.timezone)
+      })
       .catch(() => {})
   }
   useEffect(() => { loadRestaurantRef() }, [])
@@ -176,6 +196,8 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         setMaxOrdersPerDay(d.max_orders_per_day != null ? String(d.max_orders_per_day) : '')
         setLeadTimeHours(String(d.lead_time_hours ?? 24)); setRollingAvailabilityDays(String(d.rolling_availability_days ?? 90))
         setDailyCutoffTime(d.daily_cutoff_time || ''); setHardCutoffDate(d.hard_cutoff_date || '')
+        setHardCutoffTime(normalizeTime(d.hard_cutoff_time) || '')
+        if (d.restaurant_timezone) setRestaurantTimezone(String(d.restaurant_timezone))
         setIncludeUtensils(d.include_utensils === true)
         const del = d.delivery_settings || {}
         setDeliveryMethod(del.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY')
@@ -268,6 +290,8 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       maxOrdersPerDay: maxOrdersPerDay.trim() === '' ? null : (parseInt(maxOrdersPerDay, 10) || 0),
       leadTimeHours: parseInt(leadTimeHours, 10) || 0, rollingAvailabilityDays: parseInt(rollingAvailabilityDays, 10) || 90,
       dailyCutoffTime: dailyCutoffTime || undefined, hardCutoffDate: hardCutoffDate || undefined,
+      // Only meaningful with a date; the server also drops it when the date is empty.
+      hardCutoffTime: hardCutoffDate && hardCutoffTime ? hardCutoffTime : undefined,
       includeUtensils,
       deliverySettings: {
         method: deliveryMethod,
@@ -469,8 +493,23 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div><label style={label}>Daily cutoff time</label><TimeSelect value={dailyCutoffTime} onChange={setDailyCutoffTime} style={inputStyle} allowNone /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time. None means no daily cutoff.</div></div>
-            <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Ordering closes after this date.</div></div>
+            <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{hardCutoffTime && hardCutoffDate ? 'Ordering closes on this date at the cutoff time.' : 'Ordering closes after this date.'}</div></div>
           </div>
+          {hardCutoffDate && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+              <div />
+              <div>
+                <label style={label}>Hard cutoff time ({restaurantTimezone ? tzLabel(restaurantTimezone) : 'restaurant local time'})</label>
+                <TimeSelect value={hardCutoffTime} onChange={setHardCutoffTime} style={inputStyle} allowNone noneLabel="End of day" />
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
+                  {hardCutoffTime
+                    ? `Ordering closes at ${hardCutoffTime} on ${hardCutoffDate}, ${restaurantTimezone || 'America/New_York'} time.`
+                    : 'End of day keeps ordering open through the whole cutoff date.'}
+                  {!restaurantTimezone && ' No timezone is set for this location, so the time is read as America/New_York (Eastern).'}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Utensils (small extra) */}

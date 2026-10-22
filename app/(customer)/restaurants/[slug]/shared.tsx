@@ -559,7 +559,10 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // (Catering, Gift Cards, Grocery, ...) and the customer page used to show
     // only one. Same query as before, minus LIMIT 1: still one round-trip,
     // returning N rows instead of 1.
-    const menuRows = (await sql`
+    // withDiscoTables: this read names the additive hard_cutoff_time column, so a
+    // cold lambda that reaches it before the menu migration must migrate and
+    // retry rather than throw and blank the restaurant page.
+    const menuRows = (await withDiscoTables(() => sql`
       SELECT reference, name, url, schedule_config, availability_mode,
              to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
              offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
@@ -567,11 +570,12 @@ async function loadDiscoNativeRestaurant(slug: string) {
              max_orders_per_day, lead_time_hours, rolling_availability_days,
              to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
              to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+             to_char(hard_cutoff_time, 'HH24:MI') AS hard_cutoff_time,
              delivery_settings, skipped_days, include_utensils
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, name
-    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string; intervals?: { fromTime: string; toTime: string }[] }[] | null })[]
+    `, runDiscoMenuMigrations)) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string; intervals?: { fromTime: string; toTime: string }[] }[] | null })[]
     // The "primary" reference is only used now as the NULL-menu_reference
     // fallback target below (categories/items predating the multi-menu model,
     // or the zero-visible-menus edge case) — never a guess about which menu
