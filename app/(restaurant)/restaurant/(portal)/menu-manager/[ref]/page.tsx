@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, use as usePromise } from 'react'
+import { useEffect, useRef, useState, useCallback, use as usePromise } from 'react'
 import { SortableRows, SortableRow, DRAG_GLYPH } from '../../_components/SortableRows'
 import { DndContext, closestCenter, pointerWithin, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -30,6 +30,47 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [kebab, setKebab] = useState<string>('')
+  // The ⋯ menu on an ITEM row. Rendered position:fixed at the page root, not
+  // inside the row: on narrow screens the items table sits in a sideways
+  // scroll box (.mm-items-scroll) that would clip an absolutely-positioned
+  // menu. Anchored from the button's rect at open time, flipped above it when
+  // there is no room below, and closed on scroll/resize so it can never drift
+  // away from its row.
+  const [itemMenu, setItemMenu] = useState<{ item: Item; top: number; right: number } | null>(null)
+  // The button it opened from, and where that button was. A scroll only
+  // closes the menu if the button actually MOVED: the scroll event from the
+  // scroll that brought the button into view can arrive a frame after the tap
+  // that opened the menu, and must not close it again.
+  const itemMenuAnchor = useRef<{ el: HTMLElement; top: number; left: number } | null>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setKebab(''); setItemMenu(null) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  useEffect(() => {
+    if (!itemMenu) return
+    const close = () => setItemMenu(null)
+    const onScroll = () => {
+      const a = itemMenuAnchor.current
+      if (!a) return close()
+      const r = a.el.getBoundingClientRect()
+      if (Math.abs(r.top - a.top) > 2 || Math.abs(r.left - a.left) > 2) close()
+    }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', close)
+    return () => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', close) }
+  }, [itemMenu])
+  function openItemMenu(e: React.MouseEvent<HTMLButtonElement>, it: Item) {
+    e.stopPropagation()
+    setKebab('')
+    if (itemMenu?.item.reference === it.reference) { setItemMenu(null); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    itemMenuAnchor.current = { el: e.currentTarget, top: r.top, left: r.left }
+    const MENU_H = 44 // one 9px-padded row + border
+    const below = r.bottom + 4
+    const top = below + MENU_H > window.innerHeight - 8 ? Math.max(8, r.top - 4 - MENU_H) : below
+    setItemMenu({ item: it, top, right: Math.max(8, window.innerWidth - r.right) })
+  }
 
   const [catDlg, setCatDlg] = useState<{ mode: 'create' | 'edit'; cat?: Cat } | null>(null)
   const [itemDlg, setItemDlg] = useState<{ mode: 'create' | 'edit'; item?: Item } | null>(null)
@@ -232,7 +273,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
   return (
-    <div className="dc-page-pad" style={{ fontFamily: F, padding: '24px 28px' }} onClick={() => setKebab('')}>
+    <div className="dc-page-pad" style={{ fontFamily: F, padding: '24px 28px' }} onClick={() => { setKebab(''); setItemMenu(null) }}>
       {toast && <div style={{ position: 'fixed', top: 20, right: 20, background: '#22C55E', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 999 }}>{toast}</div>}
 
       <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
@@ -280,7 +321,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                 background: isOver ? '#EEF0FD' : selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
               <span {...handleProps} className="mm-drag-handle" style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: selCat === c.reference ? 700 : 500, color: DARK }}>{c.name}</span>
-              <button onClick={e => { e.stopPropagation(); setKebab(kebab === c.reference ? '' : c.reference) }}
+              <button onClick={e => { e.stopPropagation(); setItemMenu(null); setKebab(kebab === c.reference ? '' : c.reference) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 16, padding: '0 4px' }}>⋯</button>
               {kebab === c.reference && (
                 <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 6, top: 34, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 20, minWidth: 120 }}>
@@ -345,7 +386,11 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                       <button title={it.visible ? 'Hide from customers' : 'Show to customers'} onClick={() => toggleItemVisible(it)} style={iconBtn}>{it.visible ? '👁' : '🚫'}</button>
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
-                      <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>
+                      {/* Delete lives in the ⋯ menu, like the categories' (Peter). */}
+                      <button title="More actions" aria-label={`More actions for ${it.name}`} aria-haspopup="menu"
+                        aria-expanded={itemMenu?.item.reference === it.reference}
+                        onClick={e => openItemMenu(e, it)}
+                        style={{ ...iconBtn, color: '#999', fontSize: 16 }}>⋯</button>
                     </td>
                 </>)}
                 </SortableRow>
@@ -358,6 +403,14 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         </div>
       </div>
       </DndContext>
+
+      {itemMenu && (
+        <div role="menu" onClick={e => e.stopPropagation()}
+          style={{ position: 'fixed', top: itemMenu.top, right: itemMenu.right, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, minWidth: 120 }}>
+          <button role="menuitem" onClick={() => { const it = itemMenu.item; setItemMenu(null); deleteItem(it) }}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: RED, cursor: 'pointer', fontFamily: F }}>Delete</button>
+        </div>
+      )}
 
       {catDlg && <CategoryDialog mode={catDlg.mode} cat={catDlg.cat} onCancel={() => setCatDlg(null)} onSave={saveCat} />}
       {itemDlg && <ItemDialog mode={itemDlg.mode} item={itemDlg.item} categoryRef={selCat} onCancel={() => setItemDlg(null)} onSaved={async () => { setItemDlg(null); await load(); flash('Saved') }} />}
