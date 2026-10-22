@@ -18,7 +18,7 @@
 //            same Bearer secret. Accepts `?dryRun=1` so the correction set can
 //            be previewed without writing.
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { mirrorOnlineOrderingFromFm } from '../../../../lib/online-ordering-mirror'
 import { alertOps } from '../../../../lib/ops-alert'
 
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ok = hasCronSecret(req) || !!getAdminTokenFromRequest(req)
+  const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle(req)
 }

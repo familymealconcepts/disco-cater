@@ -1,16 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from '../../../../lib/auth'
-
-// Decode a JWT payload (no verification — just to surface the email for the
-// manual-deletion log).
-function decodeEmail(token: string): string {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-    return payload?.email || payload?.sub || 'unknown'
-  } catch {
-    return 'unknown'
-  }
-}
+import { verifiedFmClaims } from '../../../../lib/fm-token-verify'
 
 // Account deletion — STUB. FM has no self-serve customer-delete endpoint yet, so
 // for now we log the request (with the user's email) for a human to action,
@@ -20,7 +10,12 @@ export async function POST(req: NextRequest) {
   const token = getToken(req)
   if (!token) return NextResponse.json({ error: 'Please sign in again to continue.' }, { status: 401 })
 
-  const email = decodeEmail(token)
+  // VERIFIED (22 Oct 2026): this logs a deletion request for a human to act
+  // on, so the email must come from a token FamilyMeal accepts — a decoded,
+  // unverified cookie could have queued anyone's account for deletion.
+  const claims = await verifiedFmClaims(token)
+  if (!claims) return NextResponse.json({ error: 'Please sign in again to continue.' }, { status: 401 })
+  const email = String(claims.email || claims.sub || 'unknown')
   // TODO: replace with a real FM deletion call / ticket once available.
   console.warn(`[account-deletion-request] user=${email} requested account deletion — action manually.`)
 

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { verifiedFmClaims, decodeJwtUnverified } from './fm-token-verify'
 
 export const ADMIN_TOKEN_COOKIE = 'fm_admin_token'
 export const ADMIN_REFRESH_COOKIE = 'fm_admin_refresh'
@@ -11,77 +12,69 @@ export const ADMIN_COOKIE_OPTS = {
   path: '/',
 }
 
-export async function getAdminToken(): Promise<string | null> {
-  const store = await cookies()
-  return store.get(ADMIN_TOKEN_COOKIE)?.value ?? null
-}
-
-// FM API expects raw JWT: Authorization: <token> (no Bearer prefix)
-export async function getAdminAuthHeader(): Promise<Record<string, string>> {
+// ── EVERY ADMIN HELPER ANSWERS ONLY FOR A VERIFIED SUPER ADMIN (22 Oct 2026) ──
+// These used to check that the cookie EXISTED (getAdminAuthHeader) or decode
+// the role/email out of it without verifying the signature (getAdminRole,
+// getAdminEmail). Every admin route is built on them, so a hand-made cookie
+// passed all of them: Disco-only admin writes, restaurant archive and
+// permanent delete (gated on the cookie's email), order edit/charge/refund via
+// resolveOrderAccess. Now each one first has FamilyMeal accept the token
+// (lib/fm-token-verify.ts) and requires role SUPER_ADMIN — the only role the
+// admin login ever issues — so no route's allowed actions change for a real
+// Super Admin, and a forged or expired cookie gets nothing.
+async function verifiedAdminClaims(): Promise<{ token: string; claims: Record<string, unknown> } | null> {
   const store = await cookies()
   const token = store.get(ADMIN_TOKEN_COOKIE)?.value
-  if (!token) throw new Error('Not authenticated')
-  return { Authorization: token }
+  if (!token) return null
+  const claims = await verifiedFmClaims(token)
+  if (!claims || (claims.role as string) !== 'SUPER_ADMIN') return null
+  return { token, claims }
 }
 
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-  } catch {
-    return null
-  }
+export async function getAdminToken(): Promise<string | null> {
+  return (await verifiedAdminClaims())?.token ?? null
+}
+
+// FM API expects raw JWT: Authorization: <token> (no Bearer prefix).
+// Throws unless the caller is a verified Super Admin.
+export async function getAdminAuthHeader(): Promise<Record<string, string>> {
+  const v = await verifiedAdminClaims()
+  if (!v) throw new Error('Not authenticated')
+  return { Authorization: v.token }
 }
 
 export async function getAdminRole(): Promise<string | null> {
-  const store = await cookies()
-  const token = store.get(ADMIN_TOKEN_COOKIE)?.value
-  if (!token) return null
-  const payload = decodeJwt(token)
-  return (payload?.role as string) || null
+  return (await verifiedAdminClaims()) ? 'SUPER_ADMIN' : null
 }
 
-// The logged-in admin's email, decoded from the fm_admin_token JWT. FM puts the
-// email in the `sub` claim (it's the login identifier); `email` is accepted as a
-// fallback. Used to attribute admin actions (e.g. order transfers).
+// The logged-in admin's email, from the VERIFIED token. FM puts the email in
+// the `sub` claim (it's the login identifier); `email` is accepted as a
+// fallback. Used to attribute admin actions (e.g. order transfers) and to gate
+// restaurant archiving.
 export async function getAdminEmail(): Promise<string | null> {
-  const store = await cookies()
-  const token = store.get(ADMIN_TOKEN_COOKIE)?.value
-  if (!token) return null
-  const payload = decodeJwt(token)
-  return (payload?.email as string) || (payload?.sub as string) || null
+  const v = await verifiedAdminClaims()
+  if (!v) return null
+  return (v.claims.email as string) || (v.claims.sub as string) || null
 }
 
-// ── A VERIFIED SUPER ADMIN, FOR ROUTES THAT WRITE TO DISCO ──────────────────
-// getAdminAuthHeader only checks that the cookie EXISTS, and getAdminRole reads
-// the role out of the token WITHOUT verifying its signature. That was enough
-// for routes that proxy to FamilyMeal (FM rejects a bad token itself), but a
-// route that writes only to Disco would accept any hand-made cookie claiming
-// SUPER_ADMIN. This asks FamilyMeal to accept the token (a read of the caller's
-// own profile) before the decoded role is trusted. Cached briefly per token so
-// a page of actions costs one round trip.
-const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-const verifiedTokens = new Map<string, number>()
-const VERIFY_TTL_MS = 5 * 60 * 1000
-
+/** Verified Super Admin, with the status to return when not. */
 export async function verifySuperAdmin(): Promise<{ ok: true; email: string | null } | { ok: false; status: number }> {
-  const token = await getAdminToken()
-  if (!token) return { ok: false, status: 401 }
-  const payload = decodeJwt(token)
-  if ((payload?.role as string) !== 'SUPER_ADMIN') return { ok: false, status: 403 }
-  const email = (payload?.email as string) || (payload?.sub as string) || null
-  const until = verifiedTokens.get(token)
-  if (until && until > Date.now()) return { ok: true, email }
-  try {
-    const res = await fetch(`${FM_BASE}/api/users`, { headers: { Authorization: token }, cache: 'no-store' })
-    if (!res.ok) return { ok: false, status: 401 }
-    const me = await res.json().catch(() => null) as { role?: string } | null
-    if (me?.role && me.role !== 'SUPER_ADMIN') return { ok: false, status: 403 }
-  } catch {
-    return { ok: false, status: 503 } // fail closed
-  }
-  verifiedTokens.set(token, Date.now() + VERIFY_TTL_MS)
-  if (verifiedTokens.size > 500) verifiedTokens.clear()
-  return { ok: true, email }
+  const store = await cookies()
+  if (!store.get(ADMIN_TOKEN_COOKIE)?.value) return { ok: false, status: 401 }
+  const v = await verifiedAdminClaims()
+  if (!v) return { ok: false, status: 401 }
+  return { ok: true, email: (v.claims.email as string) || (v.claims.sub as string) || null }
+}
+
+/**
+ * For routes that receive a NextRequest (cron routes' manual trigger): true
+ * only for a verified Super Admin. Replaces `!!getAdminTokenFromRequest(req)`,
+ * which accepted any cookie value at all.
+ */
+export async function isVerifiedSuperAdminRequest(req: NextRequest): Promise<boolean> {
+  const token = req.cookies.get(ADMIN_TOKEN_COOKIE)?.value
+  const claims = await verifiedFmClaims(token)
+  return !!claims && (claims.role as string) === 'SUPER_ADMIN'
 }
 
 // For Middleware (Edge runtime — next/headers not available)
@@ -92,6 +85,6 @@ export function getAdminTokenFromRequest(req: NextRequest): string | null {
 export function getAdminRoleFromRequest(req: NextRequest): string | null {
   const token = getAdminTokenFromRequest(req)
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = decodeJwtUnverified(token)
   return (payload?.role as string) || null
 }

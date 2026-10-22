@@ -13,7 +13,7 @@
 //   • POST — super-admin, authorized by the admin session cookie, or by the
 //            same Bearer secret.
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { reconcilePromoCodes } from '../../../../lib/promo-code-reconcile'
 import { alertOps } from '../../../../lib/ops-alert'
 
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ok = hasCronSecret(req) || !!getAdminTokenFromRequest(req)
+  const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }

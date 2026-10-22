@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@sanity/client'
-import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
 import { alertOps } from '../../../../lib/ops-alert'
@@ -430,7 +430,7 @@ export async function GET(req: NextRequest) {
 
 // Super-admin button — admin session cookie OR Bearer CRON_SECRET.
 export async function POST(req: NextRequest) {
-  const ok = hasCronSecret(req) || !!getAdminTokenFromRequest(req)
+  const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }

@@ -9,7 +9,64 @@ function decodeTokenRole(token: string): string | null {
   }
 }
 
-export function middleware(req: NextRequest) {
+// ── ADMIN PAGES: A REAL SUPER ADMIN LOGIN, NOT JUST A COOKIE (22 Oct 2026) ──
+// This used to decode the role out of fm_admin_token without verifying it, so
+// a hand-made cookie claiming SUPER_ADMIN rendered every admin page. Now
+// FamilyMeal must accept the token (a read of the caller's own profile). An
+// EXPIRED token is refreshed here with the refresh cookie — exactly what the
+// admin layout's refresh-on-load does — so a real admin returning to an open
+// session is not bounced to login. Anything FamilyMeal will not vouch for goes
+// to /admin/login. Cached per token in this isolate for 5 minutes.
+const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const verified = new Map<string, number>()
+
+function tokenExpired(token: string): boolean {
+  try {
+    const p = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return !!p.exp && Number(p.exp) * 1000 <= Date.now() + 30_000
+  } catch { return true }
+}
+
+async function fmAccepts(token: string): Promise<boolean> {
+  const until = verified.get(token)
+  if (until && until > Date.now()) return true
+  try {
+    const res = await fetch(`${FM_BASE}/api/users`, { headers: { Authorization: token }, cache: 'no-store' })
+    if (!res.ok) return false
+    if (verified.size > 500) verified.clear()
+    verified.set(token, Date.now() + 5 * 60 * 1000)
+    return true
+  } catch { return false }
+}
+
+async function adminPageGate(req: NextRequest): Promise<NextResponse> {
+  const toLogin = () => {
+    const url = req.nextUrl.clone()
+    url.pathname = '/admin/login'
+    return NextResponse.redirect(url)
+  }
+  const token = req.cookies.get('fm_admin_token')?.value
+  if (token && decodeTokenRole(token) === 'SUPER_ADMIN' && !tokenExpired(token) && await fmAccepts(token)) {
+    return NextResponse.next()
+  }
+  const refresh = req.cookies.get('fm_admin_refresh')?.value
+  if (!refresh) return toLogin()
+  try {
+    const res = await fetch(`${FM_BASE}/refreshToken`, { method: 'POST', headers: { RefreshToken: refresh, Accept: 'application/json' } })
+    if (!res.ok) return toLogin()
+    const data = await res.json()
+    const fresh = String(data.authorization || '').replace(/^Bearer\s+/i, '').trim()
+    if (!fresh || decodeTokenRole(fresh) !== 'SUPER_ADMIN') return toLogin()
+    const out = NextResponse.next()
+    const opts = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/', maxAge: 60 * 60 * 24 * 30 }
+    out.cookies.set('fm_admin_token', fresh, opts)
+    out.cookies.set('fm_admin_refresh', String(data.refreshToken || refresh).trim(), opts)
+    verified.set(fresh, Date.now() + 5 * 60 * 1000)
+    return out
+  } catch { return toLogin() }
+}
+
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Public, unauthenticated restaurant-portal pages — a logged-out user must be
@@ -44,19 +101,7 @@ export function middleware(req: NextRequest) {
 
   // Admin portal — SUPER_ADMIN only via separate fm_admin_token cookie
   if (pathname.startsWith('/admin/') && pathname !== '/admin/login') {
-    const adminToken = req.cookies.get('fm_admin_token')?.value
-    if (!adminToken) {
-      const url = req.nextUrl.clone()
-      url.pathname = '/admin/login'
-      return NextResponse.redirect(url)
-    }
-    const role = decodeTokenRole(adminToken)
-    if (role !== 'SUPER_ADMIN') {
-      const url = req.nextUrl.clone()
-      url.pathname = '/admin/login'
-      return NextResponse.redirect(url)
-    }
-    return NextResponse.next()
+    return adminPageGate(req)
   }
 
   // Customer portal — protect /account and /portal.

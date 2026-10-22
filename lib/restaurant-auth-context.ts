@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { validateDiscoRestaurantSession, getDiscoGroupAccounts } from './disco-restaurant-auth'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { verifiedFmClaims } from './fm-token-verify'
 import { SELECTED_RESTAURANT_COOKIE, getRestaurantRef } from './restaurant-auth'
 
 export interface RestaurantAuthContext {
@@ -36,7 +37,10 @@ export async function getRestaurantAuthContext(): Promise<RestaurantAuthContext 
 
   // Fall back to FM token.
   const fmToken = cookieStore.get('fm_restaurant_token')?.value
-  if (fmToken) {
+  // Only a token FamilyMeal accepts is a session (lib/fm-token-verify.ts). This
+  // branch used to accept ANY cookie value, and the Disco-only routes behind it
+  // never show the token to FamilyMeal, so a hand-made cookie was a login.
+  if (fmToken && await verifiedFmClaims(fmToken)) {
     return {
       restaurantReference: '', // resolved per-request from the FM token
       email: '',

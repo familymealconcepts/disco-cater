@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { fmFetch } from './fm-fetch'
+import { verifiedFmClaims } from './fm-token-verify'
 import { nativeSelectionAllowed } from './native-selection-scope'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -17,26 +18,33 @@ export const RESTAURANT_COOKIE_OPTS = {
 }
 
 // For Route Handlers — uses next/headers for reliable server-side access
+// ── THE FM RESTAURANT TOKEN IS VERIFIED BEFORE ANYTHING IN IT IS TRUSTED ──────
+// (22 Oct 2026) Every helper below used to DECODE fm_restaurant_token and
+// believe its claims — role, home restaurant, email — without checking the
+// signature. Routes that work only on Disco's own data (native menus, orders,
+// settings, team) never show the token to FamilyMeal, so a hand-made cookie
+// claiming role SUPER_ADMIN plus a selected-restaurant cookie reached any
+// native restaurant's portal data, and one claiming {role: ADMIN, restaurant:
+// X} reached restaurant X. Now FamilyMeal must accept the token first
+// (lib/fm-token-verify.ts); a forged or expired token yields no claims, no
+// header and no context. A real login's role and reach are unchanged.
 export async function getRestaurantToken(): Promise<string | null> {
   const store = await cookies()
-  return store.get(RESTAURANT_TOKEN_COOKIE)?.value ?? null
+  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value ?? null
+  return (await verifiedFmClaims(token)) ? token : null
 }
 
-// Auth header helper — throws if token is missing
-// FM API expects raw JWT: Authorization: <token> (no Bearer prefix)
+// Auth header helper — throws unless the token is present AND FamilyMeal
+// accepts it. FM API expects raw JWT: Authorization: <token> (no Bearer prefix)
 export async function getRestaurantAuthHeader(): Promise<Record<string, string>> {
-  const store = await cookies()
-  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
+  const token = await getRestaurantToken()
   if (!token) throw new Error('Not authenticated')
   return { Authorization: token }
 }
 
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-  } catch {
-    return null
-  }
+/** The VERIFIED claims of the FM restaurant token, or null. */
+async function decodeJwt(token: string): Promise<Record<string, unknown> | null> {
+  return verifiedFmClaims(token)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -51,7 +59,7 @@ export async function getRestaurantUserRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = await decodeJwt(token)
   const candidates = [payload?.reference, payload?.userReference, payload?.userRef, payload?.uid, payload?.id]
   for (const c of candidates) {
     if (typeof c === 'string' && UUID_RE.test(c)) return c
@@ -71,7 +79,7 @@ export async function getRestaurantEmail(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = await decodeJwt(token)
   for (const c of [payload?.sub, payload?.email, payload?.user_name]) {
     if (typeof c === 'string' && c.includes('@')) return c.trim().toLowerCase()
   }
@@ -83,7 +91,7 @@ export async function getRestaurantRole(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = await decodeJwt(token)
   return (payload?.role as string) || null
 }
 
@@ -94,7 +102,7 @@ export async function getRestaurantHomeRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = await decodeJwt(token)
   return (payload?.restaurant as string) || null
 }
 
@@ -161,7 +169,7 @@ export async function getRestaurantRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  const payload = decodeJwt(token)
+  const payload = await decodeJwt(token)
   const role = (payload?.role as string) || ''
   const home = (payload?.restaurant as string) || null
 

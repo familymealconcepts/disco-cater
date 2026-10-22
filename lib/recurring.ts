@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { verifiedFmClaims } from './fm-token-verify'
 import { sql } from './db'
 import { getCustomerSession } from './customer-auth'
 
@@ -14,13 +15,6 @@ export interface CustomerIdentity {
   lastName: string
 }
 
-function decodeJwt(token: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-  } catch {
-    return null
-  }
-}
 
 // Returns the logged-in customer's identity. Prefers the legacy disco_token FM
 // JWT (decoded for the FM reference); falls back to the Disco-native customer
@@ -29,8 +23,14 @@ function decodeJwt(token: string): Record<string, unknown> | null {
 export async function getCustomer(): Promise<CustomerIdentity | null> {
   const store = await cookies()
   const token = store.get('disco_token')?.value
-  if (token) {
-    const payload = decodeJwt(token)
+  // VERIFIED, not just decoded (22 Oct 2026): this used to decode disco_token
+  // and believe its reference/email, so a hand-made cookie naming any customer
+  // reached their saved cards, addresses and recurring orders — including
+  // creating a recurring order charged to their card. FamilyMeal must accept
+  // the token first (lib/fm-token-verify.ts); otherwise it is ignored and only
+  // the Disco customer session below can identify the caller.
+  const payload = token ? await verifiedFmClaims(token) : null
+  if (payload) {
     const reference = (payload?.reference as string) || (payload?.sub as string) || ''
     if (reference) {
       return {

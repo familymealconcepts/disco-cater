@@ -19,7 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateCompact, commitCompactToGitHub } from '../../../../lib/generateCompact'
-import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
 // Super-admin button — admin session cookie OR Bearer CRON_SECRET.
 export async function POST(req: NextRequest) {
-  const ok = hasCronSecret(req) || !!getAdminTokenFromRequest(req)
+  const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     return NextResponse.json(await regenerate())

@@ -16,7 +16,7 @@
 //            this can also be triggered on demand from the admin UI.
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
-import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkMenuDrift } from '../../../../lib/menu-drift'
 import { alertOps } from '../../../../lib/ops-alert'
 
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const ok = hasCronSecret(req) || !!getAdminTokenFromRequest(req)
+  const ok = hasCronSecret(req) || await isVerifiedSuperAdminRequest(req)
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }
