@@ -15,6 +15,7 @@ import FavoriteHeart from '../account/components/FavoriteHeart'
 import { useAuthContext } from '../../context/AuthContext'
 import UserMenu from '../../components/UserMenu'
 import AuthModal from '../../components/AuthModal'
+import { geocodeTypedLocation } from '../../../lib/geocode-client'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
@@ -54,6 +55,12 @@ function nearestNeighborOrder(list: Restaurant[], start: { lat: number; lng: num
     remaining.splice(minIdx, 1)
   }
   return result
+}
+
+function anchorFromParams(params: { get(name: string): string | null }): { lat: number; lng: number } | null {
+  const lat = parseFloat(params.get('lat') ?? '')
+  const lng = parseFloat(params.get('lng') ?? '')
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null
 }
 
 function useIsMobile() {
@@ -115,7 +122,8 @@ function FullMapInner() {
   // final order — gates the sidebar so it never paints the raw (unsorted) list
   // and then visibly reorders into the featured/alphabetical order.
   const [listReady, setListReady] = useState(false)
-  const [search, setSearch] = useState('')
+  // ?search= comes from the homepage when the query was a cuisine ("Italian").
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
 
 // ── ACQUISITION SOURCE TAGGING ──────────────────────────────────────────────
 // The map, the search box and the AI chat all live on this one page and all
@@ -145,11 +153,31 @@ function FullMapInner() {
   const [cuisineTypes, setCuisineTypes] = useState<string[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [locInput, setLocInput] = useState('')
+  const [locInput, setLocInput] = useState(() => searchParams.get('q') || '')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
   const [showLocModal, setShowLocModal] = useState(false)
-  const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
+  // Seeded from ?lat=&lng= on the FIRST render, independent of the map, so the
+  // list is filtered/sorted by the searched location on every device — phones
+  // included, where the map is not built until "Map" is tapped.
+  const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(() => anchorFromParams(searchParams))
+  const proximityAnchorRef = useRef(proximityAnchor)
+  proximityAnchorRef.current = proximityAnchor
+  // Client-side navigation to /fullmap with different params (same mounted page).
+  const paramsKey = `${searchParams.get('lat')}|${searchParams.get('lng')}|${searchParams.get('q')}|${searchParams.get('search')}`
+  const firstParamsKey = useRef(paramsKey)
+  useEffect(() => {
+    if (paramsKey === firstParamsKey.current) return
+    firstParamsKey.current = paramsKey
+    const a = anchorFromParams(searchParams)
+    if (a) {
+      setProximityAnchor(a)
+      setLocInput(searchParams.get('q') || '')
+      map.current?.flyTo({ center: [a.lng, a.lat], zoom: 11, speed: 1.2, essential: true })
+    }
+    const s = searchParams.get('search')
+    if (s) { setSearch(s); setMobileSearchOpen(true) }
+  }, [paramsKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const [sortAnchor, setSortAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
   const [chatOpen, setChatOpen] = useState(false)
@@ -169,7 +197,7 @@ function FullMapInner() {
   const [treeAiText, setTreeAiText] = useState('')
   const [treeLoading, setTreeLoading] = useState(false)
 
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(() => !!searchParams.get('search'))
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
   const filteredRef = useRef<Restaurant[]>([])
   const lastTapTimes = useRef<{ [id: string]: number }>({})
@@ -283,12 +311,19 @@ function FullMapInner() {
 
   function initMapInstance() {
     if (map.current || !mapContainer.current) return
+    // Build the map already centred on the searched location, if there is one.
+    // The location used to be applied only in this function's 'load' handler,
+    // and on phones this function does not run until the diner taps "Map" — so
+    // the list ignored the searched city and the map opened on the default
+    // view. The anchor is now state from the first render (see
+    // anchorFromParams), and the map just reads it whenever it is built.
+    const anchor = proximityAnchorRef.current
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/light-v10',
       projection: { name: 'mercator' },
-      center: [-96, 39.5],
-      zoom: 4,
+      center: anchor ? [anchor.lng, anchor.lat] : [-96, 39.5],
+      zoom: anchor ? 11 : 4,
       maxBounds: [[-168, 15], [-52, 72]],
       cooperativeGestures: false,
     })
@@ -297,14 +332,6 @@ function FullMapInner() {
     // trapping the wheel. Zoom via the +/− NavigationControl (desktop) or
     // pinch (mobile, still enabled); drag to pan.
     map.current.scrollZoom.disable()
-    const lat = searchParams.get('lat')
-    const lng = searchParams.get('lng')
-    if (lat && lng) {
-      map.current.on('load', () => {
-        map.current?.flyTo({ center: [parseFloat(lng), parseFloat(lat)], zoom: 11, speed: 1.2 })
-        setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lng) })
-      })
-    }
   }
 
   useEffect(() => {
@@ -576,15 +603,14 @@ function FullMapInner() {
     setLocLoading(true)
     setLocError('')
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locInput)}&format=json&limit=1&countrycodes=us`,
-        { headers: { 'Accept-Language': 'en' } }
-      )
-      const data = await res.json()
-      if (data && data[0]) {
-        const { lat, lon } = data[0]
-        map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 3, essential: true })
-        setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lon) })
+      // Sets the anchor whether or not the map exists yet: on phones the map is
+      // only built when the diner taps "Map", and it is then created centred on
+      // proximityAnchorRef (see initMapInstance), so the list filters now and
+      // the map opens on the searched place.
+      const hit = await geocodeTypedLocation(locInput)
+      if (hit) {
+        map.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 11, speed: 3, essential: true })
+        setProximityAnchor({ lat: hit.lat, lng: hit.lng })
       } else {
         setLocError('Location not found')
       }
@@ -904,17 +930,13 @@ function FullMapInner() {
               onChange={e => setLocInput(e.target.value)}
               onKeyDown={async e => {
                 if (e.key !== 'Enter' || !locInput.trim()) return
-                try {
-                  const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locInput)}&format=json&limit=1&countrycodes=us`, { headers: { 'Accept-Language': 'en' } })
-                  const data = await res.json()
-                  if (data?.[0]) {
-                    const { lat, lon } = data[0]
-                    map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 3, essential: true })
-                    setLocationStr(locInput)
-                    setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lon) })
-                    setIntakeStep('occasion')
-                  }
-                } catch {}
+                const hit = await geocodeTypedLocation(locInput)
+                if (hit) {
+                  map.current?.flyTo({ center: [hit.lng, hit.lat], zoom: 11, speed: 3, essential: true })
+                  setLocationStr(locInput)
+                  setProximityAnchor({ lat: hit.lat, lng: hit.lng })
+                  setIntakeStep('occasion')
+                }
               }}
               placeholder="City or address…"
               style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 12, border: `1.5px solid ${DK}`, fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fff', color: '#111' }}

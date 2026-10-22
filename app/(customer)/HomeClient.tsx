@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import NavAuthButton from '../components/NavAuthButton'
 import { useAuthContext } from '../context/AuthContext'
+import { geocodeTypedLocation, isCuisineQuery } from '../../lib/geocode-client'
 
 const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
@@ -25,6 +26,15 @@ export default function HomeClient() {
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<any>(null)
+  // Admin-managed cuisine names, so a typed "Poke" etc. routes as a cuisine
+  // search too (lib/geocode-client.ts carries a static list as the floor).
+  const cuisineTypesRef = useRef<string[]>([])
+  useEffect(() => {
+    fetch('/api/cuisine-types')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (Array.isArray(d?.cuisineTypes)) cuisineTypesRef.current = d.cuisineTypes })
+      .catch(() => {})
+  }, [])
 
   // Auto-open the login modal when arriving with ?login=true (or login=1), e.g.
   // from the reset-password "Log In" button or an auth-gated redirect. Strip the
@@ -80,7 +90,8 @@ export default function HomeClient() {
       if (place?.geometry?.location) {
         const lat = place.geometry.location.lat()
         const lng = place.geometry.location.lng()
-        router.push(`/fullmap?lat=${lat}&lng=${lng}`)
+        const label = place.formatted_address || inputRef.current?.value || ''
+        router.push(`/fullmap?lat=${lat}&lng=${lng}${label ? `&q=${encodeURIComponent(label)}` : ''}`)
       } else {
         setError('Please select a location from the dropdown.')
       }
@@ -89,24 +100,28 @@ export default function HomeClient() {
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
-    if (!address.trim()) return
+    const query = address.trim()
+    if (!query) return
     setLoading(true)
     setError('')
     try {
-      const geocoder = new window.google.maps.Geocoder()
-      geocoder.geocode(
-        { address, region: 'us' },
-        (results: any, status: any) => {
-          if (status === 'OK' && results[0]) {
-            const lat = results[0].geometry.location.lat()
-            const lng = results[0].geometry.location.lng()
-            router.push(`/fullmap?lat=${lat}&lng=${lng}`)
-          } else {
-            setError('Address not found. Try a city, zip, or full address.')
-            setLoading(false)
-          }
-        }
-      )
+      // A cuisine/food word ("Italian", "BBQ") is a restaurant search, not a
+      // place — geocoders resolve those to Italian Village OH / Bbq Lane MI.
+      if (isCuisineQuery(query, cuisineTypesRef.current)) {
+        router.push(`/fullmap?search=${encodeURIComponent(query)}`)
+        return
+      }
+      // Typed text with no suggestion clicked. This used to call Google's
+      // Geocoder directly, which the browser key is NOT authorised for, so every
+      // typed city said "Address not found". geocodeTypedLocation tries Mapbox,
+      // then Google Places predictions, then Google Geocoding.
+      const hit = await geocodeTypedLocation(query)
+      if (hit) {
+        router.push(`/fullmap?lat=${hit.lat}&lng=${hit.lng}&q=${encodeURIComponent(query)}`)
+      } else {
+        setError('Address not found. Try a city, zip, or full address.')
+        setLoading(false)
+      }
     } catch {
       setError('Something went wrong. Please try again.')
       setLoading(false)
