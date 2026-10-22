@@ -1,4 +1,5 @@
 import { sql } from './db'
+import { syncAfterGrant } from './location-groups'
 import { randomUUID, randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 
@@ -358,6 +359,9 @@ export async function grantLocationAccess(email: string, restaurantReference: st
     VALUES (${email}, ${restaurantReference}, ${grantedBy})
     ON CONFLICT (account_email, restaurant_reference) DO NOTHING
   `
+  // Group rules (lib/location-groups.ts): the location joins the grantee's
+  // group if it has none, the group's Primary gets it, the grantee gets its copies.
+  await syncAfterGrant(email, [restaurantReference])
 }
 
 // Revoke access to a location. The caller is responsible for refusing to remove

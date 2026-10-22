@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader, getAdminEmail } from '../../../../../lib/admin-auth'
 import { sql } from '../../../../../lib/db'
+import { syncAfterGrant } from '../../../../../lib/location-groups'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -40,6 +41,7 @@ async function writeDiscoLocationList(email: string, refs: string[], actor: stri
            SELECT 1 FROM disco_restaurant_location_access
             WHERE lower(account_email) = ${email} AND restaurant_reference = r)`,
   ])
+  await syncAfterGrant(email, refs)
 }
 
 async function updateDiscoSystemAdmin(email: string, body: Record<string, unknown>, actor: string | null) {

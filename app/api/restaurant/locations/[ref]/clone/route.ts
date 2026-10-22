@@ -5,6 +5,7 @@ import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-
 import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { placeNewLocation } from '../../../../../../lib/location-groups'
 import { cloneDiscoRestaurantMenus, cloneDiscoRestaurantOverrides } from '../../../../../../lib/locations/clone-restaurant'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -110,6 +111,7 @@ async function rollbackPartialClone(ref: string): Promise<void> {
   await run(() => sql`DELETE FROM disco_modifiers WHERE restaurant_reference = ${ref}::uuid`)
   await run(() => sql`DELETE FROM disco_restaurant_closed_days WHERE restaurant_reference = ${ref}::uuid`)
   await run(() => sql`DELETE FROM disco_multi_unit_link_members WHERE restaurant_reference = ${ref}`)
+  await run(() => sql`DELETE FROM disco_location_groups WHERE restaurant_reference = ${ref}`)
   await run(() => sql`DELETE FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref}`)
   await run(() => sql`DELETE FROM disco_restaurant_cache WHERE restaurant_reference = ${ref}`)
   void steps
@@ -304,6 +306,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
       // a failed clone that already wrote a menu tree is not.
       console.error('[locations/clone] could not add the copy to the source chain:', newRef, e instanceof Error ? e.message : e)
     }
+    // A copy belongs to its original's group, and everyone holding the original
+    // already got it above (lib/location-groups.ts records the link).
+    await placeNewLocation(newRef, { copyOf: ref })
     await cloneDiscoRestaurantMenus(ref, newRef)
     // The settings row, WITHOUT the Stripe account — see cloneDiscoRestaurantOverrides.
     // Without this the duplicate has no tax config and checkout refuses every order,

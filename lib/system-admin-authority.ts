@@ -1,4 +1,5 @@
 import { sql } from './db'
+import { syncAfterGrant } from './location-groups'
 import type { RestaurantAuthContext } from './restaurant-auth-context'
 import { resolveDiscoAccessScope, discoRefAllowed, type DiscoPermittedRefs } from './restaurant-write-scope'
 
@@ -182,6 +183,8 @@ export async function applyListChange(email: string, added: string[], removed: s
     SELECT (SELECT COUNT(*)::int FROM removed) AS removed, (SELECT COUNT(*)::int FROM added) AS added
   `) as Array<{ removed: number; added: number }>
   await realignAnchor(e)
+  // Group rules: the group's Primary and copies follow every addition.
+  if (added.length) await syncAfterGrant(e, added)
   return res[0] ?? { removed: 0, added: 0 }
 }
 

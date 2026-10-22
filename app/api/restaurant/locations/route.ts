@@ -6,6 +6,7 @@ import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-contex
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
+import { placeNewLocation, syncAfterGrant } from '../../../../lib/location-groups'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -205,6 +206,9 @@ export async function POST(req: NextRequest) {
       SELECT e, ${ref}, ${creator} FROM unnest(${owners}::text[]) AS e
       ON CONFLICT (account_email, restaurant_reference) DO NOTHING
     `
+    // The new location joins the creator's group; the group's Primary gets it.
+    await placeNewLocation(ref, { creatorEmail: creator })
+    await syncAfterGrant(creator, [ref])
     return NextResponse.json({ ok: true, reference: ref, name, grantedTo: owners })
   } catch (e) {
     console.error('[restaurant/locations POST] create failed:', ref, e instanceof Error ? e.message : e)
