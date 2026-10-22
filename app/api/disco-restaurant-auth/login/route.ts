@@ -164,6 +164,12 @@ export async function POST(req: NextRequest) {
     // Archived restaurants have no login path — checked AFTER identity/password
     // (so a wrong password still reads as "invalid," not "archived," giving
     // nothing away to an unauthenticated caller), before a session is issued.
+    // A removed (archived) person cannot sign in. Checked per ACCOUNT here;
+    // the restaurant-wide gate below now reads the restaurant's own archive.
+    if (account.archived_at) {
+      return NextResponse.json({ error: 'This account has been removed. Ask your restaurant’s admin to invite you again.' }, { status: 403 })
+    }
+
     // A System Admin with an empty location list has nowhere to land, and the
     // session gate would refuse any session issued now. Say so plainly.
     if (await isSystemAdminWithNoLocations(email)) {

@@ -142,8 +142,16 @@ export async function acceptInvite(email: string, passwordHash: string): Promise
 export async function isDiscoRestaurantArchived(restaurantReference: string): Promise<boolean> {
   if (!restaurantReference) return false
   try {
+    // ── THE RESTAURANT'S ARCHIVE, NOT ANY ONE ACCOUNT'S (22 Oct 2026) ────────
+    // This asked whether ANY account at the restaurant was archived. Removing
+    // one team member archives just their account, so it locked EVERYONE ELSE
+    // at that location out with "This restaurant is no longer active" — found
+    // live on 22 Oct: Pete's Bagels - Tarpon Springs, DeCheco's - Munroe
+    // Falls, Purslane x Milk Bar and three EggBred locations, none of them
+    // archived. A restaurant's archive is disco_restaurant_overrides.archived_at
+    // (CLAUDE.md; lib/disco-restaurant-archive.ts writes it on every archive).
     const rows = (await sql`
-      SELECT 1 FROM disco_restaurant_accounts
+      SELECT 1 FROM disco_restaurant_overrides
       WHERE restaurant_reference = ${restaurantReference} AND archived_at IS NOT NULL
       LIMIT 1
     `) as unknown[]
@@ -257,6 +265,10 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
     LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = s.restaurant_reference
     WHERE s.token = ${token} AND s.expires_at > NOW()
       AND (a.email IS NOT NULL OR s.via_master_password = TRUE)
+      -- An ARCHIVED account's sessions end. (This used to be enforced only by
+      -- accident, through the restaurant-wide archive gate reading any one
+      -- account's archived_at — see isDiscoRestaurantArchived.)
+      AND a.archived_at IS NULL
       -- ── A SYSTEM ADMIN'S SESSION MUST SIT ON THEIR LIST ─────────────────
       -- Disco owns each System Admin's location list, and a location removed
       -- from it must stop working at once — not on the next login. The
