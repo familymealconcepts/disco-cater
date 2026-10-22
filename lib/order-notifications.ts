@@ -346,6 +346,20 @@ async function recordConfirmationOutcome(
   }
 }
 
+// A deliberate one-address resend gets its own row each time; the once-only
+// ORDER_CONFIRMATIONS_SENT record of the original dispatch is not touched.
+async function recordResend(orderReference: string, source: string, results: DispatchOutcome[]): Promise<void> {
+  if (!orderReference || !results.length) return
+  try {
+    const payload = JSON.stringify({ completedAt: new Date().toISOString(), recipients: results })
+    await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      VALUES (${orderReference}::uuid, 'ORDER_EMAIL_RESENT', ${payload}::jsonb, ${source})`
+  } catch (err) {
+    console.error('[order-notifications] could not record resend:', err instanceof Error ? err.message : err)
+  }
+}
+
 // Wrap one send so a rejection can never escape and the result is uniform.
 function track(kind: DispatchOutcome['kind'], to: string, p: Promise<{ success: boolean; id?: string; error?: string }>): Promise<DispatchOutcome> {
   return p.then(
@@ -381,10 +395,16 @@ function track(kind: DispatchOutcome['kind'], to: string, p: Promise<{ success: 
 // opts.force skips the once-only claim (for a deliberate admin resend);
 // opts.customerOnly sends just the customer confirmation email (no restaurant
 // email / SMS / Slack) and awaits it. Both default off — normal dispatch unchanged.
+// opts.resendTo sends exactly ONE email — the customer confirmation or the
+// restaurant new-order email, same template and PDF — to one address, and
+// nothing else (no other recipients, FM copy, SMS or Slack). It is for a human
+// re-sending an email Mailgun could not deliver (lib/email-failures.ts), and is
+// recorded as its own ORDER_EMAIL_RESENT event so the original dispatch record
+// is left as it was. Implies force.
 export async function dispatchOrderConfirmations(
   orderId: number,
   source: string = 'STRIPE_WEBHOOK',
-  opts?: { force?: boolean; customerOnly?: boolean },
+  opts?: { force?: boolean; customerOnly?: boolean; resendTo?: { kind: 'customer' | 'restaurant'; to: string } },
 ): Promise<void> {
   // Declared OUTSIDE the try so the finally below can always drain it. If the
   // body throws after a send has been started, that send is still in flight and
@@ -408,7 +428,7 @@ export async function dispatchOrderConfirmations(
     // A forced resend (admin) deliberately bypasses the guard.
     const reference = o.reference ? String(o.reference) : ''
     outcomeRef = reference
-    if (reference && !opts?.force) {
+    if (reference && !opts?.force && !opts?.resendTo) {
       const won = await claimConfirmationSend(reference, source)
       if (!won) {
         console.log('[order-notifications] confirmations already sent, skipping:', reference)
@@ -583,6 +603,21 @@ export async function dispatchOrderConfirmations(
       } catch (err) {
         console.error('[order-notifications] order PDF build failed (sending email without it):', err instanceof Error ? err.message : err)
       }
+    }
+
+    if (opts?.resendTo) {
+      const { kind, to } = opts.resendTo
+      pending.push(track(kind, to, kind === 'customer'
+        ? sendCustomerOrderConfirmation({ ...shared, to, attachments: pdfAttachments })
+        : sendRestaurantOrderNotification({
+            ...shared,
+            restaurantEmail: to,
+            deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
+            sourceOfOrder: o.source_of_order ? String(o.source_of_order) : '',
+            isDirectEntry: o.is_direct_entry === true,
+            attachments: pdfAttachments,
+          })))
+      return
     }
 
     // Customer confirmation — needs a recipient.
@@ -779,7 +814,8 @@ export async function dispatchOrderConfirmations(
       const failed = outcomes.filter((o) => !o.ok)
       console.log(`[order-notifications] dispatch complete for ${outcomeRef || 'order ' + orderId}: ${outcomes.length - failed.length}/${outcomes.length} sent`)
       if (failed.length) console.error('[order-notifications] failed recipients:', JSON.stringify(failed))
-      await recordConfirmationOutcome(outcomeRef, source, outcomes)
+      if (opts?.resendTo) await recordResend(outcomeRef, source, outcomes)
+      else await recordConfirmationOutcome(outcomeRef, source, outcomes)
     }
   }
 }
