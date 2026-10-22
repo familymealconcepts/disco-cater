@@ -25,6 +25,8 @@ const linkBtn: React.CSSProperties = {
   background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600,
   fontFamily: F, cursor: 'pointer', textDecoration: 'underline',
 }
+// Merged onto a forward button while the password must be re-entered.
+const blockedBtn: React.CSSProperties = { opacity: 0.5, cursor: 'default' }
 const h1Style: React.CSSProperties = { fontSize: 26, fontWeight: 800, color: DARK, margin: '0 0 10px', letterSpacing: '-0.02em', lineHeight: 1.2 }
 const subStyle: React.CSSProperties = { fontSize: 14, color: '#585786', lineHeight: 1.6, margin: '0 0 8px' }
 const cardStyle: React.CSSProperties = {
@@ -143,6 +145,22 @@ export default function BecomeAPartnerClient() {
   // Live Stripe verification in flight (issue #1).
   const [stripeChecking, setStripeChecking] = useState(false)
 
+  // ── PASSWORD RE-ENTRY AFTER A RESUME ────────────────────────────────────────
+  // The snapshot deliberately never holds the password, so a wizard that
+  // resumes past step 0 (pull-to-refresh, iOS Safari unloading the tab, the
+  // Stripe redirect round-trip) has none in memory. Stripe Connect and /complete
+  // both REQUIRE it — an existing account must present its own password — so
+  // without this the owner was stuck: every forward button sent an empty
+  // password, and the only escape was Back five times to step 0.
+  //
+  // `passwordReentry` is set once, on a resume past step 0, and shows a
+  // password field on whatever step the owner landed on. Forward buttons are
+  // blocked until it holds 8+ characters. It retires itself on the next step
+  // change once filled, so it does not follow them through the rest of the
+  // wizard. The password stays in React state only — never storage.
+  const [passwordReentry, setPasswordReentry] = useState(false)
+  const pwBlocked = passwordReentry && form.password.length < 8
+
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
   // ── Mount: expire stale sessions, restore the snapshot, handle the Stripe return ──
@@ -200,14 +218,21 @@ export default function BecomeAPartnerClient() {
       }
     }
 
+    let resumedPastStep0 = !!snap && !isStripeReturn && Number.isFinite(snap.step) && (snap.step as number) >= 1 && (snap.step as number) <= 6
+
     if (isStripeReturn) {
       // Returning from Stripe → land on the Stripe step. Do NOT optimistically
       // mark connected; the live-verify effect below confirms charges_enabled
       // and reconciles the UI (issue #1).
       if (refFromQuery) setRestaurantRef(refFromQuery)
       setStep(5)
+      resumedPastStep0 = true
       try { window.history.replaceState({}, '', '/become-a-partner') } catch { /* ignore */ }
     }
+
+    // A fresh page load never has the password (it is never persisted), so any
+    // resume past step 0 needs it typed again. See `passwordReentry`.
+    if (resumedPastStep0) setPasswordReentry(true)
 
     setRestored(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,6 +310,14 @@ export default function BecomeAPartnerClient() {
     document.head.appendChild(s)
   }, [step])
 
+  // Retire the re-entry field once it has done its job: on the next step change
+  // with a usable password in memory. Not on keystrokes — the field must not
+  // vanish under the owner's fingers at the 8th character.
+  useEffect(() => {
+    if (passwordReentry && form.password.length >= 8) setPasswordReentry(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
   // Fire the final account-creation call exactly once when we reach the live step.
   useEffect(() => {
     if (step === 7 && !completeFired.current) {
@@ -303,6 +336,7 @@ export default function BecomeAPartnerClient() {
   // redirect so the page reload keeps its place. ──
   async function connectStripe() {
     setError('')
+    if (pwBlocked) { setError('Please re-enter your password to continue.'); return }
     setLoading(true)
     try {
       const res = await fetch('/api/become-a-partner/stripe-connect', {
@@ -423,6 +457,17 @@ export default function BecomeAPartnerClient() {
   // sends the welcome email + Slack. Retry-safe. ──
   async function completeOnboarding() {
     setError('')
+    if (form.password.length < 8) {
+      // Never send an empty password — the server rejects it, and for an
+      // existing account it reads as a wrong one. Back to the menu step, where
+      // the re-entry field is shown. (Unreachable through the UI today: step 6
+      // is blocked until the password is re-entered. This is the backstop.)
+      setPasswordReentry(true)
+      completeFired.current = false
+      setError('Please re-enter your password to finish setting up your account.')
+      setStep(6)
+      return
+    }
     setCompleting(true)
     try {
       const res = await fetch('/api/become-a-partner/complete', {
@@ -469,6 +514,23 @@ export default function BecomeAPartnerClient() {
   const errorBox = error ? (
     <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, margin: '0 0 14px' }}>
       {error}
+    </div>
+  ) : null
+
+  // Shown on the current step (1–6) after a resume, right under the error box.
+  // autoComplete=current-password so a password manager can fill it, with the
+  // email as a hidden username so it fills the RIGHT entry.
+  const reentryBox = passwordReentry && step >= 1 && step <= 6 ? (
+    <div style={{ background: '#f4f6ff', border: '1px solid #dfe4ff', borderRadius: 14, padding: '14px 16px 2px', margin: '14px 0 4px' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: DARK, marginBottom: 4 }}>Re-enter your password to continue</div>
+      <div style={{ fontSize: 12.5, color: '#585786', lineHeight: 1.5, marginBottom: 10, overflowWrap: 'anywhere' }}>
+        Your progress was saved, but for your security we never save your password. Enter the password you created{form.email ? <> for <strong>{form.email}</strong></> : null}.
+      </div>
+      <input type="email" name="partner-username" autoComplete="username" value={form.email} readOnly hidden />
+      <Field label="Password" value={form.password} onChange={v => set('password', v)} name="partner-password" type="password" autoComplete="current-password" />
+      {form.password.length > 0 && form.password.length < 8 && (
+        <div style={{ fontSize: 12, color: '#c0392b', margin: '-8px 0 10px', paddingLeft: 4 }}>Minimum 8 characters</div>
+      )}
     </div>
   ) : null
 
@@ -556,6 +618,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}>Restaurant info</h1>
               <p style={subStyle}>Start with 1 location and our team can help onboard the rest.</p>
               {errorBox}
+              {reentryBox}
               <div style={{ marginTop: 18 }}>
                 <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} name="partner-restaurant-name" autoComplete="organization" />
                 <div style={{ marginBottom: 14 }}>
@@ -640,8 +703,8 @@ export default function BecomeAPartnerClient() {
                   if (phoneDigits.length !== 10) { setError('Phone number must be 10 digits (US format). Check for an autofilled country code or extra characters.'); return }
                   setStep(2)
                 }}
-                disabled={!step1Valid}
-                style={{ ...primaryBtn, marginTop: 8, opacity: step1Valid ? 1 : 0.5, cursor: step1Valid ? 'pointer' : 'default' }}>
+                disabled={!step1Valid || pwBlocked}
+                style={{ ...primaryBtn, marginTop: 8, opacity: step1Valid && !pwBlocked ? 1 : 0.5, cursor: step1Valid && !pwBlocked ? 'pointer' : 'default' }}>
                 Next
               </button>
             </div>
@@ -653,6 +716,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> First-Party Ordering</h1>
               <p style={subStyle}>Orders placed through your website, social and other native links.</p>
               {errorBox}
+              {reentryBox}
 
               <div style={{ marginTop: 18 }}>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
@@ -675,8 +739,8 @@ export default function BecomeAPartnerClient() {
                 </span>
               </label>
 
-              <button onClick={() => { setError(''); setStep(3) }} disabled={!agree}
-                style={{ ...primaryBtn, opacity: agree ? 1 : 0.5, cursor: agree ? 'pointer' : 'default' }}>
+              <button onClick={() => { setError(''); setStep(3) }} disabled={!agree || pwBlocked}
+                style={{ ...primaryBtn, opacity: agree && !pwBlocked ? 1 : 0.5, cursor: agree && !pwBlocked ? 'pointer' : 'default' }}>
                 Continue
               </button>
             </div>
@@ -688,6 +752,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> Marketplace (Optional)</h1>
               <p style={subStyle}>We send you new catering orders through the Disco Cater network of corporate and social customers. Fees only apply when we are the source of the order.</p>
               {errorBox}
+              {reentryBox}
 
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
                 <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
@@ -697,12 +762,12 @@ export default function BecomeAPartnerClient() {
                 All First-Party ordering fees apply.
               </div>
 
-              <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(4) }}
-                style={{ ...primaryBtn, marginTop: 22 }}>
+              <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(4) }} disabled={pwBlocked}
+                style={{ ...primaryBtn, ...(pwBlocked ? blockedBtn : null), marginTop: 22 }}>
                 Join Marketplace
               </button>
               <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <button onClick={() => { setError(''); setJoinedMarketplace(false); setStep(4) }} style={linkBtn}>
+                <button onClick={() => { setError(''); setJoinedMarketplace(false); setStep(4) }} disabled={pwBlocked} style={{ ...linkBtn, ...(pwBlocked ? blockedBtn : null) }}>
                   Skip for now
                 </button>
               </div>
@@ -715,6 +780,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}>Third-Party Delivery (Optional)</h1>
               <p style={subStyle}>Offer your customers catering-specific delivery drivers, automatically dispatched when they choose delivery at checkout.</p>
               {errorBox}
+              {reentryBox}
 
               <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {['Catering-specific drivers', '15% of Subtotal, $85 cap', 'Setup included', 'Proactive support'].map(b => (
@@ -724,12 +790,12 @@ export default function BecomeAPartnerClient() {
                 ))}
               </div>
 
-              <button onClick={() => { setError(''); setDeliveryEnabled(true); setStep(5) }}
-                style={{ ...primaryBtn, marginTop: 24 }}>
+              <button onClick={() => { setError(''); setDeliveryEnabled(true); setStep(5) }} disabled={pwBlocked}
+                style={{ ...primaryBtn, ...(pwBlocked ? blockedBtn : null), marginTop: 24 }}>
                 Enable Third-Party Delivery
               </button>
               <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <button onClick={() => { setError(''); setDeliveryEnabled(false); setStep(5) }} style={linkBtn}>
+                <button onClick={() => { setError(''); setDeliveryEnabled(false); setStep(5) }} disabled={pwBlocked} style={{ ...linkBtn, ...(pwBlocked ? blockedBtn : null) }}>
                   Skip for now
                 </button>
               </div>
@@ -742,6 +808,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}>Connect Stripe for payouts</h1>
               <p style={subStyle}>Connect your bank account through Stripe to receive payouts from catering orders.</p>
               {errorBox}
+              {reentryBox}
 
               <div style={{ marginTop: 18 }}>
                 {stripeChecking ? (
@@ -755,19 +822,19 @@ export default function BecomeAPartnerClient() {
                       style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                       ✓ Stripe connected
                     </button>
-                    <button onClick={() => { setError(''); setStep(6) }} style={{ ...primaryBtn, marginTop: 12 }}>
+                    <button onClick={() => { setError(''); setStep(6) }} disabled={pwBlocked} style={{ ...primaryBtn, marginTop: 12, ...(pwBlocked ? blockedBtn : null) }}>
                       Continue
                     </button>
                   </>
                 ) : (
                   <>
-                    <button onClick={connectStripe} disabled={loading}
-                      style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                    <button onClick={connectStripe} disabled={loading || pwBlocked}
+                      style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : pwBlocked ? 0.5 : 1, cursor: loading || pwBlocked ? 'default' : 'pointer' }}>
                       {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
                     </button>
                     {/* Skippable — banking can be set up later from the dashboard. */}
                     <div style={{ textAlign: 'center', marginTop: 14 }}>
-                      <button onClick={() => { setError(''); setStep(6) }} style={linkBtn}>
+                      <button onClick={() => { setError(''); setStep(6) }} disabled={pwBlocked} style={{ ...linkBtn, ...(pwBlocked ? blockedBtn : null) }}>
                         Skip for now
                       </button>
                       <p style={{ fontSize: 12, color: '#999', margin: '8px auto 0', maxWidth: 360, lineHeight: 1.5 }}>
@@ -786,6 +853,7 @@ export default function BecomeAPartnerClient() {
               <h1 style={h1Style}>Upload your menu</h1>
               <p style={subStyle}>Upload a PDF or paste a link and our team will set up your catering menu. You can also add items yourself anytime from your dashboard.</p>
               {errorBox}
+              {reentryBox}
 
               {menuProcessing ? (
                 <div style={{ marginTop: 24, textAlign: 'center', padding: '28px 10px' }}>
@@ -806,7 +874,7 @@ export default function BecomeAPartnerClient() {
                       Our team will set up your catering menu. You can also add items yourself anytime from your dashboard.
                     </p>
                   </div>
-                  <button onClick={() => setStep(7)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
+                  <button onClick={() => setStep(7)} disabled={pwBlocked} style={{ ...primaryBtn, marginTop: 18, ...(pwBlocked ? blockedBtn : null) }}>Continue</button>
                 </div>
 
               ) : (
@@ -853,12 +921,12 @@ export default function BecomeAPartnerClient() {
                     </div>
                   )}
 
-                  <button onClick={uploadMenu} style={{ ...primaryBtn, marginTop: 24 }}>
+                  <button onClick={uploadMenu} disabled={pwBlocked} style={{ ...primaryBtn, marginTop: 24, ...(pwBlocked ? blockedBtn : null) }}>
                     Upload Menu
                   </button>
 
                   <div style={{ textAlign: 'center', marginTop: 12 }}>
-                    <button onClick={skipMenu} style={linkBtn}>
+                    <button onClick={skipMenu} disabled={pwBlocked} style={{ ...linkBtn, ...(pwBlocked ? blockedBtn : null) }}>
                       Skip for now
                     </button>
                   </div>

@@ -157,8 +157,8 @@ export default function MenusPage() {
   const tdStyle: React.CSSProperties = { padding: '12px', fontSize: 13, color: DARK, verticalAlign: 'middle' }
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Menus</h1>
         <button
           onClick={() => setCreating(true)}
@@ -169,7 +169,7 @@ export default function MenusPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #eee' }}>
+      <div className="dc-tab-row" style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #eee' }}>
         {TABS.map((t, i) => (
           <button
             key={t.filter}
@@ -185,7 +185,9 @@ export default function MenusPage() {
         ))}
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+      {/* dc-xscroll: the table scrolls sideways in here on narrow screens
+          rather than being clipped past "Menu Settings". */}
+      <div className="dc-xscroll" style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading...</div>
         ) : menus.length === 0 ? (

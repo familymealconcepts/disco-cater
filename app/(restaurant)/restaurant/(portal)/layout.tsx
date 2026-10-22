@@ -364,6 +364,39 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           /* No child may widen the viewport itself -- that re-scales the page
              and is what leaves the header short of the screen edge. */
           .dc-shell-guard { overflow-x: hidden; max-width: 100vw; }
+
+          /* Tab strips (Orders, Menus): scroll sideways inside themselves
+             rather than run past the guard above, where the last tabs were
+             clipped and unreachable on an iPhone SE. The -1px overlap onto
+             the strip's bottom border is dropped, because a scroll container
+             clips it and would otherwise scroll by that pixel vertically. */
+          .dc-tab-row {
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
+            flex-wrap: nowrap !important; scrollbar-width: none;
+          }
+          .dc-tab-row::-webkit-scrollbar { display: none; }
+          .dc-tab-row > * { flex-shrink: 0; margin-bottom: 0 !important; }
+        }
+
+        /* Menu editor (menu-manager/[ref]): categories beside items needs
+           ~800px of content. Below 1024px viewport (portrait iPad leaves
+           ~530px after the sidebar; phones far less) the items pane -- and its
+           Create / Add Existing / per-item buttons -- ran past the guard and
+           were unreachable. Stack the categories above the items instead. */
+        @media (max-width: 1023px) {
+          .mm-editor-grid { grid-template-columns: minmax(0, 1fr) !important; }
+          .mm-items-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          /* Pin the per-item actions to the visible edge of that scroll box. */
+          .mm-item-actions {
+            position: sticky; right: 0; background: #fff;
+            box-shadow: -10px 0 10px -10px rgba(26,16,40,0.18);
+          }
+        }
+
+        /* Phones: tighter page gutters, and a finger-sized drag handle. */
+        @media (max-width: 767px) {
+          .dc-page-pad { padding-left: 16px !important; padding-right: 16px !important; }
+          .mm-drag-handle { padding: 8px 10px !important; margin: -8px 0 -8px -6px; }
         }
 
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');

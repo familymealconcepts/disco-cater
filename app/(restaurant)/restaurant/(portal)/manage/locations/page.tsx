@@ -411,16 +411,18 @@ export default function LocationsPage() {
   const draggedLoc = draggedRef ? locations.find(l => l.reference === draggedRef) ?? null : null
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      {/* Wraps on narrow screens: a fixed 260px search box used to push
+          "+ Add location" past the portal's overflow guard, out of reach. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Locations</h1>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: '0 1 auto', minWidth: 0, maxWidth: '100%' }}>
           <input
             type="text"
             placeholder="Search…"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
-            style={{ ...input, width: 260 }}
+            style={{ ...input, width: 260, minWidth: 0, flex: '0 1 260px' }}
           />
           <button onClick={() => setAdding(true)}
             style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
@@ -486,7 +488,7 @@ export default function LocationsPage() {
         )}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
         <div style={{ fontSize: 12, color: '#666' }}>
           Showing {locations.length} of {total} location{total === 1 ? '' : 's'}
           {/* WAS STATIC, AND IT LIED. This read "this is everything the FM

@@ -552,7 +552,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
         <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>
       </div>
     )
@@ -561,7 +561,7 @@ export default function ProfilePage() {
   const isDoorDash = restaurant?.deliveryType === 'DOOR_DASH_DELIVERY'
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
       {/* Stripe-not-connected warning — only shown once we know it's disconnected */}
       {stripeConnected === false && (
         <div style={{
@@ -587,7 +587,7 @@ export default function ProfilePage() {
       )}
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 24px' }}>Profile</h1>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(440px, 100%), 1fr))', gap: 20, alignItems: 'start' }}>
         {/* Card 1: Personal Info */}
         <Card title="Profile" onSave={saveProfile} saving={profileSaving} success={profileSuccess} error={profileError}>
           <FormField label="First Name" htmlFor="admin-first-name">

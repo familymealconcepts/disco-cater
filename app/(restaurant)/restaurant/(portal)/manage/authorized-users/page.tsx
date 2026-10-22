@@ -80,7 +80,7 @@ export default function AuthorizedUsersPage() {
 
   if (mode === 'loading') {
     return (
-      <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 18px' }}>Authorized Users</h1>
         <div style={{ color: '#999', fontSize: 13 }}>Loading…</div>
       </div>
@@ -92,7 +92,7 @@ export default function AuthorizedUsersPage() {
   // FamilyMeal. A failed load is shown as a failure, never as another system's list.
   if (mode === 'disco') return <DiscoUsers />
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 18px' }}>Authorized Users</h1>
       <div style={{ color: '#B3261E', fontSize: 13 }}>
         Could not load your team. <button onClick={() => window.location.reload()} style={{ background: 'none', border: 'none', color: BLUE, cursor: 'pointer', fontWeight: 600, fontFamily: F }}>Retry</button>
@@ -265,17 +265,21 @@ function DiscoUsers() {
   }
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 12 }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      {/* Wraps on narrow screens: a fixed 260px search box used to push
+          "+ Add User" past the portal's overflow guard, out of reach. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', marginBottom: 18, gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Authorized Users</h1>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: '0 1 auto', minWidth: 0, maxWidth: '100%' }}>
           <input type="text" placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)}
-            style={{ ...input, width: 260 }} />
+            style={{ ...input, width: 260, minWidth: 0, flex: '0 1 260px' }} />
           <button onClick={openAdd} style={primaryBtn}>+ Add User</button>
         </div>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+      {/* dc-xscroll: the table scrolls sideways inside this box on narrow
+          screens instead of being clipped (portal layout style block). */}
+      <div className="dc-xscroll" style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
             <th style={colHead}>Name</th>

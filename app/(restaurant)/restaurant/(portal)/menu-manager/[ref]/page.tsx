@@ -232,15 +232,15 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
   return (
-    <div style={{ fontFamily: F, padding: '24px 28px' }} onClick={() => setKebab('')}>
+    <div className="dc-page-pad" style={{ fontFamily: F, padding: '24px 28px' }} onClick={() => setKebab('')}>
       {toast && <div style={{ position: 'fixed', top: 20, right: 20, background: '#22C55E', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 999 }}>{toast}</div>}
 
       <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
         <a href="/restaurant/menu-manager" style={{ color: BLUE, textDecoration: 'none' }}>Menus</a>
         <span style={{ margin: '0 6px' }}>/</span><span>{menuName}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>{menuName}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0, minWidth: 0, overflowWrap: 'anywhere' }}>{menuName}</h1>
         <button onClick={() => router.push(`/restaurant/menu-manager/${ref}/edit`)} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Menu Settings</button>
       </div>
 
@@ -252,7 +252,12 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         onDragCancel={() => { setDragId(''); setOverId('') }}
         onDragEnd={handleDragEnd}
       >
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 20, alignItems: 'start' }}>
+      {/* Categories beside items on desktop. Below 1024px the portal's content
+          column is too narrow for both (portrait iPad leaves ~530px after the
+          sidebar), so .mm-editor-grid stacks the categories above the items —
+          see the portal layout's style block. minmax(0,1fr) lets the items pane
+          shrink to the screen instead of pushing its own buttons off it. */}
+      <div className="mm-editor-grid" style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
         {/* ── Category sidebar ── */}
         <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px 10px' }}>Categories</div>
@@ -273,7 +278,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                 // shows where it will land.
                 outline: isOver ? `2px solid ${BLUE}` : 'none', outlineOffset: -2,
                 background: isOver ? '#EEF0FD' : selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
-              <span {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
+              <span {...handleProps} className="mm-drag-handle" style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: selCat === c.reference ? 700 : 500, color: DARK }}>{c.name}</span>
               <button onClick={e => { e.stopPropagation(); setKebab(kebab === c.reference ? '' : c.reference) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 16, padding: '0 4px' }}>⋯</button>
@@ -292,8 +297,8 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         </div>
 
         {/* ── Item table ── */}
-        <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 14 }}>
+        <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 16, minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
             <button disabled={!selCat} onClick={() => setAddExisting(true)} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, color: selCat ? '#555' : '#bbb', cursor: selCat ? 'pointer' : 'not-allowed', fontFamily: F }}>+ Add Existing Item</button>
             <button disabled={!selCat} onClick={() => setItemDlg({ mode: 'create' })} style={{ background: selCat ? BLUE : '#ccc', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: selCat ? 'pointer' : 'not-allowed', fontFamily: F }}>Create Menu Item</button>
           </div>
@@ -302,6 +307,11 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
           ) : catItems.length === 0 ? (
             <div style={{ color: '#aaa', fontSize: 14, padding: 24, textAlign: 'center' }}>No items in this category yet.</div>
           ) : (
+            // .mm-items-scroll scrolls the table sideways on narrow screens
+            // (inert on desktop, so a row dragged onto a category is not
+            // clipped there); .mm-item-actions pins the action buttons to its
+            // right edge so they are on screen without scrolling.
+            <div className="mm-items-scroll">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: '#999', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -310,7 +320,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                   <th style={{ padding: '6px 8px' }}>Description</th>
                   <th style={{ padding: '6px 8px', width: 80 }}>Price</th>
                   <th style={{ padding: '6px 8px', width: 56 }}>Image</th>
-                  <th style={{ padding: '6px 8px', width: 130, textAlign: 'right' }}></th>
+                  <th className="mm-item-actions" style={{ padding: '6px 8px', width: 130, textAlign: 'right' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -322,7 +332,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                     onClick: () => setItemDlg({ mode: 'edit', item: it }),
                   }}>
                 {({ handleProps }) => (<>
-                  <td {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), padding: '10px 8px' }}>{DRAG_GLYPH}</td>
+                  <td {...handleProps} className="mm-drag-handle" style={{ ...(handleProps.style as React.CSSProperties), padding: '10px 8px' }}>{DRAG_GLYPH}</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>
                       {it.name}
                       {!it.visible && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>Inactive</span>}
@@ -331,7 +341,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                     <td style={{ padding: '10px 8px', color: DARK }}>{money(it.price)}</td>
                     <td style={{ padding: '10px 8px' }}>{it.image_url ? <img src={it.image_url} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }} /> : <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f4f4f8' }} />}</td>
                     {/* stopPropagation so the row-level click-to-edit doesn't also fire. */}
-                    <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                    <td className="mm-item-actions" style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                       <button title={it.visible ? 'Hide from customers' : 'Show to customers'} onClick={() => toggleItemVisible(it)} style={iconBtn}>{it.visible ? '👁' : '🚫'}</button>
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
@@ -343,6 +353,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
               </SortableContext>
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

@@ -73,7 +73,19 @@ export default function MenuManagerPage() {
   const arrow = (disabled: boolean): React.CSSProperties => ({ width: 22, height: 18, borderRadius: 5, border: '1px solid #e6e6ee', background: '#fff', cursor: disabled ? 'default' : 'pointer', color: disabled ? '#ccc' : '#777', fontSize: 9, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 })
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 900 }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, maxWidth: 900 }}>
+      {/* Narrow screens: the action group used to keep its full width and
+          squeeze the menu name into a sliver beside "Menu Settings". Let the
+          row wrap so the actions drop beneath the name instead. */}
+      <style>{`
+        @media (max-width: 640px) {
+          .mm-list-row { flex-wrap: wrap; }
+          .mm-list-name { flex: 1 1 100%; }
+          .mm-list-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 8px; }
+          /* The decorative "›" would wrap onto a line of its own. */
+          .mm-list-actions > span:last-child { display: none; }
+        }
+      `}</style>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Menus</h1>
         <button onClick={() => router.push('/restaurant/menu-manager/new')}
@@ -83,7 +95,7 @@ export default function MenuManagerPage() {
       </div>
       {/* Tabs. Reordering is only meaningful where position drives the customer's
           list, so the arrows are hidden outside Active — see `reorderable`. */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #eee', marginBottom: 18 }}>
+      <div className="dc-tab-row" style={{ display: 'flex', gap: 4, borderBottom: '1px solid #eee', marginBottom: 18 }}>
         {(['active', 'inactive', 'archived'] as MenuState[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ background: 'none', border: 'none', borderBottom: tab === t ? `2px solid ${BLUE}` : '2px solid transparent',
@@ -108,10 +120,10 @@ export default function MenuManagerPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {menus.map((m, i) => (
-            <div key={m.reference}
+            <div key={m.reference} className="mm-list-row"
               style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, cursor: 'pointer', opacity: m.archived ? 0.62 : 1 }}
               onClick={() => router.push(`/restaurant/menu-manager/${m.reference}`)}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div className="mm-list-name" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                 {/* Reorder up/down */}
                 {reorderable && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }} onClick={e => e.stopPropagation()}>
@@ -142,7 +154,7 @@ export default function MenuManagerPage() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+              <div className="mm-list-actions" style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                 {!m.archived && <button style={primaryBtn} onClick={() => router.push(`/restaurant/menu-manager/${m.reference}/edit`)}>Menu Settings</button>}
                 <button disabled={busy === m.reference} style={linkBtn} onClick={() => duplicate(m.reference)}>Duplicate</button>
                 {m.archived

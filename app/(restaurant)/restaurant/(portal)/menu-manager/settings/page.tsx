@@ -222,7 +222,13 @@ export default function RestaurantSettingsPage() {
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 680 }}>
+    <div className="dc-page-pad" style={{ padding: '28px 32px', fontFamily: F, maxWidth: 680 }}>
+      <style>{`
+        @media (max-width: 600px) {
+          .cd-add-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; }
+          .cd-add-row > :first-child, .cd-add-row > button { grid-column: 1 / -1; }
+        }
+      `}</style>
       {/* Sticky header keeps Save reachable no matter how far the page scrolls. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F7F8FC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 14px', marginBottom: 8, borderBottom: '1px solid #ececf2' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>General Settings</h1>
@@ -356,7 +362,9 @@ export default function RestaurantSettingsPage() {
             <button onClick={() => removeClosedDay(d.reference)} style={{ background: 'none', border: 'none', color: RED, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Remove</button>
           </div>
         ))}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1.4fr auto', gap: 8, marginTop: 12, alignItems: 'center' }}>
+        {/* .cd-add-row re-flows to two rows on a phone; the date inputs have a
+            wide intrinsic size and pushed "Add" off the screen. */}
+        <div className="cd-add-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) auto', gap: 8, marginTop: 12, alignItems: 'center' }}>
           <input value={cdName} onChange={e => setCdName(e.target.value)} placeholder="Name (e.g. Christmas)" style={input} />
           <input type="date" value={cdFrom} onChange={e => setCdFrom(e.target.value)} style={input} />
           <input type="date" value={cdTo} onChange={e => setCdTo(e.target.value)} style={input} />

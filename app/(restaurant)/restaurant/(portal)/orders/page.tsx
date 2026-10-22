@@ -1711,7 +1711,7 @@ function OrdersContent() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e8e8e8', marginBottom: 20 }}>
+      <div className="dc-tab-row" style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e8e8e8', marginBottom: 20 }}>
         {[['active', 'Active'], ['history', 'Order History'], ['counts', 'Order Counts'], ['calendar', 'Calendar']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{
