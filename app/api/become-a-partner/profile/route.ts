@@ -2,6 +2,7 @@ import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-contex
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { sql, runMigrations } from '../../../../lib/db'
+import { freeRestaurantSlug } from '../../../../lib/link-url-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
     await sql`
       INSERT INTO disco_restaurant_cache
         (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, is_disco_native, is_live, cached_at)
-      VALUES (${ref}, ${businessName}, ${slug}, ${address || null}, ${location || null},
+      VALUES (${ref}, ${businessName}, ${await freeRestaurantSlug(slug, ref)}, ${address || null}, ${location || null},
               ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${cuisine}, ${phone || null}, ${logoUrl},
               true, false, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET

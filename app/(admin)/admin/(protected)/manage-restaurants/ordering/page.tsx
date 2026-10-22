@@ -306,10 +306,11 @@ export default function RestaurantsOrderingPage() {
     reason: string | null
     restaurantName: string | null
     orderCount: number
-    order: { total: number | null; status: string | null; customerEmail: string | null; customerName: string | null; placedAt: string | null } | null
     rowCounts: Record<string, number>
   } | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  // The admin types the location's exact name to arm Permanently Delete.
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
   // Client-side sort of the loaded page. Default: newest registrations first.
   const [sortKey, setSortKey] = useState<SortKey>('createdDate')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -471,31 +472,11 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
-  // "Test account" — admin-only flag (disco_restaurant_overrides.is_test), set via
-  // the overrides PATCH's `isTest`. It does NOT change the Map toggle: flagging a
-  // restaurant that is on the map takes it out of every public listing (the
-  // listing query excludes test accounts) but leaves `visible` as it was, so
-  // clearing the flag is a clean undo. While it is set, the Map toggle cannot be
-  // turned on. Audited server-side as test_flag_update.
-  async function toggleTest(r: Restaurant) {
-    const cur = overrideMap[r.reference] || defaultOverrideMeta(false)
-    const next = !cur.isTest
-    setOverrideMap(prev => ({ ...prev, [r.reference]: { ...cur, isTest: next } }))
-    try {
-      const res = await fetch('/api/admin/restaurant-overrides', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: r.reference, isTest: next }),
-      })
-      if (!res.ok) throw new Error()
-      showToast(next
-        ? `${r.businessName} marked as a test account — hidden from public listings`
-        : `${r.businessName} is no longer a test account`)
-    } catch {
-      setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
-      showToast('Could not update the test account flag')
-    }
-  }
+  // The "Test" toggle that sat under Map was removed from this page (Peter,
+  // 22 Oct 2026) — UI only. disco_restaurant_overrides.is_test, the overrides
+  // PATCH's `isTest`, the Map-toggle veto above and every public-listing filter
+  // are unchanged, and no restaurant's value was touched; the row still shows a
+  // "Test" badge where it is set.
 
   async function toggleNash(r: Restaurant) {
     const next = !r.nashAllowed
@@ -581,7 +562,8 @@ export default function RestaurantsOrderingPage() {
       const res = await fetch(`/api/admin/restaurants/${r.reference}/permanent-delete`)
       const d = await res.json().catch(() => null)
       if (!res.ok || !d) { showToast('Could not check delete eligibility'); return }
-      setDeletePreview({ r, ...d })
+      setDeleteConfirmName('')
+      setDeletePreview({ r, rowCounts: {}, ...d })
     } catch {
       showToast('Could not check delete eligibility')
     }
@@ -596,7 +578,7 @@ export default function RestaurantsOrderingPage() {
     try {
       const res = await fetch(`/api/admin/restaurants/${deletePreview.r.reference}/permanent-delete`, {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmOrderCount: deletePreview.orderCount, confirmRowCounts: deletePreview.rowCounts }),
+        body: JSON.stringify({ confirmName: deleteConfirmName, confirmRowCounts: deletePreview.rowCounts }),
       })
       const d = await res.json().catch(() => null)
       if (!res.ok) { showToast(d?.error || 'Delete failed'); return }
@@ -1251,7 +1233,7 @@ export default function RestaurantsOrderingPage() {
               (names/locations need room), everything else compact. Order matches the
               <thead> below. */}
           <colgroup>
-            <col style={{ width: 92 }} />{/* Disco Cater Marketplace + Test account */}
+            <col style={{ width: 92 }} />{/* Disco Cater Marketplace */}
             <col style={{ width: 320 }} />{/* Restaurant */}
             <col style={{ width: 210 }} />{/* Admin */}
             <col style={{ width: 280 }} />{/* Email — the longest address in this table measures 232px at DM Sans 12.5; with 24px cell padding, 280 leaves 24px of headroom so the next long one does not immediately clip. */}
@@ -1266,7 +1248,7 @@ export default function RestaurantsOrderingPage() {
           </colgroup>
           <thead>
             <tr>
-              <th style={colHead} title="Map: show on Disco Cater map and marketplace. Test: mark as a test account (never listed publicly; Map cannot be turned on).">Map</th>
+              <th style={colHead} title="Map: show on Disco Cater map and marketplace. A test account (Test badge) can't be turned on.">Map</th>
               {sortTh('restaurant')}
               {sortTh('admin')}
               {sortTh('email')}
@@ -1310,15 +1292,6 @@ export default function RestaurantsOrderingPage() {
                       visibility toggle (disco_restaurant_overrides.visible). */}
                   <td style={cell}>
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
-                    {/* Test account (is_test) — admin-only, sits under the Map toggle
-                        it vetoes. Setting it never changes the Map toggle itself. */}
-                    <span
-                      title="Test account: never shown on the public marketplace, city pages, directory or sitemap, and noindexed. While set, the Map toggle cannot be turned on. Setting or clearing it does not change the Map toggle."
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: '#888' }}
-                    >
-                      <Toggle checked={!!ov?.isTest} onChange={() => toggleTest(r)} color="#D97706" />
-                      Test
-                    </span>
                   </td>
                   <td style={{ ...cell, fontWeight: 600, wordBreak: 'break-word' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1471,23 +1444,13 @@ export default function RestaurantsOrderingPage() {
                           style={{ ...iconBtn, color: '#ccc', cursor: 'not-allowed' }}
                         >Archive</button>
                       )}
-                      {/* Permanent delete — test restaurants/duplicates only.
-                          Deliberately far more visually alarming than Archive
-                          (solid red fill vs. Archive's red-on-white icon) —
-                          the two sit right next to each other and one is
-                          reversible, one is not. Only ever shown for
-                          Disco-native rows with no FM record (discoOnly) —
-                          the only population this can work for durably. */}
-                      {r.discoOnly && (
-                        <button title="Permanently delete (cannot be undone)" onClick={() => requestPermanentDelete(r)}
-                          style={{ ...iconBtn, background: '#E53935', color: '#fff', border: '1px solid #E53935' }}>🗑</button>
-                      )}
                       <Kebab
                         menuUrl={overrideMap[r.reference]?.menuUploadUrl || null}
                         showResendInvite={!!overrideMap[r.reference]?.isDiscoNative}
                         onResetPassword={() => resetPassword(r)}
                         onResendInvite={() => resendInvite(r)}
                         onTransferSystemAdmin={() => setPromoteConfirm(r)}
+                        onDelete={() => requestPermanentDelete(r)}
                       />
                     </div>
                   </td>
@@ -1642,16 +1605,10 @@ export default function RestaurantsOrderingPage() {
                     This permanently erases <strong>{deletePreview.restaurantName || deletePreview.r.businessName}</strong> from Neon —
                     every menu item, modifier, override, login, and setting. <strong>This cannot be undone</strong> (unlike Archive).
                   </p>
-                  {deletePreview.order && (
-                    <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#7A5C00' }}>
-                      <strong>This restaurant has 1 order — review before deleting:</strong>
-                      <div style={{ marginTop: 6, lineHeight: 1.6 }}>
-                        Total: <strong>${deletePreview.order.total?.toFixed(2) ?? '—'}</strong> · Status: <strong>{deletePreview.order.status || '—'}</strong><br />
-                        Customer: <strong>{deletePreview.order.customerName || deletePreview.order.customerEmail || '—'}</strong><br />
-                        Date: <strong>{deletePreview.order.placedAt ? new Date(deletePreview.order.placedAt).toLocaleString() : '—'}</strong>
-                      </div>
-                    </div>
-                  )}
+                  <p style={{ fontSize: 13, color: '#555', lineHeight: 1.5, margin: '0 0 14px' }}>
+                    It disappears from everyone&apos;s location lists, link pages, the marketplace, map, search and AI chat.
+                    Its web address stays reserved and can&apos;t be reused. Nothing changes in FamilyMeal.
+                  </p>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Rows to be deleted</div>
                   <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, padding: '8px 12px', marginBottom: 18 }}>
                     {Object.entries(deletePreview.rowCounts).filter(([, n]) => n > 0).length === 0 ? (
@@ -1664,6 +1621,16 @@ export default function RestaurantsOrderingPage() {
                       ))
                     )}
                   </div>
+                  <label style={{ display: 'block', fontSize: 13, color: '#333', marginBottom: 6 }}>
+                    Type <strong>{deletePreview.restaurantName || deletePreview.r.businessName}</strong> to confirm:
+                  </label>
+                  <input
+                    value={deleteConfirmName}
+                    onChange={e => setDeleteConfirmName(e.target.value)}
+                    autoFocus
+                    aria-label="Type the location's name to confirm"
+                    style={{ ...inputSt, width: '100%', boxSizing: 'border-box', marginBottom: 18 }}
+                  />
                 </>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -1672,8 +1639,8 @@ export default function RestaurantsOrderingPage() {
                   {deletePreview.eligible ? 'Cancel' : 'Close'}
                 </button>
                 {deletePreview.eligible && (
-                  <button onClick={confirmPermanentDelete} disabled={deleteBusy}
-                    style={{ background: '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: deleteBusy ? 'wait' : 'pointer', fontFamily: F, opacity: deleteBusy ? 0.7 : 1 }}>
+                  <button onClick={confirmPermanentDelete} disabled={deleteBusy || deleteConfirmName.trim() !== (deletePreview.restaurantName || deletePreview.r.businessName).trim()}
+                    style={{ background: '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: deleteBusy ? 'wait' : 'pointer', fontFamily: F, opacity: deleteBusy || deleteConfirmName.trim() !== (deletePreview.restaurantName || deletePreview.r.businessName).trim() ? 0.45 : 1 }}>
                     {deleteBusy ? 'Deleting…' : 'Permanently Delete'}
                   </button>
                 )}
@@ -1693,7 +1660,7 @@ export default function RestaurantsOrderingPage() {
 // scroll (capture, so the inner scrolling table fires it too) / resize.
 const KEBAB_MENU_WIDTH = 200
 
-function Kebab({ menuUrl, showResendInvite, onResetPassword, onResendInvite, onTransferSystemAdmin }: { menuUrl: string | null; showResendInvite: boolean; onResetPassword: () => void; onResendInvite: () => void; onTransferSystemAdmin: () => void }) {
+function Kebab({ menuUrl, showResendInvite, onResetPassword, onResendInvite, onTransferSystemAdmin, onDelete }: { menuUrl: string | null; showResendInvite: boolean; onResetPassword: () => void; onResendInvite: () => void; onTransferSystemAdmin: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
@@ -1773,6 +1740,12 @@ function Kebab({ menuUrl, showResendInvite, onResetPassword, onResendInvite, onT
           )}
           <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
             Transfer to System Admin
+          </button>
+          {/* Every row offers it; the server decides. A location with orders,
+              payments or a Stripe account, or one FamilyMeal backs, is refused
+              with the reason — the dialog shows it and suggests Archive. */}
+          <button onClick={() => { setOpen(false); onDelete() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0', color: '#E53935', fontWeight: 600 }}>
+            Delete
           </button>
         </div>,
         document.body,

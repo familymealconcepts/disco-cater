@@ -1,4 +1,5 @@
 import { sql } from './db'
+import { reserveDeletedRestaurantUrl } from './link-url-registry'
 
 // Permanent delete for Disco-native test restaurants and duplicates — records
 // that shouldn't exist at all. Revived from the pre-1cc1faf version (removed
@@ -6,8 +7,8 @@ import { sql } from './db'
 // restaurants) and reviewed against the current schema.
 //
 // ELIGIBILITY (enforced by the caller, app/api/admin/restaurants/[ref]/
-// permanent-delete/route.ts, not here): is_disco_native = true AND
-// fm_restaurant_reference IS NULL, and 0 or 1 orders. Anything FM-backed is
+// permanent-delete/route.ts, not here): Disco-native with no FamilyMeal trace,
+// and NO orders, payments, refunds or Stripe account at all. Anything FM-backed is
 // refused outright — a Neon-only delete would get silently re-upserted by the
 // daily map-cache cron (which reads FM's live restaurant list and INSERTs...
 // ON CONFLICT DO UPDATE, never DELETEs) within about a day, so offering this
@@ -15,7 +16,7 @@ import { sql } from './db'
 //
 // EXCLUDED FROM DELETION — orphaned on purpose, never touched:
 //   disco_orders, disco_stripe_payments, fm_historical_orders — a restaurant
-//     eligible for this tool has AT MOST ONE order (the caller's own gate), so
+//     eligible for this tool has NO orders or payments (the caller's own gate), so
 //     the "cost" of excluding these is a single leftover row, ever — never the
 //     mass-orphan problem this exclusion existed to prevent originally. Kept
 //     specifically because a PAID order's Stripe charge still exists on
@@ -40,6 +41,92 @@ const EXCLUDED_TABLES = new Set([
 ])
 
 export interface DeleteRowCounts { [table: string]: number }
+
+// Who may be deleted at all — used by app/api/admin/restaurants/[ref]/permanent-delete.
+export interface EligibilityResult {
+  eligible: boolean
+  reason: string | null
+  restaurantName: string | null
+}
+
+const ARCHIVE_INSTEAD = 'Archive it instead — that hides it everywhere and keeps its history.'
+
+export async function checkDeleteEligibility(ref: string): Promise<EligibilityResult> {
+  // ── EXISTENCE AND NATIVENESS BOTH COME FROM THE CACHE ─────────────────────
+  // This used to answer "Restaurant not found." whenever
+  // disco_restaurant_accounts had no row for the reference — and a DUPLICATED
+  // location never has one, because the clone route creates a cache row, an
+  // overrides row and a multi-unit link membership but deliberately no account
+  // (there is no person to create an identity for). So the one restaurant this
+  // tool exists to remove was the one restaurant it claimed did not exist.
+  // "Stacks & Cordials - Royal Oak (Copy)" is exactly that row.
+  //
+  // It also read is_disco_native from disco_restaurant_accounts, which is the
+  // STALE copy of that flag: disco_restaurant_cache.is_disco_native is
+  // authoritative (Bird & Co. reads true on the cache and false on the account).
+  // Keying the native test on the account could refuse a genuinely-native
+  // restaurant, or — worse — admit an FM-backed one whose account row happened
+  // to say true.
+  //
+  // Existence is now the cache row, and nativeness is the cache's flag. The
+  // FM-record check below is unchanged in intent but no longer requires an
+  // account row to exist in order to pass.
+  const cache = (await sql`
+    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
+  `) as { name: string | null; is_disco_native: boolean | null }[]
+  const restaurantName = cache[0]?.name ?? null
+
+  if (!cache.length) {
+    return { eligible: false, reason: 'Restaurant not found.', restaurantName }
+  }
+
+  // An FM record anywhere still disqualifies — the daily map-cache cron would
+  // re-create the row from FM's live list. Scoped to rows that actually carry an
+  // FM reference, so a missing account row is simply "no FM record", not a block.
+  // Also any trace that FamilyMeal knows this reference: it is on FM's own
+  // restaurant list (our 15-minute copy of it), it went through a conversion
+  // (a converted location often keeps its FM reference), or some account says
+  // it is this location's FM twin. Any of these means the 4am map-cache sync
+  // would bring the row back.
+  const fmLinked = (await sql`
+    SELECT 1 FROM disco_restaurant_accounts
+    WHERE (restaurant_reference = ${ref} AND fm_restaurant_reference IS NOT NULL) OR fm_restaurant_reference = ${ref}
+    UNION ALL SELECT 1 FROM disco_restaurant_admin_list_cache WHERE restaurant_reference = ${ref}
+    UNION ALL SELECT 1 FROM disco_conversions WHERE restaurant_reference = ${ref}
+    LIMIT 1
+  `) as unknown[]
+
+  const money = (await sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM disco_orders WHERE restaurant_reference = ${ref}::uuid) AS orders,
+      (SELECT COUNT(*)::int FROM fm_historical_orders WHERE restaurant_reference = ${ref}) AS fm_orders,
+      (SELECT COUNT(*)::int FROM disco_stripe_payments WHERE restaurant_reference = ${ref}) AS payments,
+      (SELECT COUNT(*)::int FROM disco_orders WHERE restaurant_reference = ${ref}::uuid AND COALESCE(refund, 0) > 0) AS refunds,
+      EXISTS (SELECT 1 FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} AND NULLIF(TRIM(stripe_account_id), '') IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} AND NULLIF(TRIM(stripe_account_id), '') IS NOT NULL) AS stripe
+  `) as { orders: number; fm_orders: number; payments: number; refunds: number; stripe: boolean }[]
+  const m = money[0]
+  const blockers: string[] = []
+  const orderCount = m.orders + m.fm_orders
+  if (orderCount) blockers.push(`${orderCount} order${orderCount === 1 ? '' : 's'}`)
+  if (m.payments) blockers.push(`${m.payments} payment${m.payments === 1 ? '' : 's'}`)
+  if (m.refunds) blockers.push(`${m.refunds} refund${m.refunds === 1 ? '' : 's'}`)
+  if (m.stripe) blockers.push('a connected Stripe account (payouts)')
+  const fmBacked = cache[0].is_disco_native !== true || fmLinked.length > 0
+  const FM_REASON = 'FamilyMeal backs this location, so deleting it in Disco would be undone by the next sync from FamilyMeal, and FamilyMeal is never changed from here.'
+  // Money first: "it has orders" is the reason an admin most needs to see.
+  if (blockers.length) {
+    return {
+      eligible: false,
+      reason: `It has ${blockers.join(', ')}. A location with any orders, payments, refunds, payouts or a Stripe account can't be deleted, so its money history stays intact.${fmBacked ? ' ' + FM_REASON : ''} ${ARCHIVE_INSTEAD}`,
+      restaurantName,
+    }
+  }
+  if (fmBacked) return { eligible: false, reason: `${FM_REASON} ${ARCHIVE_INSTEAD}`, restaurantName }
+
+  return { eligible: true, reason: null, restaurantName }
+}
+
 
 // Discover every table with a literal restaurant_reference column — same
 // dynamic mechanism the pre-1cc1faf version used, so a new table using this
@@ -102,7 +189,41 @@ async function countExplicit(ref: string): Promise<DeleteRowCounts> {
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   counts['disco_menu_item_daily_inventory'] = invRows[0]?.n ?? 0
 
+  // Logins whose home ("anchor") is this location. Someone who also holds
+  // another location is MOVED to it, never deleted — the sweep below deletes
+  // disco_restaurant_accounts rows by restaurant_reference, which would
+  // otherwise take a System Admin's whole login with it. Only a login with no
+  // other location left goes.
+  const anchored = await anchoredLogins(ref)
+  counts['logins moved to another location'] = anchored.filter(a => a.moveTo).length
+  counts['logins removed (no other location)'] = anchored.filter(a => !a.moveTo).length
+
+  const groupCopies = (await sql`SELECT COUNT(*)::int AS n FROM disco_location_groups WHERE copy_of = ${ref}`.catch(() => [{ n: 0 }])) as { n: number }[]
+  counts['copies no longer marked as its copy'] = groupCopies[0]?.n ?? 0
+
+  const reports = (await sql`
+    SELECT COUNT(*)::int AS n FROM disco_scheduled_reports
+    WHERE restaurant_reference <> ${ref}::uuid AND filter->'locationReferenceIds' ? ${ref}
+  `.catch(() => [{ n: 0 }])) as { n: number }[]
+  counts['other locations\' scheduled reports'] = reports[0]?.n ?? 0
+
   return counts
+}
+
+type AnchoredLogin = { id: number; email: string; moveTo: string | null }
+
+async function anchoredLogins(ref: string): Promise<AnchoredLogin[]> {
+  const rows = (await sql`
+    SELECT a.id, a.email,
+           (SELECT g.restaurant_reference FROM disco_restaurant_location_access g
+             WHERE lower(g.account_email) = lower(a.email) AND g.restaurant_reference <> ${ref}
+               AND EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = g.restaurant_reference)
+               AND NOT EXISTS (SELECT 1 FROM disco_restaurant_overrides o WHERE o.restaurant_reference = g.restaurant_reference AND o.archived_at IS NOT NULL)
+             ORDER BY g.restaurant_reference LIMIT 1) AS move_to
+      FROM disco_restaurant_accounts a
+     WHERE a.restaurant_reference = ${ref}
+  `.catch(() => [])) as Array<{ id: number; email: string; move_to: string | null }>
+  return rows.map(r => ({ id: r.id, email: r.email, moveTo: r.move_to }))
 }
 
 // Preview only — never deletes anything. Used for the confirmation UI, and
@@ -130,6 +251,37 @@ export async function previewRestaurantDelete(ref: string): Promise<DeleteRowCou
 export async function deleteRestaurantPermanently(ref: string): Promise<DeleteRowCounts> {
   const summary: DeleteRowCounts = {}
   const rawSql = sql as unknown as { query: (t: string, p: unknown[]) => Promise<unknown[]> }
+
+  // Its address stays taken — recorded before anything is removed.
+  const slugRow = (await sql`SELECT slug FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { slug: string | null }[]
+  const slug = slugRow[0]?.slug || null
+  await reserveDeletedRestaurantUrl(slug)
+
+  // Logins anchored here that hold another location move there first, so the
+  // sweep's disco_restaurant_accounts delete only takes logins left with none.
+  const anchored = await anchoredLogins(ref)
+  let moved = 0
+  for (const a of anchored) {
+    if (!a.moveTo) continue
+    const r = (await sql`UPDATE disco_restaurant_accounts SET restaurant_reference = ${a.moveTo}, updated_at = NOW() WHERE id = ${a.id} AND restaurant_reference = ${ref} RETURNING 1`) as unknown[]
+    moved += r.length
+  }
+  summary['logins moved to another location'] = moved
+  summary['logins removed (no other location)'] = anchored.length - moved
+
+  // References the column sweep can't see.
+  const copies = (await sql`UPDATE disco_location_groups SET copy_of = NULL WHERE copy_of = ${ref} RETURNING 1`.catch(() => [])) as unknown[]
+  summary['copies no longer marked as its copy'] = copies.length
+  const reports = (await sql`
+    UPDATE disco_scheduled_reports
+       SET filter = jsonb_set(filter, '{locationReferenceIds}',
+             COALESCE((SELECT jsonb_agg(x) FROM jsonb_array_elements(filter->'locationReferenceIds') x WHERE x #>> '{}' <> ${ref}), '[]'::jsonb))
+     WHERE restaurant_reference <> ${ref}::uuid AND filter->'locationReferenceIds' ? ${ref}
+    RETURNING 1
+  `.catch(() => [])) as unknown[]
+  summary['other locations\' scheduled reports'] = reports.length
+  // Favorites saved before they were keyed by reference hold the slug instead.
+  if (slug) await sql`DELETE FROM disco_customer_favorites WHERE restaurant_reference = ${slug}`.catch(() => {})
 
   const promoRows = (await sql`SELECT id FROM promo_codes WHERE restaurant_ref = ${ref}`) as { id: number }[]
   if (promoRows.length) {

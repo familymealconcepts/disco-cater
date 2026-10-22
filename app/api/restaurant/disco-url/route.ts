@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
+import { isDeletedRestaurantUrl } from '../../../../lib/link-url-registry'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,6 +63,7 @@ export async function PUT(req: NextRequest) {
     SELECT 1 FROM disco_restaurant_cache WHERE LOWER(slug) = ${slug} AND restaurant_reference <> ${ref} LIMIT 1
   `) as unknown[]
   if (taken.length) return NextResponse.json({ error: 'That URL is already taken. Choose another.' }, { status: 409 })
+  if (await isDeletedRestaurantUrl(slug)) return NextResponse.json({ error: 'That URL belonged to a restaurant that was deleted and can’t be reused. Choose another.' }, { status: 409 })
 
   await sql`UPDATE disco_restaurant_cache SET slug = ${slug}, cached_at = NOW() WHERE restaurant_reference = ${ref}`
   return NextResponse.json({ ok: true, slug })

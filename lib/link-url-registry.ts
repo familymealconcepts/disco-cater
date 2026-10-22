@@ -38,7 +38,7 @@ export async function ensureLinkUrlRegistry(): Promise<void> {
     CREATE TABLE IF NOT EXISTS disco_link_url_registry (
       slug TEXT PRIMARY KEY,            -- lowercased
       link_reference UUID,              -- the Disco link that used it, when known
-      source TEXT NOT NULL,             -- 'disco-link' | 'fm-link-mirror' | 'rename' | 'delete'
+      source TEXT NOT NULL,             -- 'disco-link' | 'fm-link-mirror' | 'rename' | 'delete' | 'restaurant-delete'
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       retired_at TIMESTAMPTZ            -- set when the link stopped using it
     )`
@@ -77,6 +77,37 @@ export async function retireLinkUrl(slug: string): Promise<void> {
   await sql`UPDATE disco_link_url_registry SET retired_at = COALESCE(retired_at, NOW()) WHERE slug = ${slug.toLowerCase()}`
 }
 
+// ── A DELETED LOCATION'S ADDRESS STAYS TAKEN (Peter, 22 Oct 2026) ────────────
+// Permanently deleting a location (lib/disco-restaurant-delete.ts) records its
+// /restaurants/<slug> address here as 'restaurant-delete', already retired, so
+// no later location or link page can be given the URL a customer may still
+// have bookmarked for something else.
+export async function reserveDeletedRestaurantUrl(slug: string | null | undefined): Promise<void> {
+  const s = String(slug || '').trim().toLowerCase()
+  if (!s) return
+  await ensureLinkUrlRegistry()
+  await sql`
+    INSERT INTO disco_link_url_registry (slug, link_reference, source, retired_at)
+    VALUES (${s}, NULL, 'restaurant-delete', NOW())
+    ON CONFLICT (slug) DO NOTHING`
+}
+
+/** Was this the address of a location that has since been deleted? */
+export async function isDeletedRestaurantUrl(slug: string | null | undefined): Promise<boolean> {
+  const s = String(slug || '').trim().toLowerCase()
+  if (!s) return false
+  await ensureLinkUrlRegistry()
+  const rows = (await sql`
+    SELECT 1 FROM disco_link_url_registry WHERE slug = ${s} AND source = 'restaurant-delete' LIMIT 1
+  `) as unknown[]
+  return rows.length > 0
+}
+
+/** A new location's name-derived slug, moved off a deleted location's address (same `-<ref>` suffix the create routes use). */
+export async function freeRestaurantSlug(slug: string, ref: string): Promise<string> {
+  return (await isDeletedRestaurantUrl(slug)) ? `${slug}-${String(ref).slice(0, 6)}` : slug
+}
+
 const legacySlugs = new Set<string>(
   (legacyRestaurantSlugRedirects as Array<{ oldSlug: string; newSlug: string }>)
     .flatMap(r => [r.oldSlug, r.newSlug]).map(s => String(s || '').toLowerCase()).filter(Boolean),
@@ -88,8 +119,9 @@ async function takenReason(slug: string, exceptLinkRef?: string | null): Promise
   const s = slug.toLowerCase()
   if (RESERVED.has(s)) return 'That URL is one of Disco Cater’s own pages.'
   const reg = (await sql`
-    SELECT link_reference::text AS ref, retired_at FROM disco_link_url_registry WHERE slug = ${s} LIMIT 1
-  `) as Array<{ ref: string | null; retired_at: string | null }>
+    SELECT link_reference::text AS ref, retired_at, source FROM disco_link_url_registry WHERE slug = ${s} LIMIT 1
+  `) as Array<{ ref: string | null; retired_at: string | null; source: string }>
+  if (reg.length && reg[0].source === 'restaurant-delete') return 'That URL belonged to a restaurant that was deleted and can’t be reused.'
   if (reg.length) {
     // A link may keep (or take back) a URL it has itself used.
     if (!(exceptLinkRef && reg[0].ref === exceptLinkRef)) {

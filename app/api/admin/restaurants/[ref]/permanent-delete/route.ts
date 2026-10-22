@@ -1,116 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '../../../../../../lib/db'
 import { requireArchiveAccess } from '../../../../../../lib/admin-archive-access'
 import { logAdminAction } from '../../../../../../lib/admin-audit'
-import { previewRestaurantDelete, deleteRestaurantPermanently, type DeleteRowCounts } from '../../../../../../lib/disco-restaurant-delete'
+import { previewRestaurantDelete, deleteRestaurantPermanently, checkDeleteEligibility, type DeleteRowCounts } from '../../../../../../lib/disco-restaurant-delete'
 
-// Permanent delete — for test restaurants and duplicates only, records that
-// shouldn't exist at all. NOT a general-purpose delete: Archive already
-// covers "gone but restorable" for real restaurants, and this tool refuses
-// anything that isn't a pure Disco-native restaurant with no FM record (see
-// lib/disco-restaurant-delete.ts for why an FM-backed delete can't work
-// durably). Same super-admin + two-account gate as archive/restore.
+// Permanent delete — the "Delete" item in each row's ⋯ menu on Super Admin →
+// Restaurants → Ordering (Peter, 22 Oct 2026). Archive covers "gone but
+// restorable"; this removes a location that should not exist at all. Same
+// verified super-admin + two-account gate as archive/restore.
 //
-//   GET    → eligibility + preview (row counts per table, order detail if
-//            exactly 1). Never mutates.
-//   DELETE → perform it. Body must echo back the EXACT rowCounts + orderCount
-//            the client just previewed — re-derived live and compared, so a
-//            stale preview (something changed in between) can never
+// REFUSED, with the reason shown and Archive suggested, when the location has
+// ANY money history or could take money: an order (deleted ones and FM history
+// copies included — refunds and payouts only exist through orders), a payment
+// record, or a Stripe account. Also refused when FamilyMeal backs it: deleting
+// in Disco would be undone by the next sync, and FamilyMeal is never changed.
+//
+//   GET    → eligibility + preview (row counts per table). Never mutates.
+//   DELETE → perform it. Body must carry the location's exact name, typed by
+//            the admin, and echo back the EXACT rowCounts just previewed —
+//            re-derived live and compared, so a stale preview can never
 //            authorize deleting more than what was actually shown.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-interface EligibilityResult {
-  eligible: boolean
-  reason: string | null
-  restaurantName: string | null
-  orderCount: number
-  order: {
-    total: number | null; status: string | null
-    customerEmail: string | null; customerName: string | null; placedAt: string | null
-  } | null
-}
-
-async function checkEligibility(ref: string): Promise<EligibilityResult> {
-  // ── EXISTENCE AND NATIVENESS BOTH COME FROM THE CACHE ─────────────────────
-  // This used to answer "Restaurant not found." whenever
-  // disco_restaurant_accounts had no row for the reference — and a DUPLICATED
-  // location never has one, because the clone route creates a cache row, an
-  // overrides row and a multi-unit link membership but deliberately no account
-  // (there is no person to create an identity for). So the one restaurant this
-  // tool exists to remove was the one restaurant it claimed did not exist.
-  // "Stacks & Cordials - Royal Oak (Copy)" is exactly that row.
-  //
-  // It also read is_disco_native from disco_restaurant_accounts, which is the
-  // STALE copy of that flag: disco_restaurant_cache.is_disco_native is
-  // authoritative (Bird & Co. reads true on the cache and false on the account).
-  // Keying the native test on the account could refuse a genuinely-native
-  // restaurant, or — worse — admit an FM-backed one whose account row happened
-  // to say true.
-  //
-  // Existence is now the cache row, and nativeness is the cache's flag. The
-  // FM-record check below is unchanged in intent but no longer requires an
-  // account row to exist in order to pass.
-  const cache = (await sql`
-    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
-  `) as { name: string | null; is_disco_native: boolean | null }[]
-  const restaurantName = cache[0]?.name ?? null
-
-  if (!cache.length) {
-    return { eligible: false, reason: 'Restaurant not found.', restaurantName, orderCount: 0, order: null }
-  }
-
-  // An FM record anywhere still disqualifies — the daily map-cache cron would
-  // re-create the row from FM's live list. Scoped to rows that actually carry an
-  // FM reference, so a missing account row is simply "no FM record", not a block.
-  const fmLinked = (await sql`
-    SELECT 1 FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ${ref} AND fm_restaurant_reference IS NOT NULL LIMIT 1
-  `) as unknown[]
-
-  if (cache[0].is_disco_native !== true || fmLinked.length) {
-    return {
-      eligible: false,
-      reason: 'FM-backed — a Neon-only delete would be silently re-created by the daily map-cache cron (it reads FM\'s live restaurant list and upserts, never deletes). This tool only works for Disco-native restaurants with no FM record.',
-      restaurantName, orderCount: 0, order: null,
-    }
-  }
-
-  const orders = (await sql`
-    SELECT id, total, order_status, customer_email, customer_first_name, customer_last_name, placed_at
-    FROM disco_orders WHERE restaurant_reference = ${ref}::uuid AND is_deleted = false
-    ORDER BY placed_at DESC NULLS LAST
-  `.catch(() => [])) as {
-    id: number; total: string | number | null; order_status: string | null
-    customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
-    placed_at: string | null
-  }[]
-
-  if (orders.length > 1) {
-    return {
-      eligible: false,
-      reason: `${orders.length} orders exist — refusing outright. This tool only deletes restaurants with 0 or 1 order.`,
-      restaurantName, orderCount: orders.length, order: null,
-    }
-  }
-
-  const order = orders[0]
-    ? {
-        total: order_total(orders[0].total), status: orders[0].order_status,
-        customerEmail: orders[0].customer_email,
-        customerName: `${orders[0].customer_first_name || ''} ${orders[0].customer_last_name || ''}`.trim() || null,
-        placedAt: orders[0].placed_at,
-      }
-    : null
-
-  return { eligible: true, reason: null, restaurantName, orderCount: orders.length, order }
-}
-
-function order_total(v: string | number | null): number | null {
-  if (v == null) return null
-  const n = typeof v === 'number' ? v : Number(v)
-  return Number.isFinite(n) ? n : null
-}
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const access = await requireArchiveAccess()
@@ -118,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   const { ref } = await params
 
   try {
-    const eligibility = await checkEligibility(ref)
+    const eligibility = await checkDeleteEligibility(ref)
     if (!eligibility.eligible) return NextResponse.json(eligibility)
     const rowCounts = await previewRestaurantDelete(ref)
     return NextResponse.json({ ...eligibility, rowCounts })
@@ -133,11 +43,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ r
   if (!access.ok) return access.response
   const { ref } = await params
 
-  let body: { confirmOrderCount?: unknown; confirmRowCounts?: unknown }
+  let body: { confirmName?: unknown; confirmRowCounts?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
   try {
-    const eligibility = await checkEligibility(ref)
+    const eligibility = await checkDeleteEligibility(ref)
     if (!eligibility.eligible) {
       return NextResponse.json({ error: eligibility.reason || 'Not eligible for permanent delete.' }, { status: 409 })
     }
@@ -147,8 +57,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ r
     // Anything having changed since the client last previewed (a new order
     // placed, a menu item added) means the confirmation is stale; refuse and
     // make the caller re-preview rather than deleting more than what was shown.
-    if (body.confirmOrderCount !== eligibility.orderCount) {
-      return NextResponse.json({ error: 'Order count changed since preview — re-check before deleting.' }, { status: 409 })
+    const typed = typeof body.confirmName === 'string' ? body.confirmName.trim() : ''
+    if (!eligibility.restaurantName || typed !== eligibility.restaurantName.trim()) {
+      return NextResponse.json({ error: "The name typed doesn't match this location's name — nothing was deleted." }, { status: 400 })
     }
     const confirmed = (body.confirmRowCounts || {}) as DeleteRowCounts
     for (const [table, count] of Object.entries(liveRowCounts)) {
@@ -163,7 +74,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ r
       action: 'restaurant_permanent_delete',
       restaurantReference: ref,
       actorEmail: access.email,
-      detail: { restaurantName: eligibility.restaurantName, orderCount: eligibility.orderCount, rowCounts: liveRowCounts },
+      detail: { restaurantName: eligibility.restaurantName, rowCounts: liveRowCounts },
     })
 
     const summary = await deleteRestaurantPermanently(ref)

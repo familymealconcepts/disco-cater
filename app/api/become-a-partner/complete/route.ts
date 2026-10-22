@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { sql, runMigrations } from '../../../../lib/db'
+import { freeRestaurantSlug } from '../../../../lib/link-url-registry'
 import { sendEmail } from '../../../../lib/email/send'
 import { layout, button } from '../../../../lib/email/layout'
 import { createFmRestaurant } from '../../../../lib/become-a-partner/fm-create'
@@ -216,7 +217,7 @@ export async function POST(req: NextRequest) {
     await sql`
       INSERT INTO disco_restaurant_cache
         (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, icon_url, is_disco_native, is_live, cached_at)
-      VALUES (${ref}, ${restaurantName}, ${slug}, ${address || null}, ${location || null},
+      VALUES (${ref}, ${restaurantName}, ${await freeRestaurantSlug(slug, ref)}, ${address || null}, ${location || null},
               ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${'Other'}, ${phone || null}, ${logoUrl}, ${iconUrl},
               true, ${joinedMarketplace}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET
