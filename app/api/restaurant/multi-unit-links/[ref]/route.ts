@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef, getRestaurantRole, getFmSessionPermittedRefs } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { checkLinkUrl, recordLinkUrl, retireLinkUrl, urlRecorded } from '../../../../../lib/link-url-registry'
+import { sql } from '../../../../../lib/db'
 import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
-import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope, linkCreator, linkEditDecision } from '../../../../../lib/multi-unit-links'
+import { updateNativeLink, deleteNativeLink, nativeLinkExists, resolveLinkEditScope, linkCreator, linkEditDecision } from '../../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -62,33 +64,47 @@ async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
-  // TELL THE ADMIN WHAT WAS REJECTED. This used to silently filter out-of-reach
-  // locations and report success, so submitting nine with three outside your reach
-  // saved six and said "saved" — a quiet partial write with no way to tell it from
-  // a complete one.
-  const accepted = memberRefs.filter(r => discoRefAllowed(scope, r))
-  const rejected = memberRefs.filter(r => !discoRefAllowed(scope, r))
-  if (!accepted.length) {
+  // ── ONLY LOCATIONS ON YOUR OWN LIST (Peter, 22 Oct 2026) ─────────────────
+  // A location already on the page that the editor does not hold stays exactly
+  // where it is (editScope.retained — they were never theirs to remove, and
+  // existing pages are not changed). Anything ELSE named must be on the
+  // editor's own Disco list, or the save is REFUSED and says which ones.
+  const retainedSet = new Set(editScope.retained)
+  const rejected = memberRefs.filter(r => !discoRefAllowed(scope, r) && !retainedSet.has(r))
+  if (rejected.length) {
     return NextResponse.json({
-      error: 'Locations not in your group',
-      description: 'None of those locations are ones you have access to.',
+      error: 'Locations not on your list',
+      description: `You can only add locations on your own list. ${rejected.length} location(s) are not.`,
       rejected,
     }, { status: 403 })
   }
-  // Members outside this viewer's reach are RETAINED — they were never theirs to
-  // remove. See resolveLinkEditScope.
+  const accepted = memberRefs.filter(r => discoRefAllowed(scope, r))
   const members = [...new Set([...accepted, ...editScope.retained])]
-  if (await slugTaken(slug, ref)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
+  if (!members.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
+  // ── A CHANGED URL MUST BE NEW (lib/link-url-registry.ts) ─────────────────
+  const current = (await sql`SELECT slug FROM disco_multi_unit_links WHERE reference = ${ref}::uuid LIMIT 1`) as Array<{ slug: string }>
+  const oldSlug = (current[0]?.slug || '').toLowerCase()
+  if (slug !== oldSlug) {
+    const url = await checkLinkUrl(slug, ref)
+    if (!url.ok) {
+      return NextResponse.json({
+        error: 'URL not available',
+        description: url.suggestion ? `${url.reason} Try “${url.suggestion}”.` : url.reason,
+        suggestion: url.suggestion,
+      }, { status: 409 })
+    }
+  }
   const okUpd = await updateNativeLink(ref, { slug, title, memberRefs: members })
   if (!okUpd) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (slug !== oldSlug) {
+    await recordLinkUrl(slug, ref, 'rename')
+    if (oldSlug) await retireLinkUrl(oldSlug)
+  }
   return NextResponse.json({
     reference: ref, url: slug, header: title,
     saved: members.length,
-    rejected,
+    rejected: [],
     retained: editScope.retained,
-    ...(rejected.length ? {
-      warning: `${rejected.length} location(s) were not saved because you do not have access to them.`,
-    } : {}),
   })
 }
 
@@ -121,6 +137,9 @@ async function nativeDelete(ctx: Ctx, ref: string) {
       description: `This link includes ${editScope.retained.length} location(s) you do not have access to, so it cannot be deleted. Remove your locations from it instead.`,
     }, { status: 403 })
   }
+  // The URL stays taken forever (lib/link-url-registry.ts): record it retired.
+  const gone = (await sql`SELECT slug FROM disco_multi_unit_links WHERE reference = ${ref}::uuid LIMIT 1`) as Array<{ slug: string }>
+  if (gone[0]?.slug) { await recordLinkUrl(gone[0].slug, ref, 'delete'); await retireLinkUrl(gone[0].slug) }
   await deleteNativeLink(ref)
   return NextResponse.json({ ok: true })
 }
@@ -137,6 +156,46 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // clone route and the password reset. A native link is edited natively whatever
   // session the caller happens to hold.
   if (ctx && await nativeLinkExists(ref)) return nativeUpdate(ctx, ref, req)
+
+  // ── FAMILYMEAL-BACKED LINK: THE SAME RULES BEFORE ANYTHING IS FORWARDED ────
+  // Every location must be on the editor's own Disco list (a Super Admin is
+  // unrestricted), and a URL Disco has never recorded must pass the URL check.
+  if (ctx) {
+    try {
+      const fd = await (req.clone() as NextRequest).formData()
+      const raw = fd.get('request')
+      const json = raw && typeof (raw as Blob).text === 'function' ? JSON.parse(await (raw as Blob).text()) : {}
+      const refs = Array.isArray(json.restaurantReferences) ? (json.restaurantReferences as unknown[]).map(String) : []
+      const role = ctx.authType === 'disco' ? (ctx.role || '') : ((await getRestaurantRole()) || '')
+      if (role !== 'SUPER_ADMIN') {
+        const list = ctx.authType === 'disco'
+          ? (await resolveDiscoAccessScope(ctx)).refs
+          : (ctx.fmToken ? await getFmSessionPermittedRefs(ctx.fmToken) : new Set<string>())
+        const rejected = refs.filter(r => !list.has(r))
+        if (rejected.length) {
+          return NextResponse.json({
+            error: 'Locations not on your list',
+            description: `You can only include locations on your own list. ${rejected.length} location(s) are not.`,
+            rejected,
+          }, { status: 403 })
+        }
+      }
+      const slug = String(json.url || '').trim().toLowerCase()
+      if (slug && !(await urlRecorded(slug))) {
+        const url = await checkLinkUrl(slug)
+        if (!url.ok) {
+          return NextResponse.json({
+            error: 'URL not available',
+            description: url.suggestion ? `${url.reason} Try “${url.suggestion}”.` : url.reason,
+            suggestion: url.suggestion,
+          }, { status: 409 })
+        }
+        await recordLinkUrl(slug, null, 'fm-link')
+      }
+    } catch {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    }
+  }
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {

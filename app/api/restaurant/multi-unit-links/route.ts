@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef, getRestaurantRole, getFmSessionPermittedRefs } from '../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { resolveDiscoGroupScope, resolveDiscoAccessScope, discoRefAllowed } from '../../../../lib/restaurant-write-scope'
-import { listReachableNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
-import { resolveLocationUniverse, scopeAllows } from '../../../../lib/location-universe'
+import { listReachableNativeLinks, createNativeLink } from '../../../../lib/multi-unit-links'
+import { checkLinkUrl, recordLinkUrl } from '../../../../lib/link-url-registry'
 import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -65,6 +65,47 @@ async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaura
 // member out of disco_restaurant_cache, which mirrors FM restaurants as well — so
 // a half-converted chain gets one working page covering all of its locations
 // instead of being forced to pick a side.
+// ── PETER'S LINK PAGE RULES (22 Oct 2026) ───────────────────────────────────
+// 1. A System Admin may create as many link pages as they like, but every
+//    location on one must be on THEIR OWN Disco list. Any other location
+//    refuses the whole save and is named (it used to be dropped silently, or
+//    allowed through FamilyMeal's list / the group + email-domain fallback in
+//    resolveLocationUniverse). A Super Admin is unrestricted.
+// 2. A new URL can never match an existing or past link page, a restaurant's
+//    page, a FamilyMeal group or a site route (lib/link-url-registry.ts); the
+//    refusal suggests a free alternative.
+async function ownListAllows(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>): Promise<((r: string) => boolean) | null> {
+  const role = ctx.authType === 'disco' ? (ctx.role || '') : ((await getRestaurantRole()) || '')
+  if (role === 'SUPER_ADMIN') return () => true
+  if (role !== 'SYSTEM_ADMIN') return null
+  if (ctx.authType === 'disco') {
+    const scope = await resolveDiscoAccessScope(ctx)
+    return r => discoRefAllowed(scope, r)
+  }
+  const list = ctx.fmToken ? await getFmSessionPermittedRefs(ctx.fmToken) : new Set<string>()
+  return r => list.has(r)
+}
+
+async function refuseIfBreaksLinkRules(memberRefs: string[], slug: string, allows: (r: string) => boolean): Promise<NextResponse | null> {
+  const rejected = memberRefs.filter(r => !allows(r))
+  if (rejected.length) {
+    return NextResponse.json({
+      error: 'Locations not on your list',
+      description: `You can only include locations on your own list. ${rejected.length} location(s) are not.`,
+      rejected,
+    }, { status: 403 })
+  }
+  const url = await checkLinkUrl(slug)
+  if (!url.ok) {
+    return NextResponse.json({
+      error: 'URL not available',
+      description: url.suggestion ? `${url.reason} Try “${url.suggestion}”.` : url.reason,
+      suggestion: url.suggestion,
+    }, { status: 409 })
+  }
+  return null
+}
+
 async function nativeCreate(
   ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>,
   req: NextRequest,
@@ -81,17 +122,12 @@ async function nativeCreate(
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
   // Reach, and SAY WHAT WAS REJECTED rather than silently saving a subset — the
   // same change made on the edit path.
-  const members = memberRefs.filter(r => allows(r))
-  const rejected = memberRefs.filter(r => !allows(r))
-  if (!members.length) {
-    return NextResponse.json({
-      error: 'Locations not in your group',
-      description: 'None of those locations are ones you have access to.',
-      rejected,
-    }, { status: 403 })
-  }
-  if (await slugTaken(slug)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
+  const refused = await refuseIfBreaksLinkRules(memberRefs, slug, allows)
+  if (refused) return refused
+  const members = [...new Set(memberRefs)]
+  const rejected: string[] = []
   const { reference } = await createNativeLink({ slug, title, ownerEmail: ctx.email, memberRefs: members })
+  await recordLinkUrl(slug, reference, 'disco-link')
   return NextResponse.json({
     reference, url: slug, header: title, saved: members.length, rejected,
     ...(rejected.length ? { warning: `${rejected.length} location(s) were not saved because you do not have access to them.` } : {}),
@@ -186,17 +222,22 @@ export async function POST(req: NextRequest) {
       } catch { /* unknown → fall back to the session branch below */ }
     }
 
+    const allows = await ownListAllows(ctx)
     if (ctx.authType === 'disco' || anyNative) {
-      const universe = await resolveLocationUniverse()
-      // Prefer the union reach (it resolves FM sessions too); fall back to
-      // Disco's ACL when there is no universe to resolve.
-      if (universe) {
-        const isAdmin = universe.role === 'SYSTEM_ADMIN' || universe.isSuperAdmin
-        return nativeCreate(ctx, req, r => scopeAllows(universe, r), isAdmin)
-      }
-      const allow = await resolveDiscoAccessScope(ctx)
-      const isAdmin = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
-      return nativeCreate(ctx, req, r => discoRefAllowed(allow, r), isAdmin)
+      return nativeCreate(ctx, req, allows ?? (() => false), !!allows)
+    }
+
+    // FamilyMeal-backed set: the same two rules are checked HERE, before
+    // anything is forwarded.
+    if (!allows) return NextResponse.json({ error: 'System admin only' }, { status: 403 })
+    try {
+      const json = await readRequestPart(req.clone() as NextRequest)
+      const slug = String(json.url || '').trim().toLowerCase()
+      if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL slug', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
+      const refused = await refuseIfBreaksLinkRules(memberRefs, slug, allows)
+      if (refused) return refused
+    } catch {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     }
   }
 
@@ -220,6 +261,7 @@ export async function POST(req: NextRequest) {
     // Mirror the link into Neon for the public /locations/[slug] header. Best
     // effort — the FM write already succeeded, so a Neon failure must not fail
     // the save (the create-table migration also lives here, idempotent).
+    try { await recordLinkUrl(String(request.url || '').trim(), null, 'fm-link') } catch { /* registry best-effort */ }
     try {
       const restaurantReference = await getRestaurantRef()
       await upsertLocationLink(buildLinkRow(request, fmData, restaurantReference))
