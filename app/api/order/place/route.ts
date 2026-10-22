@@ -20,7 +20,7 @@ import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
 import { stampCheckoutContactOrderPlaced } from '../../../../lib/checkout-contacts'
-import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition } from '../../../../lib/attribution'
+import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition, checkoutPagePath, sourceForCheckoutPage, recordCheckoutPath } from '../../../../lib/attribution'
 
 export const runtime = 'nodejs'
 
@@ -307,6 +307,21 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
+    // ── 1P vs 3P FROM THE CHECKOUT PAGE (lib/attribution.ts) ────────────────
+    // Decided here, before either branch, so the Disco-native placement, what
+    // is sent to FamilyMeal for an FM-backed restaurant, and the Neon mirror
+    // all carry the same answer. A page this cannot classify leaves the
+    // drawer's own flag as it was.
+    const checkoutPath = checkoutPagePath(req.headers.get('referer'), body?.checkoutPath)
+    const pageSource = sourceForCheckoutPage(checkoutPath)
+    if (body && typeof body === 'object') {
+      delete (body as Record<string, unknown>).checkoutPath
+      if (pageSource) {
+        const cdIn = ((body as Record<string, unknown>).checkoutDetails ?? {}) as Record<string, unknown>
+        ;(body as Record<string, unknown>).checkoutDetails = { ...cdIn, sourceoforder: pageSource }
+      }
+    }
+
     // The gate, before EITHER branch below (native and FM-backed both pass
     // through here), and before any Stripe object is created — refusing after
     // a PaymentIntent exists would leave a charge intent for an order that
@@ -439,6 +454,7 @@ export async function POST(req: NextRequest) {
       // be able to fail or delay a placement.
       waitUntil(
         recordOrderAcquisition(sql, result.orderReference, parseAcquisitionCookie(req.cookies.get(ACQUISITION_COOKIE)?.value))
+          .then(() => recordCheckoutPath(sql, result.orderReference, checkoutPath))
           .catch((e) => console.error('[order/place] acquisition capture failed (non-fatal):', e instanceof Error ? e.message : e)),
       )
 
@@ -612,6 +628,7 @@ export async function POST(req: NextRequest) {
       const acq = parseAcquisitionCookie(req.cookies.get(ACQUISITION_COOKIE)?.value)
       waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge, companyName: typeof companyName === 'string' ? companyName : null, taxExemptState: typeof taxExemptState === 'string' ? taxExemptState : null, note: typeof note === 'string' ? note : null })
         .then(() => recordOrderAcquisition(sql, orderRef, acq))
+        .then(() => recordCheckoutPath(sql, orderRef, checkoutPath))
         .catch((e) => console.error('[order/place] mirror/acquisition failed (non-fatal):', e instanceof Error ? e.message : e)))
 
       // Funnel capture: ORDER_PLACED, linked via order_reference (orderRef is

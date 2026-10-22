@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { checkoutPagePath, sourceForCheckoutPage } from '../../../../lib/attribution'
 import { loadDeliveryTimeWindow } from '../../../../lib/order/native-checkout'
 import { waitUntil } from '@vercel/functions'
 import { getFmCustomerJwt } from '../../../../lib/customer-auth'
@@ -248,7 +249,11 @@ export async function POST(req: NextRequest) {
       `.catch((e) => console.error('[order/confirm-payment] payment status→SUCCEEDED failed:', e instanceof Error ? e.message : e))
     }
     if (charged && orderReference) {
-      waitUntil(dispatchAfterConfirm(orderReference, body?.placedOrder as PlacedOrderFallback | undefined))
+      // 1P vs 3P follows the checkout page (lib/attribution.ts), the same rule
+      // /api/order/place applies, should this fallback have to create the row.
+      const placed = body?.placedOrder as PlacedOrderFallback | undefined
+      const pageSource = sourceForCheckoutPage(checkoutPagePath(req.headers.get('referer'), null))
+      waitUntil(dispatchAfterConfirm(orderReference, placed && pageSource ? { ...placed, sourceOfOrder: pageSource } : placed))
     }
 
     return NextResponse.json(data, { status: res.status })

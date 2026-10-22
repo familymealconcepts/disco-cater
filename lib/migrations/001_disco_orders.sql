@@ -926,6 +926,12 @@ UPDATE disco_restaurant_accounts
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_source TEXT;          -- map | search | chat | browse | direct
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_referrer TEXT;        -- document.referrer at first touch
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_landing_path TEXT;    -- the page they landed on
+-- The page the customer was on when they PLACED the order (22 Oct 2026). Unlike
+-- acq_landing_path (first touch, 30 days), this is the checkout itself, and it is
+-- what decides 1P vs 3P: /order/{slug} = the restaurant's own link = 1P
+-- (source_of_order FAMILYMEAL, no lead-gen); /restaurants/{slug}, the map,
+-- search and AI chat = marketplace = 3P (DISCO). lib/attribution.ts sourceForCheckoutPage.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS checkout_path TEXT;
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_source TEXT;
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_medium TEXT;
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_utm_campaign TEXT;

@@ -70,6 +70,9 @@ async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextRespons
     discount: dnum(st.discount),
     refund: dnum(nr.refund),
     note: nr.note || '',
+    // 1P (FAMILYMEAL, the restaurant's own /order/ link) or 3P (DISCO). "Order
+    // again" returns a 1P customer to the restaurant's own link.
+    sourceOfOrder: nr.source_of_order || null,
     orderMealPackages: itemRows.map((it) => ({
       name: it.name,
       count: it.quantity,
@@ -93,7 +96,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ref:
                to_char(o.order_date,'YYYY-MM-DD') AS order_date, o.order_time::text AS order_time,
                o.subtotal, o.total, o.fee, o.tips, o.refund, o.note, o.company_name, o.persons, o.tax_exempt_state,
                o.delivery_address_line1, o.delivery_address_line2, o.delivery_city, o.delivery_state, o.delivery_zip,
-               o.restaurant_reference, o.restaurant_name, o.restaurant_address, o.restaurant_phone
+               o.restaurant_reference, o.restaurant_name, o.restaurant_address, o.restaurant_phone,
+               o.source_of_order
         FROM disco_orders o
         WHERE o.reference = ${ref}::uuid OR o.fm_order_reference = ${ref}::uuid
         LIMIT 1
@@ -143,6 +147,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ref:
               if (Number.isFinite(authTotal) && authTotal > 0) data.total = authTotal
             } catch { /* best-effort enrichment */ }
           }
+          if (nr?.source_of_order && !data.sourceOfOrder) data.sourceOfOrder = nr.source_of_order
           return NextResponse.json(data)
         }
         // FM non-OK (e.g. the restaurant/order was deleted) → fall through to Neon.

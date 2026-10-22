@@ -43,6 +43,8 @@ interface OrderSubscription {
 }
 
 export interface FmOrderDetail {
+  /** 'FAMILYMEAL' = 1P (the restaurant's own link), 'DISCO' = 3P marketplace. */
+  sourceOfOrder?: string | null
   reference?: string
   orderNumber?: number
   orderStatus?: string
@@ -188,7 +190,10 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
         }))
       } catch {}
     }
-    if (slug) router.push(`/restaurants/${slug}`)
+    // A 1P order (placed through the restaurant's own /order/ link) is reordered
+    // through that same link, so it stays the restaurant's own order; a 3P
+    // marketplace order goes back to the marketplace page.
+    if (slug) router.push(detail?.sourceOfOrder === 'FAMILYMEAL' ? `/order/${slug}` : `/restaurants/${slug}`)
     else router.push('/fullmap')
   }
 

@@ -1007,6 +1007,9 @@ export default function CheckoutDrawer({
             restaurantRef: fmRef,
             orderRef,
             checkoutDetails,
+            // The page this checkout ran on. The server decides 1P (/order/) vs
+            // 3P (marketplace) from it and stores it on the order.
+            checkoutPath: typeof window !== 'undefined' ? window.location.pathname : null,
             // FM requires a digits-only phone ("Phone number has wrong format"
             // otherwise) — "732-239-7055" → "7322397055".
             customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: sanitizePhone(contactPhone) },

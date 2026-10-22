@@ -217,3 +217,51 @@ export async function recordOrderAcquisition(
     WHERE reference = ${orderReference}::uuid
   `
 }
+
+// ── 1P vs 3P, DECIDED BY THE CHECKOUT PAGE (Peter, 22 Oct 2026) ─────────────
+// /order/{slug} is the restaurant's own link: 1P (FAMILYMEAL, no lead-gen fee).
+// Everything a customer reaches through the marketplace — /restaurants/{slug},
+// the catering map, search, AI chat — is 3P (DISCO).
+//
+// The page is read from the request's Referer (set by the browser on the
+// checkout's own fetch) and falls back to the path the checkout sends. It used
+// to be decided ONLY by a prop the page passed down to the checkout drawer,
+// with nothing about the page stored on the order — so when that didn't hold
+// (a 1P diner punted to their account by a header login, or sent back through
+// "Order again" to the marketplace URL) nobody could tell afterwards.
+
+/** The path of the page the checkout ran on, or null. */
+export function checkoutPagePath(referer: string | null | undefined, bodyPath: unknown): string | null {
+  for (const candidate of [referer, typeof bodyPath === 'string' ? bodyPath : null]) {
+    if (!candidate) continue
+    try {
+      const u = new URL(candidate, 'https://www.discocater.com')
+      const host = u.hostname.toLowerCase()
+      if (host !== 'discocater.com' && !host.endsWith('.discocater.com') && host !== 'localhost' && !host.endsWith('.vercel.app')) continue
+      const p = u.pathname.slice(0, MAX_FIELD_LENGTH)
+      if (p.startsWith('/')) return p
+    } catch { /* try the next */ }
+  }
+  return null
+}
+
+/** FAMILYMEAL for the restaurant's own /order/ link, DISCO for a marketplace page, null when unknown. */
+export function sourceForCheckoutPage(path: string | null): 'FAMILYMEAL' | 'DISCO' | null {
+  if (!path) return null
+  if (path.startsWith('/order/') && !path.startsWith('/order-confirmation')) return 'FAMILYMEAL'
+  if (path.startsWith('/restaurants/') || path.startsWith('/fullmap') || path === '/' || path.startsWith('/locations/')) return 'DISCO'
+  return null
+}
+
+/** Store the checkout page on the order. Best-effort, like recordOrderAcquisition. */
+export async function recordCheckoutPath(
+  sqlClient: { (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> },
+  orderReference: string,
+  path: string | null,
+): Promise<void> {
+  if (!orderReference || !path) return
+  await sqlClient`
+    UPDATE disco_orders SET checkout_path = COALESCE(disco_orders.checkout_path, ${path})
+     WHERE reference = ${orderReference}::uuid OR fm_order_reference = ${orderReference}::uuid
+  `
+}

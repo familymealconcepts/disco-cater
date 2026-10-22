@@ -120,9 +120,11 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
       if (pendingAction) {
         // Finishing an interrupted action (e.g. checkout) — stay put and run it.
         pendingAction()
-      } else if (!pathname?.startsWith('/restaurants/') && !pathname?.startsWith('/fullmap')) {
+      } else if (!pathname?.startsWith('/restaurants/') && !pathname?.startsWith('/order/') && !pathname?.startsWith('/fullmap')) {
         // A new account is always a diner — mirror the login landing. Stay put on
-        // the catering map and restaurant pages (close the modal, show logged in).
+        // the catering map and restaurant pages, INCLUDING the restaurant's own
+        // /order/ link: sending a 1P diner to their account area lost them the
+        // link, and they came back through the marketplace as 3P.
         router.push('/account/orders')
       }
       window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
@@ -169,7 +171,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         // Finishing an interrupted action (e.g. add-to-cart / checkout) —
         // stay where they are and run it.
         pendingAction()
-      } else if ((!u.role || u.role === 'USER') && !pathname?.startsWith('/restaurants/') && !pathname?.startsWith('/fullmap')) {
+      } else if ((!u.role || u.role === 'USER') && !pathname?.startsWith('/restaurants/') && !pathname?.startsWith('/order/') && !pathname?.startsWith('/fullmap')) {
         // Mirror FM: a diner login with no pending action lands on the
         // account area (sign-in.component.ts:113-114 → USER → /account,
         // which redirects to /account/orders in Disco). Skip on restaurant
