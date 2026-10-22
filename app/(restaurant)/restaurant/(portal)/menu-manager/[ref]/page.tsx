@@ -647,18 +647,40 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
 
 function AddExistingDialog({ categoryRef, onCancel, onAdded }: { categoryRef: string; onCancel: () => void; onAdded: () => void }) {
   const [items, setItems] = useState<{ reference: string; name: string; price: string | number }[]>([])
+  const [groups, setGroups] = useState<{ item_reference: string; reference: string; name: string; external_name?: string | null }[]>([])
   const [sel, setSel] = useState<Record<string, boolean>>({})
+  // Which modifier groups travel with each item. Keyed `${itemRef}|${groupRef}`.
+  // Everything starts TICKED — the item's own options are what the person
+  // almost always wants, so the gesture is unticking the odd one, not
+  // rebuilding the list.
+  const [groupSel, setGroupSel] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   useEffect(() => {
     fetch(`/api/restaurant/disco-menu-items/add-existing?categoryRef=${categoryRef}`)
-      .then(r => r.ok ? r.json() : { items: [] }).then(d => setItems(d.items || [])).finally(() => setLoading(false))
+      .then(r => r.ok ? r.json() : { items: [], groups: [] })
+      .then(d => {
+        setItems(d.items || [])
+        const g = d.groups || []
+        setGroups(g)
+        const pre: Record<string, boolean> = {}
+        for (const x of g) pre[`${x.item_reference}|${x.reference}`] = true
+        setGroupSel(pre)
+      })
+      .finally(() => setLoading(false))
   }, [categoryRef])
   const chosen = Object.keys(sel).filter(k => sel[k])
+  const groupsFor = (itemRef: string) => groups.filter(g => g.item_reference === itemRef)
   async function add() {
     if (chosen.length === 0) return
     setSaving(true)
-    const res = await fetch('/api/restaurant/disco-menu-items/add-existing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryReference: categoryRef, itemReferences: chosen }) })
+    const groupsByItem: Record<string, string[]> = {}
+    for (const itemRef of chosen) {
+      groupsByItem[itemRef] = groupsFor(itemRef)
+        .filter(g => groupSel[`${itemRef}|${g.reference}`])
+        .map(g => g.reference)
+    }
+    const res = await fetch('/api/restaurant/disco-menu-items/add-existing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryReference: categoryRef, itemReferences: chosen, groupsByItem }) })
     setSaving(false)
     if (res.ok) onAdded()
   }
@@ -671,13 +693,37 @@ function AddExistingDialog({ categoryRef, onCancel, onAdded }: { categoryRef: st
           : items.length === 0 ? <div style={{ color: '#aaa', fontSize: 13 }}>No other items available to add.</div>
           : (
             <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid #eee', borderRadius: 8 }}>
-              {items.map(it => (
-                <label key={it.reference} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: '1px solid #f4f4f4', cursor: 'pointer', fontSize: 13 }}>
-                  <input type="checkbox" checked={!!sel[it.reference]} onChange={e => setSel(s => ({ ...s, [it.reference]: e.target.checked }))} style={{ accentColor: BLUE }} />
-                  <span style={{ flex: 1, color: DARK }}>{it.name}</span>
-                  <span style={{ color: '#888' }}>{money(it.price)}</span>
-                </label>
-              ))}
+              {items.map(it => {
+                const its = groupsFor(it.reference)
+                const picked = !!sel[it.reference]
+                return (
+                <div key={it.reference} style={{ borderBottom: '1px solid #f4f4f4' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', fontSize: 13 }}>
+                    <input type="checkbox" checked={picked} onChange={e => setSel(s => ({ ...s, [it.reference]: e.target.checked }))} style={{ accentColor: BLUE }} />
+                    <span style={{ flex: 1, color: DARK }}>{it.name}</span>
+                    {its.length > 0 && <span style={{ fontSize: 11, color: '#999' }}>{its.length} option group{its.length === 1 ? '' : 's'}</span>}
+                    <span style={{ color: '#888' }}>{money(it.price)}</span>
+                  </label>
+                  {/* The item's own modifier groups, ticked. Shown only once the
+                      item itself is chosen, so the list stays readable. */}
+                  {picked && its.length > 0 && (
+                    <div style={{ padding: '0 12px 10px 38px' }}>
+                      {its.map(g => (
+                        <label key={g.reference} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12, color: '#555' }}>
+                          <input
+                            type="checkbox"
+                            checked={groupSel[`${it.reference}|${g.reference}`] !== false}
+                            onChange={e => setGroupSel(s => ({ ...s, [`${it.reference}|${g.reference}`]: e.target.checked }))}
+                            style={{ accentColor: BLUE }}
+                          />
+                          <span>{g.external_name || g.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                )
+              })}
             </div>
           )}
         <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>

@@ -225,7 +225,21 @@ export default function MultiUnitLinksPage() {
   function openDialog(link: Partial<MultiLink>) {
     setUrlError(''); setImageError(''); setImageFile(null); setImageUpdated(false)
     // Show the existing image (if any) when editing; nothing for a brand-new link.
-    setImagePreview((link.reference || link.urlFrom === 'Dashboard') ? imageUrl(link) : null)
+    //
+    // ── READ THE SAME SOURCE THE TABLE READS ────────────────────────────────
+    // The thumbnail in the table comes from `imageMap` — the Vercel Blob URL
+    // held in the Neon mirror, which is the source of truth for display (see
+    // the fetch of /multi-unit-links/images above, whose own comment says the
+    // table must not rely on stale FM image refs).
+    //
+    // This dialog did NOT. It called imageUrl(link), which reads FM's
+    // `image.reference` / `locationImage`. For any link whose picture was
+    // uploaded through Disco, that FM reference is absent or stale, so the edit
+    // dialog showed NO image while the row behind it showed one — which is
+    // exactly the "the photo doesn't display" ops reported. Preferring the
+    // mirror here makes the two agree.
+    const mirrored = link.url ? imageMap[link.url] : null
+    setImagePreview((link.reference || link.urlFrom === 'Dashboard') ? (mirrored || imageUrl(link)) : null)
     // Pre-fill the manual gradient override from the mirror (parse its two hex stops).
     const stops = (gradientMap[link.url || ''] || '').match(/#[0-9a-fA-F]{3,8}/g)
     if (stops && stops.length >= 2) { setGradEnabled(true); setGradStart(stops[0]); setGradEnd(stops[1]) }
