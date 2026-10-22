@@ -158,7 +158,7 @@ async function withFmIdentity(ctx: Ctx | null): Promise<Ctx | null> {
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  const ctx = await getRestaurantAuthContext()
+  const ctx = await withFmIdentity(await getRestaurantAuthContext())
   // BRANCH ON WHAT THE LINK IS, NOT ON HOW THE CALLER LOGGED IN. This used to test
   // `ctx?.authType === 'disco'`, so a SYSTEM_ADMIN holding an fm_restaurant_token
   // edited FM's link instead of the native one — the same defect shape as the
