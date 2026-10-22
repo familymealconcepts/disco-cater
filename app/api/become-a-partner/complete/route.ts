@@ -6,6 +6,7 @@ import { layout, button } from '../../../../lib/email/layout'
 import { createFmRestaurant } from '../../../../lib/become-a-partner/fm-create'
 import {
   hashPassword,
+  verifyPassword,
   createDiscoRestaurantSession,
   getDiscoRestaurantAccount,
   DISCO_RESTAURANT_COOKIE,
@@ -132,7 +133,21 @@ export async function POST(req: NextRequest) {
     // (Done before FM so the canonical Disco reference is stable. The account may
     // already exist from the Stripe step — then we only enrich the profile.)
     const existing = await getDiscoRestaurantAccount(email)
-    let ref = (existing?.restaurant_reference as string | undefined) || String(body?.restaurantReference || '').trim() || randomUUID()
+    // ── AN EXISTING ACCOUNT MUST PRESENT ITS OWN PASSWORD (22 Oct 2026) ──────
+    // This route is unauthenticated and, for an email that already had an
+    // account, issued a full portal session for it — and rewrote its
+    // restaurant's name, address, native flag and marketplace switch — given
+    // the EMAIL ALONE. The real onboarding flow always sends the password the
+    // partner chose a step earlier (stripe-connect created the account with
+    // it), so requiring it changes nothing for a real partner.
+    if (existing && !(await verifyPassword(password, String(existing.password_hash || '')))) {
+      return NextResponse.json({ error: 'An account with this email already exists. Sign in instead.' }, { status: 409 })
+    }
+    // A BRAND-NEW account never adopts a reference the client sent: the only
+    // legitimate one comes from stripe-connect, which already created the
+    // account (so `existing` is set). A client-supplied reference with no
+    // account behind this email was a way to attach to someone else's restaurant.
+    let ref = (existing?.restaurant_reference as string | undefined) || randomUUID()
 
     // Name/phone/address live on disco_restaurant_cache (upserted below), not here.
     if (existing) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
+import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 
 export const runtime = 'nodejs'
@@ -11,10 +12,27 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // PUT — update any of: name, description, price, serves, visible, position,
 // image_url, category_reference. Only the provided fields change.
+
+// ── ONLY ITEMS ON A RESTAURANT THE CALLER CAN WRITE (22 Oct 2026) ────────────
+// PUT and DELETE acted on ANY item reference for ANY signed-in portal user, so
+// one restaurant could reprice or delete another's native menu (item
+// references are visible on public menu pages). The item's own restaurant is
+// now checked with requireWritableRestaurantRef, the shared write gate.
+async function itemWritable(ref: string): Promise<NextResponse | null> {
+  if (!UUID.test(ref)) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+  const rows = (await sql`SELECT restaurant_reference::text AS r FROM disco_menu_items WHERE reference = ${ref}::uuid LIMIT 1`) as Array<{ r: string }>
+  if (!rows.length) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+  const w = await requireWritableRestaurantRef(rows[0].r)
+  return w.ok ? null : NextResponse.json({ error: w.error }, { status: w.status })
+}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const { ref } = await params
+  const denied = await itemWritable(ref)
+  if (denied) return denied
   if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid item reference.' }, { status: 400 })
 
   let body: Record<string, unknown>
@@ -60,6 +78,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const { ref } = await params
+  const denied = await itemWritable(ref)
+  if (denied) return denied
   if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid item reference.' }, { status: 400 })
 
   try {

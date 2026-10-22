@@ -18,6 +18,8 @@
 // So the asymmetry is the design, not an oversight. Confirmed intentional
 // 2026-08-27 when the minimum gates were added to the placement path.
 import { NextRequest, NextResponse } from 'next/server'
+import { getRestaurantEmail } from '../../../../../../lib/restaurant-auth'
+import { getAdminEmail } from '../../../../../../lib/admin-auth'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { resolveOrderAccess } from '../../../../../../lib/order/order-scope'
@@ -103,7 +105,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const activeLines: ActiveLine[] = Array.isArray(body.activeLines) ? body.activeLines : []
   const orderDate = String(body.orderDate || '').slice(0, 10) // YYYY-MM-DD
   const orderTime = String(body.orderTime || '')             // HH:MM:SS
-  const editorEmail = String(body.editorEmail || '')
+  // Who made the edit comes from the SERVER's identity for the caller, not the
+  // body (22 Oct 2026): the audit row and the customer email named whatever
+  // editorEmail the client sent. Admin portal → the verified Super Admin;
+  // restaurant session → its account / FM-verified email. The body is used
+  // only when neither yields one.
+  const serverEditor = isAdminEdit
+    ? (await getAdminEmail().catch(() => null))
+    : (ctx?.email || (ctx ? await getRestaurantEmail().catch(() => null) : null))
+  const editorEmail = String(serverEditor || body.editorEmail || '')
   if (!activeLines.length) return NextResponse.json({ error: 'At least one item is required.' }, { status: 400 })
 
   // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). All

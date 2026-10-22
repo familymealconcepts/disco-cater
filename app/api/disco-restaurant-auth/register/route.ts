@@ -10,6 +10,7 @@ import {
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
+import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 
 export const runtime = 'nodejs'
 
@@ -64,6 +65,36 @@ export async function POST(req: NextRequest) {
 
   // Migrations are best-effort — a failure here must NOT block the insert (the
   // tables almost certainly already exist).
+  // ── A NEW LOGIN CAN ONLY BE MINTED FOR A NEW RESTAURANT (22 Oct 2026) ─────
+  // The guard above blocks only FamilyMeal-backed references. Every
+  // Disco-native restaurant's reference is public (/api/restaurants lists
+  // them), so this route would create a fresh ADMIN login — with a password the
+  // CALLER chose — on any existing native restaurant, and sign them in. Joining
+  // an existing restaurant is what invites are for (accept-invite, with a
+  // token the restaurant's own admin issued). So a reference Disco already
+  // knows is refused for a NEW account. FAILS CLOSED: if the check cannot run,
+  // nothing is created. The existing-account branch below is unchanged (it
+  // requires that account's own password).
+  const already = await getDiscoRestaurantAccount(email).catch(() => null)
+  if (!already) {
+    try {
+      const taken = (await sql`
+        SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference}
+        UNION ALL SELECT 1 FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference}
+        UNION ALL SELECT 1 FROM disco_restaurant_accounts WHERE restaurant_reference = ${restaurantReference}
+        LIMIT 1`) as unknown[]
+      // A verified Super Admin may (the Testing page mints a throwaway login on
+      // an existing test restaurant this way, forwarding the admin cookie).
+      if (taken.length && !(await isVerifiedSuperAdminRequest(req))) {
+        console.warn('[disco-register] BLOCKED: reference already belongs to a restaurant:', restaurantReference, '(email:', email + ')')
+        return NextResponse.json({ error: 'This restaurant already has an account. Ask its admin to invite you.' }, { status: 409 })
+      }
+    } catch (e) {
+      console.error('[disco-register] existing-restaurant check failed — refusing:', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Could not create your account.' }, { status: 503 })
+    }
+  }
+
   try {
     await runDiscoOrderMigrations()
   } catch (migrationError) {

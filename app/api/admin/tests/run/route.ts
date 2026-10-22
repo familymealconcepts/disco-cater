@@ -350,10 +350,16 @@ async function deleteTestOrder(fmRef: string): Promise<void> {
 
 // Register + login a Disco-native restaurant account (Neon-only, no FM) so the
 // edit endpoints' getRestaurantAuthContext() gate passes. Returns the cookie.
+// The register route now refuses a NEW login on an EXISTING restaurant unless
+// the caller is a verified Super Admin, so the harness forwards the admin
+// cookie of the Super Admin running it. Set per run in POST below.
+let harnessAdminCookie = ''
+
 async function testRestaurantCookie(origin: string, restaurantRef: string): Promise<string> {
   const email = `playwright+edit${Date.now()}@discocater.com`
   const password = 'TestPassword123!'
   await call('POST', `${origin}/api/disco-restaurant-auth/register`, {
+    cookie: extractAdminCookie(harnessAdminCookie),
     body: { email, password, firstName: 'Test', lastName: 'Editor', phone: '5551234567', restaurantName: '[TEST] Editor', restaurantReference: restaurantRef },
   })
   const lg = await call('POST', `${origin}/api/disco-restaurant-auth/login`, { body: { email, password } })
@@ -881,6 +887,7 @@ export async function POST(req: NextRequest) {
   // Forward the caller's SUPER_ADMIN session cookie so internal admin endpoints
   // (e.g. the E2E test's restaurant/menu-item creation) authenticate as them.
   const adminCookie = req.headers.get('cookie') || ''
+  harnessAdminCookie = adminCookie
   try {
     const { steps, testData } = await runner(req.nextUrl.origin, adminEmail, adminCookie)
     const duration = Date.now() - startedAt

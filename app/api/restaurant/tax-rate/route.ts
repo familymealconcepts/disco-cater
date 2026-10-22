@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { getRestaurantAuthHeader, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
@@ -42,9 +41,11 @@ async function currentRef(): Promise<string> {
       const ref = await resolveDiscoScopeRef(ctx)
       return UUID_RE.test(ref) ? ref : ''
     }
-    const store = await cookies()
-    const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value || ''
-    if (selected && UUID_RE.test(selected)) return selected
+    // getRestaurantRef ALREADY honours the selected cookie for a System Admin,
+    // after checking it against what they manage. Reading the raw cookie here
+    // first (as this did) let any FM session — a single-location ADMIN
+    // included — point this route's tax mirror at another restaurant just by
+    // setting the cookie (22 Oct 2026).
     const own = (await getRestaurantRef()) || ''
     return UUID_RE.test(own) ? own : ''
   } catch { return '' }

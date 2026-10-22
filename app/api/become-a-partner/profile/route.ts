@@ -1,3 +1,4 @@
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { sql, runMigrations } from '../../../../lib/db'
@@ -28,6 +29,18 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
 // Restaurant profile step. Generates (or accepts) the restaurant_reference,
 // enriches the Disco-native account, and upserts the marketplace cache row
 // (geocoded, is_disco_native=true, is_live=false). Returns { restaurant_reference }.
+
+// ── THE RESTAURANT'S OWN SESSION ONLY (22 Oct 2026) ──────────────────────────
+// This route took any restaurantReference from an unauthenticated body and
+// overwrote that restaurant's name, address, image and native flag. Nothing in the app calls it today. It now acts only for a signed-in
+// Disco session on that same restaurant (or a Super Admin).
+async function ownSessionFor(ref: string): Promise<boolean> {
+  if (!ref) return false
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco' && (ctx.role || '').toUpperCase() === 'SUPER_ADMIN') return true
+  return !!ctx && ctx.authType === 'disco' && ctx.restaurantReference === ref
+}
+
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request.' }, { status: 400 }) }
@@ -38,6 +51,7 @@ export async function POST(req: NextRequest) {
   // Reuse the reference from account creation when present; otherwise mint one so
   // a purely Disco-native partner (no FM record) still gets a stable reference.
   const ref = String(body?.restaurantReference || '').trim() || randomUUID()
+  if (!(await ownSessionFor(ref))) return NextResponse.json({ error: 'Sign in to edit this restaurant.' }, { status: 401 })
 
   const street = String(body?.street || '').trim()
   const city = String(body?.city || '').trim()

@@ -1,3 +1,4 @@
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
@@ -11,12 +12,25 @@ export const dynamic = 'force-dynamic'
 // live on the marketplace, and sends a welcome email. (The single new-partner
 // Slack notification fires from /complete — see that route — so we don't
 // duplicate it here.)
+
+// ── THE RESTAURANT'S OWN SESSION ONLY (22 Oct 2026) ──────────────────────────
+// This route took any restaurantReference from an unauthenticated body and
+// turned it live, made it Disco-native and emailed its owner. Nothing in the app calls it today. It now acts only for a signed-in
+// Disco session on that same restaurant (or a Super Admin).
+async function ownSessionFor(ref: string): Promise<boolean> {
+  if (!ref) return false
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco' && (ctx.role || '').toUpperCase() === 'SUPER_ADMIN') return true
+  return !!ctx && ctx.authType === 'disco' && ctx.restaurantReference === ref
+}
+
 export async function POST(req: NextRequest) {
   let ref = ''
   try { const body = await req.json(); ref = String(body?.restaurantReference || '').trim() } catch {
     return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
   }
   if (!ref) return NextResponse.json({ error: 'Restaurant reference required.' }, { status: 400 })
+  if (!(await ownSessionFor(ref))) return NextResponse.json({ error: 'Sign in to take this restaurant live.' }, { status: 401 })
 
   try {
     await runMigrations()

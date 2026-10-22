@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCallerScopeRefs } from '../../../../lib/order/order-scope'
 import { waitUntil } from '@vercel/functions'
 import { deliveryStatusLabel } from '../../../../lib/order/fulfillment-label'
 import { getRestaurantRole, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
@@ -180,6 +181,20 @@ export async function GET(req: NextRequest) {
   let scopeRef = queryRef
   if (!scopeRef && isSA && selected) scopeRef = selected
   if (!scopeRef && !isSA) scopeRef = ownRef
+
+  // ── A NAMED LOCATION MUST BE ONE THE CALLER CAN REACH (22 Oct 2026) ───────
+  // ?restaurantReference= (and, for SA roles, the raw selected-location
+  // cookie) became the scope with no check, so any signed-in portal user could
+  // list any restaurant's orders — names, emails, totals, notes. Every
+  // /orders/[ref] sibling already checks assertOrderInScope; this list now
+  // checks the same scope (getCallerScopeRefs: role-gated, Disco's list for a
+  // System Admin, unrestricted for a Super Admin). Outside it → empty list.
+  if (scopeRef) {
+    const reach = await getCallerScopeRefs(ctx)
+    if (!reach.has(scopeRef.trim().toLowerCase())) {
+      return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size, restaurantExists: false })
+    }
+  }
 
   // SYSTEM_ADMIN aggregate (no specific location picked): include every location
   // the account has EXPLICIT access to (disco_restaurant_location_access for their

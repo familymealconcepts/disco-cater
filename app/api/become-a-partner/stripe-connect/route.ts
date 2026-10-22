@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { sql, runMigrations } from '../../../../lib/db'
 import { createConnectAccount, createAccountLink } from '../../../../lib/stripe-connect'
-import { hashPassword } from '../../../../lib/disco-restaurant-auth'
+import { hashPassword, verifyPassword } from '../../../../lib/disco-restaurant-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,9 +51,18 @@ export async function POST(req: NextRequest) {
     await runMigrations()
 
     const rows = (await sql`
-      SELECT restaurant_reference FROM disco_restaurant_accounts WHERE email = ${email} ORDER BY id ASC LIMIT 1
-    `) as { restaurant_reference: string }[]
+      SELECT restaurant_reference, password_hash FROM disco_restaurant_accounts WHERE email = ${email} ORDER BY id ASC LIMIT 1
+    `) as { restaurant_reference: string; password_hash: string | null }[]
     const acct = rows[0]
+    // ── AN EXISTING ACCOUNT MUST PRESENT ITS OWN PASSWORD (22 Oct 2026) ──────
+    // Unauthenticated, keyed on the email alone: for an existing restaurant
+    // with no Stripe account this created a Connect account on THAT restaurant
+    // and handed the onboarding link to the caller — who could then attach
+    // their own bank and receive its payouts. The onboarding page always sends
+    // the partner's password, so a real partner is unaffected.
+    if (acct && !(await verifyPassword(password, String(acct.password_hash || '')))) {
+      return NextResponse.json({ error: 'An account with this email already exists. Sign in to connect Stripe.' }, { status: 409 })
+    }
     let ref = acct?.restaurant_reference || ''
     let existingAccountId = ''
     if (ref) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -18,6 +19,10 @@ export async function GET(req: NextRequest) {
 
   const restaurantRef = (req.nextUrl.searchParams.get('restaurantRef') || '').trim()
   if (!UUID_RE.test(restaurantRef)) return NextResponse.json({ error: 'A valid restaurantRef is required.' }, { status: 400 })
+  // Scoped to restaurants the caller can manage (22 Oct 2026) — this returned
+  // any restaurant's menu, hidden items included, to any portal session.
+  const readable = await requireWritableRestaurantRef(restaurantRef)
+  if (!readable.ok) return NextResponse.json({ error: readable.error }, { status: readable.status })
 
   try {
     await runDiscoMenuMigrations()
@@ -56,6 +61,10 @@ export async function POST(req: NextRequest) {
   const serves = body?.serves != null ? String(body.serves) : null
 
   if (!UUID_RE.test(restaurantReference)) return NextResponse.json({ error: 'A valid restaurantReference is required.' }, { status: 400 })
+  // The body's restaurant must be one the caller can write (22 Oct 2026). It
+  // was taken as-is, so any portal session could add items to any restaurant.
+  const writable = await requireWritableRestaurantRef(restaurantReference)
+  if (!writable.ok) return NextResponse.json({ error: writable.error }, { status: writable.status })
   if (!name) return NextResponse.json({ error: 'name is required.' }, { status: 400 })
 
   try {
