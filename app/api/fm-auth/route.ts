@@ -10,6 +10,7 @@ import {
   fmLogin, syncFmProfilePhoneToDigits, type FmAuthResult,
 } from '../../../lib/customer-auth'
 import { sendCustomerWelcome } from '../../../lib/email/notifications'
+import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../lib/utils/email-format'
 
 export const runtime = 'nodejs'
 
@@ -59,6 +60,11 @@ export async function POST(req: NextRequest) {
       // ── PART 2: REGISTRATION ──
       if (!email || !password || !firstName || !lastName) {
         return NextResponse.json({ error: 'First name, last name, email and password are required.' }, { status: 400 })
+      }
+      // Same shape check as /api/auth/signup (lib/utils/email-format.ts), before
+      // any read or write — "not-an-email" used to create a real account here.
+      if (!isValidEmailFormat(email)) {
+        return NextResponse.json({ error: INVALID_EMAIL_MESSAGE }, { status: 400 })
       }
       const existing = await getDiscoCustomer(email).catch(() => null)
       if (existing) {

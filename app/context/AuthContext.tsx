@@ -131,6 +131,7 @@ async function fetchUser(): Promise<FetchUserResult> {
             lastName: data.lastName || '',
             phoneNumber: data.phoneNumber || '',
             role: data.role || '',
+            companyName: data.companyName || '',
             address: data.address || '',
             deliveryInstructions: data.deliveryInstructions || '',
           } }

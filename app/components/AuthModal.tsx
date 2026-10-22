@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
 import { sanitizePhone } from '../../lib/utils/phone'
+import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../lib/utils/email-format'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
@@ -102,6 +103,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
     if (!signupFirst || !signupLast || !signupEmail || !signupPassword) {
       setSignupError('Please fill in your name, email and password.'); return
     }
+    if (!isValidEmailFormat(signupEmail)) { setSignupError(INVALID_EMAIL_MESSAGE); return }
     const phoneDigits = sanitizePhone(signupPhone)
     if (!phoneDigits) { setSignupError('Phone number is required.'); return }
     if (phoneDigits.length !== 10) { setSignupError('Please enter a valid 10-digit phone number.'); return }

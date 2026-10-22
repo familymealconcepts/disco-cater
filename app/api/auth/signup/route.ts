@@ -9,6 +9,7 @@ import {
   fmLogin, syncFmProfilePhoneToDigits,
 } from '../../../../lib/customer-auth'
 import { sendCustomerWelcome } from '../../../../lib/email/notifications'
+import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../../lib/utils/email-format'
 
 export const runtime = 'nodejs'
 
@@ -25,6 +26,12 @@ export async function POST(req: NextRequest) {
     const phoneNumber = String(body?.phoneNumber || '').trim()
     if (!email || !password || !firstName || !lastName) {
       return NextResponse.json({ error: 'First name, last name, email and password are required.' }, { status: 400 })
+    }
+    // Refuse a malformed address BEFORE anything is read or written — the page
+    // checks too, but a direct POST must not be able to create an account no
+    // receipt or reset link could ever reach.
+    if (!isValidEmailFormat(email)) {
+      return NextResponse.json({ error: INVALID_EMAIL_MESSAGE }, { status: 400 })
     }
 
     try { await runDiscoOrderMigrations() } catch (e) { console.error('[signup] migration warning:', e instanceof Error ? e.message : e) }

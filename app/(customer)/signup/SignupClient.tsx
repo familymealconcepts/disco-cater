@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuthContext } from '../../context/AuthContext'
+import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../lib/utils/email-format'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -21,19 +22,27 @@ const labelSt: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#7
 // elsewhere in the app (confirmed live), and phone/email sit right next to
 // each other in this same form. Required here means a future field added to
 // this page can't silently omit them.
-function Field({ label, value, onChange, name, autoComplete, type = 'text', placeholder }: {
+function Field({ label, value, onChange, name, autoComplete, type = 'text', placeholder, error, onBlurField }: {
   label: string; value: string; onChange: (v: string) => void; name: string; autoComplete: string; type?: string; placeholder?: string
+  /** Inline message shown under the field (and a red border) when set. */
+  error?: string
+  onBlurField?: () => void
 }) {
+  const restBorder = error ? '#E24B4A' : '#e6e6ee'
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={labelSt}>{label}</label>
       <input
         type={type} name={name} value={value} autoComplete={autoComplete} placeholder={placeholder}
+        aria-invalid={error ? true : undefined}
         onChange={e => onChange(e.target.value)}
         onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
-        onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
-        style={pillInput}
+        onBlur={e => { e.currentTarget.style.borderColor = restBorder; e.currentTarget.style.boxShadow = 'none'; onBlurField?.() }}
+        style={{ ...pillInput, borderColor: restBorder }}
       />
+      {error && (
+        <div role="alert" style={{ fontSize: 12, color: '#c0392b', margin: '6px 0 0 14px' }}>{error}</div>
+      )}
     </div>
   )
 }
@@ -50,10 +59,17 @@ export default function SignupClient() {
   const [agree, setAgree] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Inline email-format message. Shown once the field has been left (or a
+  // submit attempted) so it does not shout while the address is being typed;
+  // the Create button is disabled whenever the typed address is malformed.
+  const [emailTouched, setEmailTouched] = useState(false)
+  const emailMalformed = email.trim() !== '' && !isValidEmailFormat(email)
+  const emailError = emailTouched && emailMalformed ? INVALID_EMAIL_MESSAGE : ''
 
   async function submit() {
     setError('')
     if (!firstName || !lastName || !email || !password) { setError('Please complete all fields.'); return }
+    if (!isValidEmailFormat(email)) { setEmailTouched(true); setError(INVALID_EMAIL_MESSAGE); return }
     // Phone is optional — submitting without one succeeds.
     if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) { setError('Email addresses do not match.'); return }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
@@ -102,7 +118,7 @@ export default function SignupClient() {
             <Field label="Last Name" value={lastName} onChange={setLastName} name="signup-last-name" autoComplete="family-name" />
           </div>
           <Field label="Phone Number (optional)" value={phone} onChange={setPhone} name="signup-phone" type="tel" autoComplete="tel" placeholder="e.g. (555) 555-5555" />
-          <Field label="Email" value={email} onChange={setEmail} name="signup-email" type="email" autoComplete="email" />
+          <Field label="Email" value={email} onChange={setEmail} name="signup-email" type="email" autoComplete="email" error={emailError} onBlurField={() => setEmailTouched(true)} />
           <Field label="Confirm Email" value={confirmEmail} onChange={setConfirmEmail} name="signup-confirm-email" type="email" autoComplete="email" />
           <Field label="Password" value={password} onChange={setPassword} name="signup-password" type="password" autoComplete="new-password" />
 
@@ -114,8 +130,8 @@ export default function SignupClient() {
             </span>
           </label>
 
-          <button onClick={submit} disabled={loading}
-            style={{ width: '100%', height: 50, borderRadius: 999, border: 'none', background: BLUE, color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: F, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+          <button onClick={submit} disabled={loading || emailMalformed}
+            style={{ width: '100%', height: 50, borderRadius: 999, border: 'none', background: BLUE, color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: F, cursor: loading || emailMalformed ? 'not-allowed' : 'pointer', opacity: loading || emailMalformed ? 0.5 : 1 }}>
             {loading ? 'Creating your account…' : 'Create account'}
           </button>
 

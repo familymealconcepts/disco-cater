@@ -47,9 +47,13 @@ export type AdminAuditAction =
   // Restaurant Admins page (Super Admin): a person's location list, name,
   // removal, and the Primary System Admin tag.
   | 'restaurant_admin_update' | 'restaurant_admin_remove' | 'primary_system_admin_change'
+  // diner self-service — a customer deleting their own account from the Security
+  // page. Written INSIDE the delete statement (app/api/auth/delete-account) so
+  // the trail and the delete commit together; actor_email is the deleted diner.
+  | 'customer_account_deleted'
 
 let auditTableEnsured = false
-async function ensureAuditTable(): Promise<void> {
+export async function ensureAuditTable(): Promise<void> {
   if (auditTableEnsured) return
   await sql`
     CREATE TABLE IF NOT EXISTS disco_admin_audit (

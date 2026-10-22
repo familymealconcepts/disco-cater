@@ -55,17 +55,30 @@ export default function ProfilePage() {
     e.preventDefault()
     setSaving(true)
     try {
+      // Saves to Disco's own customer record only (never FamilyMeal). Email is
+      // the account key and is not editable here, so it is not sent.
       const res = await fetch('/api/fm-user', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone, companyName: company }),
+        body: JSON.stringify({ firstName, lastName, phoneNumber: phone, companyName: company }),
         credentials: 'include',
       })
-      if (!res.ok) throw new Error('Failed to save')
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        showToast(data?.error || 'Failed to save profile. Please try again.', 'error')
+        return
+      }
+      // Show exactly what was stored (e.g. the phone normalised to digits).
+      if (data) {
+        setFirstName(data.firstName || '')
+        setLastName(data.lastName || '')
+        setPhone(data.phoneNumber || '')
+        setCompany(data.companyName || '')
+      }
       await refreshUser()
       showToast('Profile saved successfully')
     } catch {
-      showToast('Failed to save profile', 'error')
+      showToast('Failed to save profile. Please try again.', 'error')
     } finally {
       setSaving(false)
     }
@@ -92,7 +105,8 @@ export default function ProfilePage() {
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Email address</label>
-          <input className="acct-input" type="email" name="account-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} style={inputSt} />
+          <input className="acct-input" type="email" name="account-email" autoComplete="email" value={email} readOnly aria-readonly="true" style={{ ...inputSt, background: '#f6f6f8', color: '#777' }} />
+          <div style={{ fontSize: 11, color: '#888', marginTop: 5 }}>Your email is your sign-in and can&apos;t be changed here. Contact support to change it.</div>
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Phone number</label>

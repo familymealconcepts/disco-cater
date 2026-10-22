@@ -25,6 +25,12 @@ export default function SecurityPage() {
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deletePw, setDeletePw] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deleted, setDeleted] = useState(false)
+
+  function openDelete() { setDeletePw(''); setDeleteError(''); setConfirmOpen(true) }
+  function closeDelete() { if (!deleting && !deleted) { setConfirmOpen(false); setDeletePw(''); setDeleteError('') } }
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault()
@@ -51,17 +57,40 @@ export default function SecurityPage() {
     }
   }
 
-  async function deleteAccount() {
+  // Deletes the Disco account (server: app/api/auth/delete-account). Requires
+  // the password. Every failure is shown in the dialog — it used to be
+  // swallowed, leaving the dialog open with no explanation.
+  async function deleteAccount(e?: React.FormEvent) {
+    e?.preventDefault()
+    setDeleteError('')
+    if (!deletePw) { setDeleteError('Please enter your password to confirm.'); return }
     setDeleting(true)
     try {
-      const res = await fetch('/api/auth/delete-account', { method: 'POST', credentials: 'include' })
+      const res = await fetch('/api/auth/delete-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: deletePw }),
+        credentials: 'include',
+      })
       const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.success) { setDeleting(false); return }
+      if (!res.ok || !data?.success) {
+        setDeleteError(data?.error || 'We couldn’t delete your account. Please try again.')
+        setDeleting(false)
+        return
+      }
+      setDeletePw('')
+      setDeleted(true)
+      setDeleting(false)
+      // The server already deleted every session and cleared the httpOnly
+      // cookies, so the diner is signed out. Clear the stored identity now, but
+      // NOT via AuthContext.logout(): that nulls the user immediately, and the
+      // account layout then redirects to /?login=1 (a sign-in prompt) before the
+      // success message can be read. A full navigation home re-reads auth from
+      // scratch and finds no session.
       try { localStorage.removeItem('currentUser'); localStorage.removeItem('disco_user') } catch {}
-      // Best-effort cookie clear (httpOnly cookies are cleared server-side).
-      try { document.cookie.split(';').forEach(c => { document.cookie = c.replace(/^ +/, '').replace(/=.*/, `=;expires=${new Date(0).toUTCString()};path=/`) }) } catch {}
-      window.location.href = '/'
+      setTimeout(() => { window.location.href = '/' }, 2500)
     } catch {
+      setDeleteError('We couldn’t reach the server. Please check your connection and try again.')
       setDeleting(false)
     }
   }
@@ -104,7 +133,7 @@ export default function SecurityPage() {
 
       {/* ── Delete Account (subtle, bottom of page) ── */}
       <div style={{ marginTop: 8 }}>
-        <button onClick={() => setConfirmOpen(true)}
+        <button onClick={openDelete}
           style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#727272', textDecoration: 'underline', cursor: 'pointer', fontFamily: F }}>
           Delete account
         </button>
@@ -113,23 +142,41 @@ export default function SecurityPage() {
       {/* Confirmation modal */}
       {confirmOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={() => !deleting && setConfirmOpen(false)}>
-          <div onClick={e => e.stopPropagation()}
+          onClick={closeDelete}>
+          <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="delete-account-title"
             style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 420, width: '100%', fontFamily: F }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>Are you sure?</div>
-            <p style={{ fontSize: 13, color: '#666', lineHeight: 1.6, margin: '0 0 22px' }}>
-              This action cannot be undone. Your account and all associated data will be permanently deleted.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button onClick={() => setConfirmOpen(false)} disabled={deleting}
-                style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, color: DARK, cursor: deleting ? 'not-allowed' : 'pointer', fontFamily: F }}>
-                Cancel
-              </button>
-              <button onClick={deleteAccount} disabled={deleting}
-                style={{ background: RED, border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: deleting ? 'not-allowed' : 'pointer', fontFamily: F }}>
-                {deleting ? 'Deleting…' : 'Delete my account'}
-              </button>
-            </div>
+            {deleted ? (
+              <div role="status">
+                <div id="delete-account-title" style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>Your account has been deleted</div>
+                <p style={{ fontSize: 13, color: '#666', lineHeight: 1.6, margin: 0 }}>
+                  You&apos;ve been signed out. Thanks for ordering with Disco Cater. Taking you to the home page…
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={deleteAccount}>
+                <div id="delete-account-title" style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>Delete your account?</div>
+                <p style={{ fontSize: 13, color: '#666', lineHeight: 1.6, margin: '0 0 12px' }}>
+                  This can&apos;t be undone. Your profile, saved addresses, saved cards and favorites will be permanently deleted, and any recurring orders will be canceled. Receipts for orders you&apos;ve already placed are kept for the restaurant&apos;s records.
+                </p>
+                <label style={labelSt} htmlFor="delete-account-password">Enter your password to confirm</label>
+                <input id="delete-account-password" className="acct-input" type="password" autoComplete="current-password"
+                  value={deletePw} onChange={e => { setDeletePw(e.target.value); if (deleteError) setDeleteError('') }}
+                  disabled={deleting} style={{ ...inputSt, marginBottom: 12 }} />
+                {deleteError && (
+                  <div role="alert" style={{ fontSize: 13, fontWeight: 600, color: RED, marginBottom: 12 }}>{deleteError}</div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                  <button type="button" onClick={closeDelete} disabled={deleting}
+                    style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, color: DARK, cursor: deleting ? 'not-allowed' : 'pointer', fontFamily: F }}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={deleting || !deletePw}
+                    style={{ background: RED, border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: deleting || !deletePw ? 'not-allowed' : 'pointer', opacity: deleting || !deletePw ? 0.6 : 1, fontFamily: F }}>
+                    {deleting ? 'Deleting…' : 'Delete my account'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
