@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 
 const STORAGE_REF = 'selectedRestaurant'
 const STORAGE_NAME = 'selectedRestaurantName'
@@ -28,6 +28,25 @@ interface ContextValue {
 }
 
 const Ctx = createContext<ContextValue | null>(null)
+
+async function readServerSelection(): Promise<{ ref: string | null; name: string | null } | null> {
+  try {
+    const res = await fetch('/api/restaurant/selected-restaurant', { credentials: 'include', cache: 'no-store' })
+    if (!res.ok) return null
+    const d = await res.json() as { ref?: string | null; name?: string | null }
+    return { ref: d?.ref || null, name: d?.name || null }
+  } catch { return null } // offline — keep what is on screen
+}
+
+function reloadForSelection(server: { ref: string | null; name: string | null }) {
+  try {
+    if (server.ref) {
+      localStorage.setItem(STORAGE_REF, server.ref)
+      if (server.name) localStorage.setItem(STORAGE_NAME, server.name); else localStorage.removeItem(STORAGE_NAME)
+    } else { localStorage.removeItem(STORAGE_REF); localStorage.removeItem(STORAGE_NAME) }
+  } catch {}
+  window.location.reload()
+}
 
 // Broadcast detail — every field is optional so producers only carry
 // what they're actually changing. The listener applies fields by
@@ -75,23 +94,65 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
 
     let alive = true
     ;(async () => {
-      try {
-        const res = await fetch('/api/restaurant/selected-restaurant', { credentials: 'include', cache: 'no-store' })
-        if (!res.ok || !alive) return
-        const d = await res.json() as { ref?: string | null }
-        const serverRef = d?.ref || null
-        setRef(serverRef)
-        // Realign the optimistic copy so the next paint starts correct, and clear
-        // a stale name when the server says nothing is selected.
-        try {
-          if (serverRef) localStorage.setItem(STORAGE_REF, serverRef)
-          else { localStorage.removeItem(STORAGE_REF); localStorage.removeItem(STORAGE_NAME) }
-        } catch { /* optimistic copy only — the server read already applied */ }
-        if (!serverRef) setName('')
-      } catch { /* offline — keep the optimistic value rather than blanking the UI */ }
+      const server = await readServerSelection()
+      if (!server || !alive) return
+      applyServerSelection(server)
     })()
     return () => { alive = false }
   }, [])
+
+  // ── THE LABEL IS THE SERVER'S SELECTION, NAME INCLUDED ────────────────────
+  // The name used to come from localStorage and was only refreshed after a
+  // switch made in THIS tab. So it went stale three ways, all of which System
+  // Admins hit: a name cached from a different location (or a different login
+  // in the same browser) survived the hydrate, because only the ref was
+  // realigned; a switch in another tab moved the cookie — which every save
+  // scopes by — while this tab kept its old label and its old form; and the
+  // refresh read a field that named a sibling location (fixed in
+  // /api/restaurant/profile). The server now returns the EFFECTIVE selection
+  // with that location's own name, and this tab adopts it on load and every
+  // time it regains focus.
+  const refRef = useRef<string | null>(null)
+  const hydratedRef = useRef(false)
+  useEffect(() => { refRef.current = ref }, [ref])
+
+  useEffect(() => {
+    async function recheck() {
+      if (document.visibilityState !== 'visible') return
+      const server = await readServerSelection()
+      if (!server) return
+      if (hydratedRef.current && server.ref !== refRef.current) {
+        // The selection changed underneath this tab (another tab, or a location
+        // taken off the person's list). Whatever form is on screen was loaded for
+        // the old location; saving it now would write to the new one. Reload so
+        // the page, the label and the save target are all the same location.
+        reloadForSelection(server)
+        return
+      }
+      applyServerSelection(server)
+    }
+    document.addEventListener('visibilitychange', recheck)
+    window.addEventListener('focus', recheck)
+    return () => {
+      document.removeEventListener('visibilitychange', recheck)
+      window.removeEventListener('focus', recheck)
+    }
+  }, [])
+
+  function applyServerSelection(server: { ref: string | null; name: string | null }) {
+    hydratedRef.current = true
+    refRef.current = server.ref
+    setRef(server.ref)
+    setName(server.ref ? (server.name || '') : '')
+    try {
+      if (server.ref) {
+        localStorage.setItem(STORAGE_REF, server.ref)
+        if (server.name) localStorage.setItem(STORAGE_NAME, server.name)
+      } else {
+        localStorage.removeItem(STORAGE_REF); localStorage.removeItem(STORAGE_NAME)
+      }
+    } catch { /* optimistic copy only — the server read already applied */ }
+  }
 
   // Same-tab broadcast (so changes in one consumer reach others) +
   // cross-tab via the native storage event.
@@ -107,7 +168,13 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
       if (detail.viewMode) setViewModeState(detail.viewMode)
     }
     function onStorage(e: StorageEvent) {
-      if (e.key === STORAGE_REF) setRef(e.newValue || null)
+      // Another tab switched location. The cookie moved with it, so this tab's
+      // form now belongs to a location the server no longer scopes to — reload
+      // rather than relabel (see recheck above).
+      if (e.key === STORAGE_REF && (e.newValue || null) !== refRef.current) {
+        reloadForSelection({ ref: e.newValue || null, name: null })
+        return
+      }
       if (e.key === STORAGE_NAME) setName(e.newValue || '')
       if (e.key === STORAGE_VIEW && (e.newValue === 'RESTAURANT_USER' || e.newValue === 'SYSTEM_ADMIN')) {
         setViewModeState(e.newValue)

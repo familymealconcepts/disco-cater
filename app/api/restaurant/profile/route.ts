@@ -56,7 +56,15 @@ export async function GET() {
       return NextResponse.json({
         reference: scope,
         name,
-        businessName: (r.business_name as string) || name,
+        // THE LOCATION'S OWN NAME. This used to prefer the account row's
+        // business_name, joined on restaurant_reference — which is not unique
+        // and which, for 20 native locations, names a SIBLING: a System Admin
+        // who picked "Atlanta Bread - Atlanta" saw "Atlanta Bread - Woodstock"
+        // under the logo, because the sidebar label is refreshed from this
+        // field. cache.name is the restaurant's name; the account's business
+        // name is still returned, as groupName, for anything that wants it.
+        businessName: name,
+        groupName: (r.business_name as string) || null,
         businessNameWithoutSpaces: slug, // dashboard slug fallback + FM-shape parity
         slug,
         email: r.email ?? null,

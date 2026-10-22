@@ -11,7 +11,7 @@ import {
 } from '../../../../lib/restaurant-auth'
 import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { sql } from '../../../../lib/db'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { nativeSelectionAllowed } from '../../../../lib/native-selection-scope'
 
@@ -144,10 +144,36 @@ export async function PUT(req: NextRequest) {
 // while every API answered it from the cookie. The two drift — iOS Safari evicts
 // localStorage under ITP long before a 30-day cookie expires — and when they did,
 // a SYSTEM_ADMIN saw one location's orders under a banner claiming all of them.
+// GET → { ref, name } — the selection the SERVER will actually scope by.
+//
+// The sidebar label used to trust the cookie's raw value plus a name cached in
+// localStorage. Neither is what an API scopes by for a Disco session:
+// resolveDiscoScopeRef falls back to the home location when the cookie names a
+// location no longer on the person's list (removed, or left over from another
+// login in the same browser). The label then named one location while every
+// save landed on another. So this answers with the EFFECTIVE selection — a
+// cookie the server would not honour is cleared here and reported as none —
+// and with that location's own name from disco_restaurant_cache, so the label
+// and the writes cannot disagree.
 export async function GET() {
   const store = await cookies()
-  const ref = store.get(SELECTED_RESTAURANT_COOKIE)?.value || null
-  return NextResponse.json({ ref }, { headers: { 'Cache-Control': 'no-store' } })
+  const raw = (store.get(SELECTED_RESTAURANT_COOKIE)?.value || '').trim() || null
+  const headers = { 'Cache-Control': 'no-store' }
+  if (!raw) return NextResponse.json({ ref: null, name: null }, { headers })
+
+  const ctx = await getRestaurantAuthContext().catch(() => null)
+  let ref: string | null = raw
+  if (ctx?.authType === 'disco') {
+    const effective = await resolveDiscoScopeRef(ctx).catch(() => '')
+    if (effective !== raw) ref = null
+  }
+  if (!ref) {
+    const resp = NextResponse.json({ ref: null, name: null, cleared: true }, { headers })
+    resp.cookies.delete(SELECTED_RESTAURANT_COOKIE)
+    return resp
+  }
+  const rows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`.catch(() => [])) as Array<{ name: string | null }>
+  return NextResponse.json({ ref, name: rows[0]?.name || null }, { headers })
 }
 
 export async function DELETE() {
