@@ -44,8 +44,13 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   const itemMenuAnchor = useRef<{ el: HTMLElement; top: number; left: number } | null>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setKebab(''); setItemMenu(null) } }
+    // A tap anywhere outside the page content (the sidebar, the blank shell
+    // below short content) also closes the menus. Taps on a menu or its ⋯
+    // button stopPropagation, so they never reach the document.
+    const onDocClick = () => { setKebab(''); setItemMenu(null) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('click', onDocClick)
+    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('click', onDocClick) }
   }, [])
   useEffect(() => {
     if (!itemMenu) return

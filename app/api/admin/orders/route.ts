@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { sql } from '../../../../lib/db'
 import { toClientIso } from '../../../../lib/utils/timestamp'
+import { emailFailuresFor } from '../../../../lib/email-failures'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -113,6 +114,26 @@ export async function GET(req: NextRequest) {
     if (isFirstPage && data && Array.isArray(data.content)) {
       const native = await fetchNativeOrders(sp.get('fromDate') || null, sp.get('toDate') || null)
       if (native.length) data.content = [...native, ...data.content]
+    }
+
+    // Order emails Mailgun could not deliver (lib/email-failures.ts), on every
+    // page: FM and native rows alike. A number is only unique per restaurant,
+    // so a failure attaches to a row when its restaurant matches too.
+    if (data && Array.isArray(data.content) && data.content.length) {
+      const rows = data.content as Record<string, unknown>[]
+      const failures = await emailFailuresFor(rows.map(r => String(r.orderNumber ?? '')))
+      if (failures.size) {
+        for (const r of rows) {
+          const list = failures.get(String(r.orderNumber ?? ''))
+          if (!list) continue
+          const name = String(r.restaurantName ?? '').trim().toLowerCase()
+          const ref = String(r.restaurantReference ?? '')
+          const mine = list.filter(f => (!f.restaurantReference && !f.restaurantName)
+            || (f.restaurantReference && f.restaurantReference === ref)
+            || (f.restaurantName && f.restaurantName.trim().toLowerCase() === name))
+          if (mine.length) r.emailFailures = mine.map(({ recipient, reason, eventTime, subject }) => ({ recipient, reason, eventTime, subject }))
+        }
+      }
     }
 
     const count = Array.isArray(data?.content) ? data.content.length : (Array.isArray(data) ? data.length : 0)

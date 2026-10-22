@@ -60,6 +60,11 @@ export interface SendEmailParams {
    *  Mailgun caps a message at 3 tags and rejects an over-long one, so callers
    *  should pass a single short kebab-case tag. Transactional mail passes none. */
   tags?: string[]
+  /** The order this email is about. Sent as Mailgun user-variable
+   *  `v:order-number`, which comes back on every Events API record for the
+   *  message — that is how lib/email-failures.ts ties a permanent failure to
+   *  its order without guessing from the subject line. */
+  orderNumber?: string | number | null
 }
 
 export interface SendResult {
@@ -248,6 +253,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     form.append('text', text)
     if (replyTo) form.append('h:Reply-To', replyTo)
     for (const t of params.tags || []) form.append('o:tag', t)
+    if (params.orderNumber != null && String(params.orderNumber).trim()) form.append('v:order-number', String(params.orderNumber).trim())
     // See "THE `Sender:` HEADER" above. Null for an already-aligned From (the
     // campaign path), in which case the parameter is not sent at all.
     const senderHeader = senderHeaderFor(from, domain)

@@ -71,6 +71,9 @@ interface Order {
   // `reference` — NOT `orderReference`. Captured here so we can normalize it into
   // orderReference on load (see withOrderRef).
   reference?: string
+  // Order emails Mailgun could not deliver (permanent failures), recorded by
+  // the mailgun-failures cron. Never resent automatically.
+  emailFailures?: { recipient: string; reason: string; eventTime: string; subject: string | null }[]
 }
 
 // FM returns the order reference under `reference`; every consumer here (the Edit
@@ -391,6 +394,18 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {detailRow('Type', fulfillmentLabel(order.deliveryType, order.orderType))}
           {detailRow('Status', order.orderStatus || '—')}
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
+          {order.emailFailures?.length ? (
+            <div style={{ marginTop: 14, padding: '10px 12px', background: '#FDECEA', border: '1px solid #F5C2C0', borderRadius: 8, fontSize: 13, color: '#7A1C1C' }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Email not delivered — not resent</div>
+              {order.emailFailures.map((f, i) => (
+                <div key={i} style={{ marginTop: i ? 8 : 0, overflowWrap: 'anywhere' }}>
+                  <div><strong>{f.recipient}</strong> · {new Date(f.eventTime).toLocaleString()}</div>
+                  {f.subject && <div style={{ color: '#555' }}>{f.subject}</div>}
+                  <div style={{ color: '#555' }}>{f.reason}</div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         {isSuperAdmin && (
           <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -850,7 +865,15 @@ function AdminOrdersContent() {
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
                 <td style={cell}>{customerName(o)}</td>
-                <td style={cell}>{o.orderNumber ? `#${o.orderNumber}` : '—'}</td>
+                <td style={cell}>
+                  {o.orderNumber ? `#${o.orderNumber}` : '—'}
+                  {o.emailFailures?.length ? (
+                    <span title={o.emailFailures.map(f => `Not delivered to ${f.recipient}: ${f.reason}`).join('\n')}
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#C62828', background: '#FDECEA', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+                      Email failed
+                    </span>
+                  ) : null}
+                </td>
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>
                   {fmtCurrency(o.total ?? o.transactionsTotal ?? 0)}
                   <InvoicePill paymentMethod={o.paymentMethod} />

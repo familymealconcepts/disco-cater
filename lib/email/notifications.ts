@@ -292,7 +292,7 @@ ${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${e
 ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track your delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
 ${anyQuestions(p)}
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: p.orderNumber,
       to: p.to,
       subject: `New Disco Cater Order — ${p.businessName} #${p.orderNumber}`,
       html: layout(content),
@@ -385,7 +385,7 @@ ${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${e
 ${p.deliveryId ? `<p style="margin-top:20px;">Delivery Id: ${escapeHtml(p.deliveryId)}</p>` : ''}
 ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: p.orderNumber,
       to: p.restaurantEmail,
       bcc: p.restaurantBcc,
       subject,
@@ -427,7 +427,7 @@ ${HR}
 ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track your delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
 ${anyQuestions(p)}
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: p.orderNumber,
       to: p.to,
       // FM's shape, but with FM's courier disclosure removed: FM sends
       // "Your THIRD-PARTY DELIVERY Order", which tells a diner who booked the
@@ -475,7 +475,7 @@ ${renderTotals(p)}
 ${HR}
 <p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong></p>
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: p.orderNumber,
       to: p.to,
       subject: `REMINDER: Upcoming Order(in 24 hours) ${p.orderNumber} (${money(p.totalPrice)}) ${p.orderDate}, ${p.orderTime} for ${customerName}`.trim(),
       html: layout(content),
@@ -545,7 +545,7 @@ ${moneyLine}
 <p>Please reach out if you have any questions.</p>
 <p style="margin-top:28px;">${escapeHtml(p.businessName)}${phone ? ` - ${escapeHtml(phone)}` : ''}</p>
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: p.orderNumber,
       to: p.to,
       subject: 'Your Disco Cater order has been canceled',
       html: layout(content),
@@ -790,7 +790,7 @@ ${context}
 <p>Questions? Contact ${escapeHtml(businessName)} or <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
 <p>Thanks,<br/>The Disco Cater Team</p>
 `
-    return await sendEmail({
+    return await sendEmail({ orderNumber: params.orderNumber,
       to: params.to,
       // A partial refund gets its own subject too — the inbox line is the part a
       // customer reads first, and "Refund processed" on a partial reads as done.
@@ -843,7 +843,7 @@ ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
 <p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
 `
-    return await sendEmail({ to: p.to, subject: 'Your order has been updated | Disco Cater', html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Your order has been updated | Disco Cater', html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderUpdated failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -863,7 +863,7 @@ export async function sendOrderEditPaymentRequired(params: {
 <p style="margin:0;">Please pay the invoice below — your order changes are saved and will be confirmed as soon as payment is received.</p>
 ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 `
-    return await sendEmail({ to: p.to, subject: 'Payment required for your order update | Disco Cater', html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Payment required for your order update | Disco Cater', html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderEditPaymentRequired failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -886,7 +886,7 @@ export async function sendCustomerInvoiceReminder(params: {
 <p style="margin:0;">Please pay the invoice below so ${escapeHtml(p.businessName)} can confirm your order.</p>
 ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 `
-    return await sendEmail({ to: p.to, subject: `Reminder: payment due for order #${p.orderNumber} | Disco Cater`, html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Reminder: payment due for order #${p.orderNumber} | Disco Cater`, html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendCustomerInvoiceReminder failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -906,7 +906,7 @@ ${dateTimeLine(p.orderDate, p.orderTime)}
 ${p.items && p.items.length ? `${HR}${renderEditItems(p.items)}` : ''}
 ${p.newTotal != null ? `${HR}<p style="margin:0;"><strong>Total: ${money(p.newTotal)}</strong></p>` : ''}
 `
-    return await sendEmail({ to: p.to, subject: 'Order update confirmed | Disco Cater', html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Order update confirmed | Disco Cater', html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderEditPaymentConfirmed failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -924,7 +924,7 @@ export async function sendOrderEditRefundIssued(params: {
 <p style="margin:0 0 12px 0;">A refund of <strong>${money(p.refundAmount)}</strong> has been issued for your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}.</p>
 <p style="margin:0;">Please allow 5-10 business days for the credit to appear on your statement.</p>
 `
-    return await sendEmail({ to: p.to, subject: 'Refund issued for your order | Disco Cater', html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Refund issued for your order | Disco Cater', html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderEditRefundIssued failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -944,7 +944,7 @@ export async function sendOrderEditPaymentFailed(params: {
 <p style="margin:0;">Please update your payment method to confirm the change.</p>
 ${p.updatePaymentUrl ? button('Update payment method', p.updatePaymentUrl) : ''}
 `
-    return await sendEmail({ to: p.to, subject: 'Action required: payment failed for order update | Disco Cater', html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Action required: payment failed for order update | Disco Cater', html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderEditPaymentFailed failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -969,7 +969,7 @@ ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
 <p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
 `
-    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content), attachments: p.attachments })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content), attachments: p.attachments })
   } catch (err) {
     console.error('[email/notifications] sendOrderUpdatedRestaurant failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -986,7 +986,7 @@ export async function sendOrderEditPendingRestaurant(params: {
 <p style="margin:0 0 12px 0;">An edit to order <strong>#${escapeHtml(p.orderNumber)}</strong> is pending customer payment.</p>
 <p style="margin:0;">The customer has been sent an invoice for <strong>${money(p.amountDue)}</strong>. The order will be confirmed automatically once they pay — no action is needed on your end.</p>
 `
-    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} edit pending customer payment | Disco Cater`, html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Order #${p.orderNumber} edit pending customer payment | Disco Cater`, html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendOrderEditPendingRestaurant failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -1009,7 +1009,7 @@ export async function sendCustomerItemUnavailableRefund(params: {
 <p style="margin:0 0 12px 0;">Your order could not be fulfilled, so we've automatically refunded <strong>${money(p.refundAmount)}</strong> in full. Please allow 5-10 business days for the credit to appear on your statement.</p>
 <p style="margin:0;">Sorry for the inconvenience — please feel free to place a new order.</p>
 `
-    return await sendEmail({ to: p.to, subject: `Item unavailable — order #${p.orderNumber} refunded | Disco Cater`, html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Item unavailable — order #${p.orderNumber} refunded | Disco Cater`, html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendCustomerItemUnavailableRefund failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -1041,7 +1041,7 @@ export async function sendRestaurantInvoicePaid(params: {
 <p style="margin:0 0 12px 0;">Amount: <strong>$${p.total.toFixed(2)}</strong></p>
 <p style="margin:0;">No action needed — you already received the order confirmation when it was placed. This is confirmation that payment has cleared.</p>
 `
-    return await sendEmail({ to: p.to, subject: `Invoice paid — order #${p.orderNumber} | Disco Cater`, html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Invoice paid — order #${p.orderNumber} | Disco Cater`, html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendRestaurantInvoicePaid failed:', err instanceof Error ? err.message : err)
     return { success: false }
@@ -1057,7 +1057,7 @@ export async function sendRestaurantItemUnavailableAlert(params: {
 <p style="margin:0 0 12px 0;">Order <strong>#${escapeHtml(p.orderNumber)}</strong>${p.orderDate ? ` (for ${escapeHtml(p.orderDate)})` : ''} was automatically refunded — <strong>${escapeHtml(p.itemName)}</strong> hit its Max Inventory Per Day cap right after the customer paid.</p>
 <p style="margin:0;">No action needed — the customer has already been refunded and notified. This order will not appear as active.</p>
 `
-    return await sendEmail({ to: p.to, subject: `Item sold out — order #${p.orderNumber} auto-refunded | Disco Cater`, html: layout(content) })
+    return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Item sold out — order #${p.orderNumber} auto-refunded | Disco Cater`, html: layout(content) })
   } catch (err) {
     console.error('[email/notifications] sendRestaurantItemUnavailableAlert failed:', err instanceof Error ? err.message : err)
     return { success: false }
