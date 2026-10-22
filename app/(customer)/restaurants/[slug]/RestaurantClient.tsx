@@ -443,6 +443,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [tempDate, setTempDate] = useState('')
   const [tempTime, setTempTime] = useState('')
   const [tempType, setTempType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
+  // Menu list inside the Menus modal scrolls on its own (capped height). With
+  // 5+ menus the last ones sit below the fold with nothing saying so, so we
+  // track whether more is hidden below and show a "more menus" cue.
+  const menuListRef = useRef<HTMLDivElement>(null)
+  const [menuListMoreBelow, setMenuListMoreBelow] = useState(false)
+  function updateMenuListCue() {
+    const el = menuListRef.current
+    setMenuListMoreBelow(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 4)
+  }
+  useEffect(() => {
+    if (!menusOpen) return
+    const t = requestAnimationFrame(updateMenuListCue)
+    window.addEventListener('resize', updateMenuListCue)
+    return () => { cancelAnimationFrame(t); window.removeEventListener('resize', updateMenuListCue) }
+  }, [menusOpen, menuData.length, pendingMenuSwitchIdx])
 
   // Calendar popover (fixed-position, outside modal)
   const dateButtonRef = useRef<HTMLButtonElement>(null)
@@ -1346,6 +1361,60 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     // a worse way to find out. The conflict banner is on screen saying why.
     cartLeadBreaches.length === 0 &&
     (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
+
+  // ── Desktop sidebar: keep "Continue to Checkout" on screen ───────────────
+  // The cart card scrolls internally and the checkout button sits below it.
+  // A fixed CSS cap (calc(100vh - 160px)) ignored where the card actually
+  // starts — the sticky offset (68/106px), the restaurant header above it
+  // before the page scrolls, and the floating "Ask Disco" pill in the
+  // bottom-right — so with a long cart the button landed partly or fully
+  // below the fold, or under the pill. Instead, size the card from the live
+  // geometry: whatever space is left between the card's top and the bottom of
+  // the viewport, minus the button, minus the pill when it overlaps this
+  // column. Written straight to the DOM (no React state) so scrolling doesn't
+  // re-render this whole component every frame.
+  const cartCardRef = useRef<HTMLDivElement>(null)
+  const cartCtaRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (isMobileViewport !== false) return
+    let raf = 0
+    const fit = () => {
+      raf = 0
+      const card = cartCardRef.current
+      if (!card) return
+      const vh = window.innerHeight
+      const cardRect = card.getBoundingClientRect()
+      const cta = cartCtaRef.current
+      const ctaSpace = cta ? cta.offsetHeight + 10 /* card marginBottom */ : 0
+      let bottomReserve = 16
+      const pill = document.querySelector('.disco-ask-btn') as HTMLElement | null
+      if (pill) {
+        const p = pill.getBoundingClientRect()
+        if (p.height > 0 && p.left < cardRect.right && p.right > cardRect.left) {
+          bottomReserve = Math.max(bottomReserve, vh - p.top + 12)
+        }
+      }
+      // Never size for a top above the sticky offset: at the very end of the
+      // page the column's bottom edge pushes the sticky block upward, and
+      // growing the card then would only push its header further off-screen.
+      const stickyTop = parseFloat(getComputedStyle(card.parentElement || card).top) || 0
+      const avail = Math.floor(vh - Math.max(cardRect.top, stickyTop) - ctaSpace - bottomReserve)
+      card.style.maxHeight = `${Math.max(100, avail)}px`
+    }
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(fit) }
+    fit()
+    window.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    // Layout above the sidebar can shift after mount (images, banners).
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
+    ro?.observe(document.body)
+    return () => {
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      ro?.disconnect()
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [isMobileViewport, hasSelection, cart.length, menuData.length])
 
   // GA funnel: checkout drawer opened. Fires once per open (covers both the
   // desktop and mobile "Continue to Checkout" buttons). Skips Direct Entry —
@@ -2403,7 +2472,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         {isMobileViewport !== true && menuData.length > 0 && (
         <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340, alignSelf: 'stretch' }}>
           <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
-            <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
+            {/* max-height is set from live geometry by the effect above
+                (cartCardRef); .order-cart-card in the <style> block is only the
+                pre-hydration fallback. Do not add maxHeight back inline. */}
+            <div ref={cartCardRef} className="order-cart-card" style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
               <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div>
                 <div style={{ fontSize: 12, color: '#727272' }}>{restaurant.name}</div>
@@ -2413,6 +2485,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* CHECKOUT button — outside the card */}
             {fmRef && (
               <button
+                ref={cartCtaRef}
                 onClick={() => startCheckout(false)}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
@@ -2429,7 +2502,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {/* Mobile bottom bar — hidden after hydration on desktop viewports, and
           hidden entirely when there's no valid menu (nothing to order). */}
       {isMobileViewport !== false && menuData.length > 0 && (
-      <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
+      <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)}
           onMouseOver={e => { if (cartCount > 0) e.currentTarget.style.background = '#4A5FD4' }}
           onMouseOut={e => { if (cartCount > 0) e.currentTarget.style.background = '#586CE1' }}
@@ -2449,7 +2522,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {cartPanel}
           </div>
           {fmRef && (
-            <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
+            <div style={{ padding: '12px 16px', paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
               <button
                 onClick={() => startCheckout(true)}
                 disabled={!canCheckout}
@@ -2465,20 +2538,27 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       {/* ── Menus Modal ────────────────────────────────────────────────────── */}
       {menusOpen && (
-        <div onClick={closeMenus}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(90vh, 600px)', overflowY: 'auto' }}>
+        <div onClick={closeMenus} className="menus-modal-overlay"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* LAYOUT: a flex column — fixed header, scrollable middle, PINNED
+              footer. The footer holds "Start Order", which must always be
+              visible and tappable: when the whole modal scrolled as one box
+              (capped at 600px), a restaurant with several menus (Colonial
+              Ranch, 5) pushed the button below the cap — 38px of it hidden on
+              desktop, all of it on iPhone SE. Height comes from
+              .menus-modal (dvh + safe-area aware) in the <style> block. */}
+          <div onClick={e => e.stopPropagation()} className="menus-modal"
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 16px', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>Menus</div>
               <button onClick={closeMenus} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>×</button>
             </div>
 
             {/* Warn-and-clear — a different menu than what's in the cart was picked */}
             {pendingMenuSwitchIdx != null && (
-              <div style={{ padding: '14px 20px', background: '#FFF7ED', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ padding: '14px 20px', background: '#FFF7ED', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
                 <div style={{ fontSize: 13, color: '#7C2D12', marginBottom: 10, lineHeight: 1.5 }}>
                   Switching menus will clear the {cartCount} item{cartCount === 1 ? '' : 's'} already in your cart — orders can only include items from one menu at a time.
                 </div>
@@ -2495,8 +2575,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
             )}
 
-            {/* Menu list — scrollable, capped height */}
-            <div style={{ overflowY: 'auto', maxHeight: 270, borderBottom: '1px solid #f0f0f0' }}>
+            {/* Scrollable middle — everything between the header and the
+                pinned Start Order footer. minHeight 0 lets it shrink below its
+                content so the footer never gets pushed out. */}
+            <div className="menus-modal-body" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+
+            {/* Menu list — scrollable, capped height, with a "more menus" cue
+                when entries are hidden below. */}
+            <div style={{ position: 'relative', borderBottom: '1px solid #f0f0f0' }}>
+            <div ref={menuListRef} onScroll={updateMenuListCue} className="menus-modal-list" data-testid="menus-list"
+              style={{ overflowY: 'auto', overscrollBehavior: 'contain' }}>
               {menuData.map((s, i) => {
                 const nextAvail = getMenuNextAvail(s.menu)
                 const isSel = tempMenuIdx === i
@@ -2520,6 +2608,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   </div>
                 )
               })}
+            </div>
+            {menuListMoreBelow && (
+              <button type="button"
+                onClick={() => { const el = menuListRef.current; if (el) el.scrollBy({ top: el.clientHeight * 0.8, behavior: 'smooth' }) }}
+                aria-label="Scroll to see more menus"
+                style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 34, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', paddingBottom: 5, background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 65%)', fontFamily: F, fontSize: 12, fontWeight: 600, color: '#585786' }}>
+                More menus ↓
+              </button>
+            )}
             </div>
 
             {/* Pickup / Delivery toggle */}
@@ -2611,7 +2708,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
             {/* Headcount — optional (hidden entirely for restaurants in HEADCOUNT_HIDDEN_REFS) */}
             {!hideHeadcount && (
-              <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ padding: '6px 20px 14px' }}>
                 <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
                   Headcount <span style={{ color: '#727272', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
                 </div>
@@ -2626,8 +2723,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
             )}
 
-            {/* Start Order CTA */}
-            <div style={{ padding: '14px 20px 20px' }}>
+            </div>{/* /menus-modal-body */}
+
+            {/* Start Order CTA — pinned footer, never scrolls away */}
+            <div style={{ padding: '12px 20px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
               <button onClick={startOrder} disabled={!canStartOrder}
                 style={{ width: '100%', height: 48, background: canStartOrder ? DARK : '#e0e0e0', color: canStartOrder ? '#fff' : '#727272', border: 'none', borderRadius: 24, fontSize: 15, fontWeight: 700, cursor: canStartOrder ? 'pointer' : 'default', fontFamily: F, transition: 'all 0.15s', boxShadow: canStartOrder ? '0 4px 14px rgba(26,16,40,0.22)' : 'none' }}>
                 Start Order
@@ -2835,6 +2934,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         /* Item detail modal height — leave a clear margin from the screen edges so
            it doesn't crowd the border on mobile (dvh accounts for browser chrome). */
         .item-modal { max-height: calc(100vh - 96px); max-height: calc(100dvh - 96px); }
+        /* Menus (date/time) modal — sized to the DYNAMIC viewport (dvh tracks
+           mobile browser chrome) and kept clear of notches / home indicator.
+           Its footer (Start Order) is pinned; only the middle scrolls. */
+        .menus-modal-overlay { padding: 16px; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+        .menus-modal { max-height: min(600px, calc(100vh - 32px)); max-height: min(600px, calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))); }
+        .menus-modal-list { max-height: 270px; max-height: min(270px, 34dvh); }
+        /* Pre-hydration fallback only — the live cap is computed in JS
+           (cartCardRef effect) from the real sticky offset. */
+        .order-cart-card { max-height: calc(100vh - 247px); }
         /* #3: sticky menu/category tabs are mobile-only; the in-header row shows on
            desktop. */
         .menu-tabs-sticky { display: none; }

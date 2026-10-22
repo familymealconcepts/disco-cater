@@ -14,3 +14,16 @@ body {
   background-color: var(--color-bg-base);
   color: var(--color-text-primary);
 }
+
+/* iOS Safari zooms the page in whenever a focused form field's text is under
+   16px, and doesn't zoom back out. Many fields across the site are styled
+   13–14px inline, so on phones force 16px — !important is what lets a
+   stylesheet rule beat an inline style. Phone widths only; desktop keeps the
+   designed sizes. Checkboxes/radios/ranges etc. have no text to zoom on. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
