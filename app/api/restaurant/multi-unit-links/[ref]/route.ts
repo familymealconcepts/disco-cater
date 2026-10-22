@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantRef, getRestaurantRole, getFmSessionPermittedRefs } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef, getRestaurantRole, getRestaurantEmail, getFmSessionPermittedRefs } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
@@ -147,6 +147,15 @@ async function nativeDelete(ctx: Ctx, ref: string) {
 // Update a link. Same multipart contract as POST (request JSON part + optional
 // image part); userReference is injected from the JWT. On failure we pass FM's
 // raw error body back so the client can surface `description` inline.
+// An FM session's context carries no role or email (getRestaurantAuthContext
+// leaves both blank), so nativeUpdate/nativeDelete refused every FM-session
+// Super Admin with "System admin only" and could never match an FM-session
+// System Admin to a link they created. Fill both from the VERIFIED token.
+async function withFmIdentity(ctx: Ctx | null): Promise<Ctx | null> {
+  if (!ctx || ctx.authType === 'disco') return ctx
+  return { ...ctx, role: (await getRestaurantRole()) || ctx.role, email: (await getRestaurantEmail()) || ctx.email }
+}
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
@@ -231,7 +240,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  const ctx = await getRestaurantAuthContext()
+  const ctx = await withFmIdentity(await getRestaurantAuthContext())
   // Same rule as PUT: what the link IS decides, not the session type.
   if (ctx && await nativeLinkExists(ref)) return nativeDelete(ctx, ref)
 

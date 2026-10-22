@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef, getRestaurantRole, getFmSessionPermittedRefs } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef, getRestaurantRole, getRestaurantEmail, getFmSessionPermittedRefs } from '../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
@@ -126,7 +126,9 @@ async function nativeCreate(
   if (refused) return refused
   const members = [...new Set(memberRefs)]
   const rejected: string[] = []
-  const { reference } = await createNativeLink({ slug, title, ownerEmail: ctx.email, memberRefs: members })
+  // The creator, for an FM session too (its context email is blank).
+  const ownerEmail = ctx.email || (ctx.authType !== 'disco' ? (await getRestaurantEmail()) || '' : '')
+  const { reference } = await createNativeLink({ slug, title, ownerEmail, memberRefs: members })
   await recordLinkUrl(slug, reference, 'disco-link')
   return NextResponse.json({
     reference, url: slug, header: title, saved: members.length, rejected,
