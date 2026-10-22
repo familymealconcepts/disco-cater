@@ -22,7 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
     const rows = (await sql`
-      SELECT restaurant_reference AS reference, name, address, address_line2, city, state, zipcode, phone, lat, lng, timezone, cuisine
+      SELECT restaurant_reference AS reference, name, address, address_line2, city, state, zipcode, phone, lat, lng, timezone, cuisine,
+             icon_url, image_url, is_disco_native
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
     `) as Record<string, unknown>[]
     if (!rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -41,6 +42,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         latitude: r.lat != null ? Number(r.lat) : undefined,
         longitude: r.lng != null ? Number(r.lng) : undefined,
       },
+      // Disco-side images (Vercel Blob URLs) so the edit dialog can preview —
+      // and remove — what the native logo/marketplace-logo routes stored. Only
+      // a native row's images are Disco's to remove: discoNative mirrors the
+      // same is_disco_native flag those routes branch on, NOT the auth type.
+      discoNative: r.is_disco_native === true,
+      iconUrl: (r.icon_url as string | null) || '',
+      imageUrl: (r.image_url as string | null) || '',
     })
   }
 

@@ -68,6 +68,13 @@ export interface EditLocationFullData {
   }
   image?: { reference?: string }
   marketplaceImage?: { image?: { reference?: string } }
+  // Disco-native locations only (GET /api/restaurant/locations/[ref] native
+  // branch): the Neon-stored Blob URLs. Their images are Disco's, so they are
+  // the only ones this dialog offers to remove — an FM-backed location's image
+  // lives in FamilyMeal and removing it would be an FM write.
+  discoNative?: boolean
+  iconUrl?: string
+  imageUrl?: string
 }
 
 interface Props {
@@ -95,17 +102,25 @@ export default function EditLocationDialog({ location, onClose, onSaved }: Props
 
   // Image state
   const [logoFile, setLogoFile] = useState<File | null>(null)
+  const isNative = location.discoNative === true
   const [logoPreview, setLogoPreview] = useState<string>(
-    location.image?.reference
-      ? `${FM_PUBLIC_API}/public-api/images/${location.image.reference}/download?size=150`
-      : ''
+    isNative
+      ? (location.iconUrl || '')
+      : location.image?.reference
+        ? `${FM_PUBLIC_API}/public-api/images/${location.image.reference}/download?size=150`
+        : ''
   )
   const [marketplaceFile, setMarketplaceFile] = useState<File | null>(null)
   const [marketplacePreview, setMarketplacePreview] = useState<string>(
-    location.marketplaceImage?.image?.reference
-      ? `${FM_PUBLIC_API}/public-api/images/${location.marketplaceImage.image.reference}/download?size=150`
-      : ''
+    isNative
+      ? (location.imageUrl || '')
+      : location.marketplaceImage?.image?.reference
+        ? `${FM_PUBLIC_API}/public-api/images/${location.marketplaceImage.image.reference}/download?size=150`
+        : ''
   )
+  // Staged removals — applied on Save, like the multi-unit links image Remove.
+  const [logoRemoved, setLogoRemoved] = useState(false)
+  const [marketplaceRemoved, setMarketplaceRemoved] = useState(false)
 
   // Cropper modal state
   const [cropper, setCropper] = useState<null | { src: string; ratio: number; kind: 'logo' | 'marketplace' }>(null)
@@ -193,11 +208,26 @@ export default function EditLocationDialog({ location, onClose, onSaved }: Props
     if (cropper.kind === 'logo') {
       setLogoFile(file)
       setLogoPreview(dataUrl)
+      setLogoRemoved(false)
     } else {
       setMarketplaceFile(file)
       setMarketplacePreview(dataUrl)
+      setMarketplaceRemoved(false)
     }
     setCropper(null)
+  }
+
+  // Stage removal of an image (cleared server-side on Save). Disco-native only.
+  function removeImage(kind: 'logo' | 'marketplace') {
+    if (kind === 'logo') {
+      setLogoFile(null)
+      setLogoPreview('')
+      setLogoRemoved(true)
+    } else {
+      setMarketplaceFile(null)
+      setMarketplacePreview('')
+      setMarketplaceRemoved(true)
+    }
   }
 
   function buildPayload() {
@@ -251,6 +281,20 @@ export default function EditLocationDialog({ location, onClose, onSaved }: Props
         const mf = new FormData()
         mf.append('file', marketplaceFile, marketplaceFile.name)
         await fetch(`/api/restaurant/locations/${location.reference}/marketplace-logo`, { method: 'POST', body: mf })
+      }
+      // Then clear any removed images. Keyed on location.reference — the
+      // location this dialog was loaded for — never the session's selection.
+      const removals: { path: string; label: string }[] = []
+      if (isNative && logoRemoved && !logoFile) removals.push({ path: 'logo', label: 'logo' })
+      if (isNative && marketplaceRemoved && !marketplaceFile) removals.push({ path: 'marketplace-logo', label: 'marketplace image' })
+      for (const r of removals) {
+        const dr = await fetch(`/api/restaurant/locations/${location.reference}/${r.path}`, { method: 'DELETE' })
+        if (!dr.ok) {
+          const d = await dr.json().catch(() => ({}))
+          setError(d?.error || `Location saved, but the ${r.label} could not be removed.`)
+          setSaving(false)
+          return
+        }
       }
       onSaved(`${businessName} updated.`)
     } catch {
@@ -316,12 +360,14 @@ export default function EditLocationDialog({ location, onClose, onSaved }: Props
               title="Restaurant logo (1:1)"
               preview={logoPreview}
               onSelect={e => handleImageSelect(e, 'logo')}
+              onRemove={isNative ? () => removeImage('logo') : undefined}
               accept="image/png,image/jpeg"
             />
             <ImageBlock
               title="Marketplace image (4:3)"
               preview={marketplacePreview}
               onSelect={e => handleImageSelect(e, 'marketplace')}
+              onRemove={isNative ? () => removeImage('marketplace') : undefined}
               accept="image/png,image/jpeg"
             />
           </div>
@@ -394,8 +440,11 @@ export default function EditLocationDialog({ location, onClose, onSaved }: Props
   )
 }
 
-function ImageBlock({ title, preview, onSelect, accept }: {
-  title: string; preview: string; onSelect: (e: React.ChangeEvent<HTMLInputElement>) => void; accept: string
+function ImageBlock({ title, preview, onSelect, onRemove, accept }: {
+  title: string; preview: string; onSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
+  /** Omitted for FM-backed locations — their images can't be removed from Disco. */
+  onRemove?: () => void
+  accept: string
 }) {
   const inputId = `img-${title.replace(/\s+/g, '-')}`
   return (
@@ -412,6 +461,9 @@ function ImageBlock({ title, preview, onSelect, accept }: {
           {preview ? 'Change' : 'Choose image'}
         </label>
         <input id={inputId} type="file" accept={accept} onChange={onSelect} style={{ display: 'none' }} />
+        {preview && onRemove && (
+          <button type="button" onClick={onRemove} style={removeImageBtn}>Remove</button>
+        )}
       </div>
     </div>
   )
@@ -502,4 +554,7 @@ const secondaryBtn: React.CSSProperties = { padding: '8px 16px', border: '1px so
 const checkLabel: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: DARK, padding: '4px 8px', background: '#f8f8fc', borderRadius: 6 }
 const modalBackdrop: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }
 const modalBody: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: '28px 32px', width: '100%', fontFamily: F }
-const errSmall: React.CSSProperties = { display: 'block', color: '#c00', fontSize: 11, marginTop: 4 }
+// Same look as the multi-unit links "Link Image" Remove control
+// (manage/multi-unit-links/page.tsx: btnLink + color #E76F51, marginLeft 0).
+const removeImageBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 0, fontWeight: 600 }
+const errSmall: React.CSSProperties ={ display: 'block', color: '#c00', fontSize: 11, marginTop: 4 }

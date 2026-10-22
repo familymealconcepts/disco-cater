@@ -37,3 +37,24 @@ export async function uploadLocationImage(
   else await sql`UPDATE disco_restaurant_cache SET image_url = ${blob.url}, cached_at = NOW() WHERE restaurant_reference = ${ref}`
   return NextResponse.json({ ok: true, url: blob.url })
 }
+
+// Disco-native location image REMOVAL — the inverse of uploadLocationImage, with
+// the identical auth (role-gated group scope checked against the location in the
+// URL, never the session's current selection). Clears the disco_restaurant_cache
+// column to NULL. The Vercel Blob object is deliberately left in place; only the
+// reference is dropped. Zero FM.
+export async function clearLocationImage(
+  ref: string,
+  column: 'icon_url' | 'image_url',
+): Promise<NextResponse> {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+  }
+  await runMigrations()
+  // Column is a fixed literal (not user input) — branch so the identifier is static.
+  if (column === 'icon_url') await sql`UPDATE disco_restaurant_cache SET icon_url = NULL, cached_at = NOW() WHERE restaurant_reference = ${ref}`
+  else await sql`UPDATE disco_restaurant_cache SET image_url = NULL, cached_at = NOW() WHERE restaurant_reference = ${ref}`
+  return NextResponse.json({ ok: true })
+}

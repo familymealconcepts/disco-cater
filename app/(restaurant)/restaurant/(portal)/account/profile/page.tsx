@@ -7,6 +7,10 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
+// Same look as the multi-unit links "Link Image" Remove control
+// (manage/multi-unit-links/page.tsx: btnLink + color #E76F51, marginLeft 0).
+// marginLeft 8 here only because it sits beside an inline-flex button, not a thumbnail.
+const removeImageBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 8, fontWeight: 600 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -683,6 +687,10 @@ export default function ProfilePage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'logo') }}
                 style={{ display: 'none' }} />
             </label>
+            {discoProfile.iconUrl && !discoIconUploading && (
+              // Staged: '' → icon_url NULL via the disco-profile PUT on Save.
+              <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, iconUrl: '' }))} style={removeImageBtn}>Remove</button>
+            )}
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Small square icon — your restaurant logo. Click Save to apply.</div>
           </div>
 
@@ -702,6 +710,10 @@ export default function ProfilePage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'marketplace') }}
                 style={{ display: 'none' }} />
             </label>
+            {discoProfile.logoUrl && !discoLogoUploading && (
+              // Staged: '' → image_url NULL via the disco-profile PUT on Save.
+              <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, logoUrl: '' }))} style={removeImageBtn}>Remove</button>
+            )}
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Wider hero photo shown on the catering map listing. Click Save to apply.</div>
           </div>
         </Card>

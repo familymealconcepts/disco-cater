@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { uploadLocationImage } from '../../../../../../lib/locations/upload-image'
+import { uploadLocationImage, clearLocationImage } from '../../../../../../lib/locations/upload-image'
 import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -37,4 +37,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const text = await res.text()
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
   } catch { return NextResponse.json({ error: 'Unable to upload logo' }, { status: 500 }) }
+}
+
+// DELETE /api/restaurant/locations/{ref}/logo
+// Removes a Disco-native location's logo (disco_restaurant_cache.icon_url → NULL).
+// Same discriminator and auth as POST. An FM-backed location's logo lives in
+// FamilyMeal and removing it would be an FM write, which we never make — so that
+// case is refused here rather than forwarded (the UI hides the control for it).
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+  const { ref } = await params
+  if (await isDiscoNativeRestaurant(ref)) return clearLocationImage(ref, 'icon_url')
+  return NextResponse.json({ error: 'This location’s logo is managed in FamilyMeal and cannot be removed here.' }, { status: 409 })
 }

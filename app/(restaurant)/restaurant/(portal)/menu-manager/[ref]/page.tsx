@@ -388,6 +388,10 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [price, setPrice] = useState(item?.price != null ? String(item.price) : '')
   const [serves, setServes] = useState(item?.serves || '')
   const [imageUrl, setImageUrl] = useState(item?.image_url || '')
+  // Staged removal (applied on Save, like the multi-unit links image Remove).
+  // Needed as an explicit flag because the PUT keeps the stored image when
+  // imageUrl is blank (COALESCE) — a blank alone never clears it.
+  const [imageRemoved, setImageRemoved] = useState(false)
   // Item visibility has no UI (removed) — preserve the item's current value on edit,
   // default visible for new items. Still sent so an existing hidden item isn't flipped.
   const visible = item?.visible !== false
@@ -455,7 +459,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
       const fd = new FormData(); fd.append('image', f)
       const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
       const d = await res.json().catch(() => ({}))
-      if (res.ok && d?.url) setImageUrl(String(d.url)); else setErr(d?.error || 'Upload failed')
+      if (res.ok && d?.url) { setImageUrl(String(d.url)); setImageRemoved(false) } else setErr(d?.error || 'Upload failed')
     } finally { setUploading(false) }
   }
   async function save() {
@@ -465,6 +469,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
       method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible,
+        ...(isEdit && imageRemoved && !imageUrl ? { clearImage: true } : {}),
         displayPrice, minQuantity: minQuantity.trim() === '' ? null : parseInt(minQuantity, 10) || 1,
         allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan, dairyFree,
         maxInventoryPerDay: maxInventoryPerDay.trim() === '' ? null : parseInt(maxInventoryPerDay, 10) || 1,
@@ -523,6 +528,13 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {imageUrl ? <img src={imageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} /> : <div style={{ width: 56, height: 56, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
           <label style={{ fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer' }}>{uploading ? 'Uploading…' : (imageUrl ? 'Replace' : 'Upload')}<input type="file" accept="image/jpeg,image/png" onChange={upload} style={{ display: 'none' }} /></label>
+          {/* Same look as the multi-unit links "Link Image" Remove control. */}
+          {imageUrl && !uploading && (
+            <button type="button" onClick={() => { setImageUrl(''); setImageRemoved(true) }}
+              style={{ background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 0, fontWeight: 600 }}>
+              Remove
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

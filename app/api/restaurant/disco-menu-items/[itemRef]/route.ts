@@ -52,11 +52,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ item
     const name = String(body?.name ?? '').trim()
     if (!name) return NextResponse.json({ error: 'Item name is required.' }, { status: 400 })
     const f = parseItemFields(body)
+    // Explicit image removal. image_url below is COALESCE'd so a blank imageUrl
+    // keeps the stored image (other clients omit it); clearImage === true is the
+    // only way to NULL it. Same ownership check as the rest of this edit
+    // (ownedItem above). The Blob object itself is left in place.
+    const clearImage = body?.clearImage === true
     await sql`
       UPDATE disco_menu_items SET
         name = ${name}, description = ${String(body?.description || '') || null},
         price = ${num(body?.price)}, serves = ${String(body?.serves || '') || null},
-        image_url = COALESCE(${String(body?.imageUrl || '') || null}, image_url),
+        image_url = CASE WHEN ${clearImage}::boolean THEN NULL ELSE COALESCE(${String(body?.imageUrl || '') || null}, image_url) END,
         visible = ${body?.visible === false ? false : true},
         display_price = ${f.displayPrice}, min_quantity = ${f.minQuantity},
         allow_special_instructions = ${f.allowSpecialInstructions},
