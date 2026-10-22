@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader, getAdminEmail, getAdminRole } from '../../../../../../lib/admin-auth'
+import { verifySuperAdmin } from '../../../../../../lib/admin-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { currentList, applyListChange } from '../../../../../../lib/system-admin-authority'
 import { logAdminAction } from '../../../../../../lib/admin-audit'
@@ -23,11 +23,10 @@ export const dynamic = 'force-dynamic'
 // PUT { primary: false } — remove the tag. Locations are untouched.
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
-  try { await getAdminAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-  if ((await getAdminRole()) !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Super Admin only' }, { status: 403 })
-  const actor = await getAdminEmail().catch(() => null)
+  // Verified with FamilyMeal before the role is trusted (lib/admin-auth.ts).
+  const v = await verifySuperAdmin()
+  if (!v.ok) return NextResponse.json({ error: v.status === 401 ? 'Not authenticated' : 'Super Admin only' }, { status: v.status })
+  const actor = v.email
   const email = decodeURIComponent((await params).email || '').trim().toLowerCase()
   const body = await req.json().catch(() => ({})) as { primary?: unknown }
   const makePrimary = body.primary === true

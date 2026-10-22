@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader, getAdminEmail, getAdminRole } from '../../../../../lib/admin-auth'
+import { verifySuperAdmin } from '../../../../../lib/admin-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { currentList, diffLists, applyListChange } from '../../../../../lib/system-admin-authority'
 import { logAdminAction } from '../../../../../lib/admin-audit'
@@ -12,13 +12,11 @@ export const dynamic = 'force-dynamic'
 // (lib/system-admin-authority.ts), so this route only validates shape.
 
 async function gate(): Promise<{ ok: true; actor: string | null } | { ok: false; res: NextResponse }> {
-  try { await getAdminAuthHeader() } catch {
-    return { ok: false, res: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
-  }
-  if ((await getAdminRole()) !== 'SUPER_ADMIN') {
-    return { ok: false, res: NextResponse.json({ error: 'Super Admin only' }, { status: 403 }) }
-  }
-  return { ok: true, actor: await getAdminEmail().catch(() => null) }
+  // Verified with FamilyMeal, not just decoded — these writes are Disco-only,
+  // so nothing downstream would reject a forged cookie (lib/admin-auth.ts).
+  const v = await verifySuperAdmin()
+  if (!v.ok) return { ok: false, res: NextResponse.json({ error: v.status === 401 ? 'Not authenticated' : 'Super Admin only' }, { status: v.status }) }
+  return { ok: true, actor: v.email }
 }
 
 const emailOf = async (params: Promise<{ email: string }>) =>

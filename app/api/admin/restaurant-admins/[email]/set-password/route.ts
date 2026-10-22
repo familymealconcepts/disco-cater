@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader, getAdminEmail, getAdminRole } from '../../../../../../lib/admin-auth'
+import { verifySuperAdmin } from '../../../../../../lib/admin-auth'
 import { sql } from '../../../../../../lib/db'
 import { sendPasswordResetTo } from '../../../../../../lib/password-reset'
 
@@ -22,11 +22,10 @@ export const dynamic = 'force-dynamic'
 // account can receive it — an FM-only person has no Disco row to set a
 // password on — and never a sentinel or a Super Admin.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
-  try { await getAdminAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-  if ((await getAdminRole()) !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Super Admin only' }, { status: 403 })
-  const actor = await getAdminEmail().catch(() => null)
+  // Verified with FamilyMeal before the role is trusted (lib/admin-auth.ts).
+  const v = await verifySuperAdmin()
+  if (!v.ok) return NextResponse.json({ error: v.status === 401 ? 'Not authenticated' : 'Super Admin only' }, { status: v.status })
+  const actor = v.email
   const email = decodeURIComponent((await params).email || '').trim().toLowerCase()
   if (!email || email.startsWith('stripe-import+')) return NextResponse.json({ error: 'Invalid user' }, { status: 400 })
 

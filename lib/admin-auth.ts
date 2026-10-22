@@ -51,6 +51,39 @@ export async function getAdminEmail(): Promise<string | null> {
   return (payload?.email as string) || (payload?.sub as string) || null
 }
 
+// ── A VERIFIED SUPER ADMIN, FOR ROUTES THAT WRITE TO DISCO ──────────────────
+// getAdminAuthHeader only checks that the cookie EXISTS, and getAdminRole reads
+// the role out of the token WITHOUT verifying its signature. That was enough
+// for routes that proxy to FamilyMeal (FM rejects a bad token itself), but a
+// route that writes only to Disco would accept any hand-made cookie claiming
+// SUPER_ADMIN. This asks FamilyMeal to accept the token (a read of the caller's
+// own profile) before the decoded role is trusted. Cached briefly per token so
+// a page of actions costs one round trip.
+const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const verifiedTokens = new Map<string, number>()
+const VERIFY_TTL_MS = 5 * 60 * 1000
+
+export async function verifySuperAdmin(): Promise<{ ok: true; email: string | null } | { ok: false; status: number }> {
+  const token = await getAdminToken()
+  if (!token) return { ok: false, status: 401 }
+  const payload = decodeJwt(token)
+  if ((payload?.role as string) !== 'SUPER_ADMIN') return { ok: false, status: 403 }
+  const email = (payload?.email as string) || (payload?.sub as string) || null
+  const until = verifiedTokens.get(token)
+  if (until && until > Date.now()) return { ok: true, email }
+  try {
+    const res = await fetch(`${FM_BASE}/api/users`, { headers: { Authorization: token }, cache: 'no-store' })
+    if (!res.ok) return { ok: false, status: 401 }
+    const me = await res.json().catch(() => null) as { role?: string } | null
+    if (me?.role && me.role !== 'SUPER_ADMIN') return { ok: false, status: 403 }
+  } catch {
+    return { ok: false, status: 503 } // fail closed
+  }
+  verifiedTokens.set(token, Date.now() + VERIFY_TTL_MS)
+  if (verifiedTokens.size > 500) verifiedTokens.clear()
+  return { ok: true, email }
+}
+
 // For Middleware (Edge runtime — next/headers not available)
 export function getAdminTokenFromRequest(req: NextRequest): string | null {
   return req.cookies.get(ADMIN_TOKEN_COOKIE)?.value ?? null
