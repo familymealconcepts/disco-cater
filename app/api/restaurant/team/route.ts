@@ -5,6 +5,7 @@ import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
 import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoAccessScope } from '../../../../lib/restaurant-write-scope'
+import { invitedChain } from '../../../../lib/system-admin-authority'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -168,7 +169,8 @@ export async function GET() {
           SELECT DISTINCT ON (a.email)
                  a.email, a.first_name, a.last_name, a.role, a.invite_token,
                  a.restaurant_reference AS anchor,
-                 a.created_at::text AS created_at, a.created_by, a.id
+                 a.created_at::text AS created_at, a.created_by, a.id,
+                 COALESCE(a.is_primary_system_admin, false) AS is_primary
           FROM disco_restaurant_accounts a
           LEFT JOIN disco_restaurant_location_access la
             ON la.account_email = a.email AND la.restaurant_reference = ANY(${refs}::text[])
@@ -183,7 +185,14 @@ export async function GET() {
             AND a.email NOT LIKE 'stripe-import+%'
           ORDER BY a.email, a.id ASC
         `)
-      : []) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; anchor: string | null; created_at: string | null; created_by: string | null }>
+      : []) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; anchor: string | null; created_at: string | null; created_by: string | null; is_primary: boolean }>
+
+    // Rule 2 (lib/system-admin-authority.ts): removal is offered only for people
+    // below the viewer in the invite chain, never for a Primary. Computed here so
+    // the screen offers exactly what the server will accept — the server checks
+    // again on every write regardless.
+    const viewerIsSuper = (ctx.role || '').toUpperCase() === 'SUPER_ADMIN'
+    const chain = viewerIsSuper ? new Set<string>() : await invitedChain(ctx.email)
 
     const users = []
     for (const u of userRows) {
@@ -198,15 +207,18 @@ export async function GET() {
         // created_by is NULL on everything that predates the sync sentinel.
         origin: u.created_by === ctx.email ? 'me' : u.created_by ? 'familymeal' : 'unknown',
         createdBy: u.created_by,
+        isPrimary: u.is_primary === true,
+        canRemove: viewerIsSuper || (chain.has(u.email.toLowerCase()) && u.is_primary !== true),
         locations: (await accessFor(u.email, u.role, u.anchor)).map(a => ({ reference: a.reference, name: a.name })),
       })
     }
 
     // The logged-in user themselves (shown greyed-out, no actions).
     const selfRows = (await sql`
-      SELECT first_name, last_name, role, created_at::text AS created_at
+      SELECT first_name, last_name, role, created_at::text AS created_at,
+             COALESCE(is_primary_system_admin, false) AS is_primary
       FROM disco_restaurant_accounts WHERE email = ${ctx.email} LIMIT 1
-    `) as Array<{ first_name: string | null; last_name: string | null; role: string | null; created_at: string | null }>
+    `) as Array<{ first_name: string | null; last_name: string | null; role: string | null; created_at: string | null; is_primary: boolean }>
     const selfRow = selfRows[0]
     const self = {
       email: ctx.email,
@@ -214,6 +226,7 @@ export async function GET() {
       lastName: selfRow?.last_name || ctx.lastName || '',
       role: selfRow?.role || ctx.role || 'SYSTEM_ADMIN',
       registration: selfRow?.created_at || null,
+      isPrimary: selfRow?.is_primary === true,
       locations: (await accessFor(ctx.email, selfRow?.role || ctx.role, ctx.restaurantReference)).map(a => ({ reference: a.reference, name: a.name })),
     }
 

@@ -96,10 +96,17 @@ interface TeamLocation { reference: string; name: string }
 interface TeamUser {
   email: string; firstName: string; lastName: string; role: string
   registration: string | null; pendingInvite?: boolean; locations: TeamLocation[]
+  /** Primary System Admin — only a Super Admin changes this. */
+  isPrimary?: boolean
+  /** Server's answer to "may I remove locations from this person": they are
+   *  below me in the invite chain and not a Primary. The server re-checks. */
+  canRemove?: boolean
 }
 interface TeamSelf {
   email: string; firstName: string; lastName: string; role: string
   registration: string | null; locations: TeamLocation[]
+  isPrimary?: boolean
+  canRemove?: boolean
 }
 interface TeamData { self: TeamSelf; users: TeamUser[]; locations: TeamLocation[] }
 
@@ -110,6 +117,9 @@ interface UserForm {
   role: 'SYSTEM_ADMIN' | 'ADMIN'
   refs: string[]
   isEdit: boolean
+  /** Locations they held when the dialog opened — the ones removal applies to. */
+  original: string[]
+  canRemove: boolean
 }
 
 function DiscoUsers() {
@@ -161,7 +171,7 @@ function DiscoUsers() {
 
   function openAdd() {
     setFormErr(null)
-    setForm({ email: '', firstName: '', lastName: '', role: 'ADMIN', refs: [], isEdit: false })
+    setForm({ email: '', firstName: '', lastName: '', role: 'ADMIN', refs: [], isEdit: false, original: [], canRemove: true })
   }
   function openEdit(u: TeamUser) {
     setFormErr(null)
@@ -169,13 +179,19 @@ function DiscoUsers() {
       email: u.email, firstName: u.firstName, lastName: u.lastName,
       role: u.role === 'SYSTEM_ADMIN' ? 'SYSTEM_ADMIN' : 'ADMIN',
       refs: u.locations.map(l => l.reference), isEdit: true,
+      original: u.locations.map(l => l.reference), canRemove: u.canRemove === true,
     })
   }
   function toggleRef(ref: string) {
     setForm(prev => {
       if (!prev) return prev
-      if (prev.role === 'ADMIN') return { ...prev, refs: [ref] } // single-select
+      // Removing a location someone already holds needs authority over them
+      // (you invited them, or someone you invited did). Without it, their
+      // existing locations stay fixed and you can only add.
+      const locked = (r: string) => !prev.canRemove && prev.original.includes(r)
+      if (prev.role === 'ADMIN') return prev.refs.some(locked) ? prev : { ...prev, refs: [ref] } // single-select
       const has = prev.refs.includes(ref)
+      if (has && locked(ref)) return prev
       return { ...prev, refs: has ? prev.refs.filter(r => r !== ref) : [...prev.refs, ref] }
     })
   }
@@ -218,11 +234,17 @@ function DiscoUsers() {
   }
 
   async function deleteUser(u: TeamUser) {
-    if (!(await confirmDialog(`Remove ${u.firstName} ${u.lastName}? Their account and access will be deleted.`, { title: 'Remove user', confirmText: 'Remove', danger: true }))) return
+    if (!(await confirmDialog(`Remove ${u.firstName} ${u.lastName} from your locations? Any locations they hold that you don't are kept; if none are left, their account is closed.`, { title: 'Remove user', confirmText: 'Remove', danger: true }))) return
     setBusyEmail(u.email)
     const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(u.email)}`, { method: 'DELETE' })
     setBusyEmail('')
-    if (res.ok) load()
+    const d = await res.json().catch(() => null)
+    if (res.ok) {
+      toast(d?.archived ? `${u.email} removed.` : `Removed your locations from ${u.email}; they keep ${d?.kept ?? 'their other'} location(s).`, { kind: 'success' })
+      load()
+    } else {
+      toast(d?.error || 'Could not remove this user.', { kind: 'error' })
+    }
   }
   async function resendInvite(u: TeamUser) {
     setBusyEmail(u.email)
@@ -273,7 +295,7 @@ function DiscoUsers() {
                       <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '2px 7px' }}>Invite pending</span>
                     )}
                   </td>
-                  <td style={cell}><RolePill role={u.role} /></td>
+                  <td style={cell}><RolePill role={u.role} />{u.isPrimary && <span style={{ marginLeft: 6, background: '#FBEFFB', color: '#9C3AA3', padding: '3px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700 }}>Primary</span>}</td>
                   <td style={{ ...cell, color: u.isSelf ? '#aaa' : '#555' }}>{u.email}</td>
                   <td style={{ ...cell, color: u.isSelf ? '#aaa' : '#555', maxWidth: 280 }}>{locs}</td>
                   <td style={{ ...cell, color: u.isSelf ? '#aaa' : '#666' }}>{fmtDate(u.registration)}</td>
@@ -284,7 +306,7 @@ function DiscoUsers() {
                       <span style={{ display: 'inline-flex', gap: 2, justifyContent: 'flex-end' }}>
                         {u.pendingInvite && <IconBtn kind="resend" title="Resend invite" onClick={() => resendInvite(u)} disabled={busyEmail === u.email} />}
                         <IconBtn kind="edit" title="Edit" onClick={() => openEdit(u)} disabled={busyEmail === u.email} />
-                        <IconBtn kind="delete" title="Delete" onClick={() => deleteUser(u)} disabled={busyEmail === u.email} />
+                        {u.canRemove && <IconBtn kind="delete" title="Remove" onClick={() => deleteUser(u)} disabled={busyEmail === u.email} />}
                       </span>
                     )}
                   </td>
@@ -340,9 +362,10 @@ function DiscoUsers() {
                   {locations.map(loc => {
                     const checked = form.refs.includes(loc.reference)
                     const isMulti = form.role === 'SYSTEM_ADMIN'
+                    const locked = !form.canRemove && form.original.includes(loc.reference)
                     return (
-                      <label key={loc.reference} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: DARK, background: checked ? '#EEF0FD' : 'transparent' }}>
-                        <input type={isMulti ? 'checkbox' : 'radio'} name={isMulti ? undefined : 'disco-loc'} checked={checked}
+                      <label key={loc.reference} title={locked ? 'Only the person who invited them (or someone above) can remove this' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 6, cursor: locked ? 'not-allowed' : 'pointer', fontSize: 13, color: DARK, background: checked ? '#EEF0FD' : 'transparent', opacity: locked ? 0.7 : 1 }}>
+                        <input type={isMulti ? 'checkbox' : 'radio'} name={isMulti ? undefined : 'disco-loc'} checked={checked} disabled={locked}
                           onChange={() => toggleRef(loc.reference)} style={{ accentColor: INDIGO }} />
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.name || loc.reference}</span>
                       </label>
@@ -350,7 +373,8 @@ function DiscoUsers() {
                   })}
                 </div>
                 <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                  {form.role === 'SYSTEM_ADMIN' ? 'System Admins can manage multiple locations.' : 'Restaurant Users belong to a single location.'}
+                  {form.role === 'SYSTEM_ADMIN' ? 'System Admins can manage multiple locations. You can assign only locations you have.' : 'Restaurant Users belong to a single location.'}
+                  {form.isEdit && !form.canRemove && ' You can add locations, but not remove any — you didn’t invite this person.'}
                 </div>
               </div>
             </div>

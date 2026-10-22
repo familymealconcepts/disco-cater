@@ -325,6 +325,12 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS is_primary_system
 -- moving the tag can find the other candidates, and so a new location created
 -- by a Regional can be routed to the right Primary.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_group_id TEXT;
+-- Who invited this PERSON (lowercased email). Stamped once, when the account is
+-- first created through an invite, and never overwritten by a later invite of
+-- the same address. A System Admin may remove locations only from people below
+-- them in this chain (lib/system-admin-authority.ts). Older accounts predate the
+-- column; for them the chain reads created_by when it holds an email.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS invited_by TEXT;
 
 -- Disco-native SMS notifications: per-restaurant opt-in + destination number,
 -- independent of FM's own (FM-proxied) text-notification settings. Read by the

@@ -194,3 +194,82 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })
   }
 }
+
+// ── ADD A NEW LOCATION (Peter, 22 Oct 2026) ─────────────────────────────────
+// Any System Admin can create a location. It is born Disco-native, HIDDEN from
+// the marketplace (visible = false) and with ONLINE ORDERING OFF, so nothing a
+// customer can reach changes until someone deliberately turns it on — and the
+// marketplace still needs a Stripe account on top of both. Zero FamilyMeal.
+//
+// It goes on exactly two lists: the creator's, and the Primary System Admin's
+// (lib/system-admin-authority.ts primariesFor — the Primary who shares a
+// location with the creator). Nobody else is granted it; the creator can then
+// assign it onward under the normal rules.
+//
+// A plain ADMIN is one location by design (CLAUDE.md, "Who can see which
+// restaurants") and cannot create a second. An FM session has no Disco identity
+// to put the location on, so it is refused with a pointer rather than creating
+// a location nobody can see.
+export async function POST(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (ctx.authType !== 'disco' || !ctx.email) {
+    return NextResponse.json({ error: 'Sign in with your Disco Cater password to add a location.' }, { status: 403 })
+  }
+  const role = (ctx.role || '').toUpperCase()
+  if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ error: 'Only a System Admin can add a location.' }, { status: 403 })
+  }
+
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>
+  const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const name = s(body.name)
+  if (!name) return NextResponse.json({ error: 'Location name is required.' }, { status: 400 })
+
+  await runMigrations()
+  const { randomUUID } = await import('node:crypto')
+  const { primariesFor } = await import('../../../../lib/system-admin-authority')
+  const ref = randomUUID()
+  const slug = (name.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 50) || 'location') + '-' + ref.slice(0, 6)
+  const creator = ctx.email.trim().toLowerCase()
+
+  // Timezone defaults to the creator's current location's, so lead times and
+  // cutoffs have a clock before anyone edits it. Same business, almost always
+  // the same region; editable afterwards.
+  const tzRows = (await sql`
+    SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${ctx.restaurantReference} LIMIT 1
+  `.catch(() => [])) as Array<{ timezone: string | null }>
+
+  try {
+    await sql`
+      INSERT INTO disco_restaurant_cache
+        (restaurant_reference, name, slug, phone, address, address_line2, city, state, zipcode, timezone,
+         is_disco_native, is_live, cached_at)
+      VALUES (${ref}, ${name}, ${slug}, ${s(body.phone)}, ${s(body.addressLine1)}, ${s(body.addressLine2)},
+              ${s(body.city)}, ${s(body.state)}, ${s(body.zipcode)}, ${tzRows[0]?.timezone ?? null},
+              true, false, NOW())
+    `
+    // visible = false is a literal, the one value the marketplace-switch guard
+    // permits outside lib/marketplace-switch.ts.
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, online_ordering_enabled, contact_email, updated_at)
+      VALUES (${ref}, false, false, ${creator}, NOW())
+      ON CONFLICT (restaurant_reference) DO NOTHING
+    `
+    const primaries = await primariesFor(creator)
+    const owners = [...new Set([creator, ...primaries])]
+    await sql`
+      INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by)
+      SELECT e, ${ref}, ${creator} FROM unnest(${owners}::text[]) AS e
+      ON CONFLICT (account_email, restaurant_reference) DO NOTHING
+    `
+    return NextResponse.json({ ok: true, reference: ref, name, grantedTo: owners })
+  } catch (e) {
+    console.error('[restaurant/locations POST] create failed:', ref, e instanceof Error ? e.message : e)
+    // No partial location: neon HTTP has no transactions, so undo by hand.
+    await sql`DELETE FROM disco_restaurant_location_access WHERE restaurant_reference = ${ref}`.catch(() => {})
+    await sql`DELETE FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref}`.catch(() => {})
+    await sql`DELETE FROM disco_restaurant_cache WHERE restaurant_reference = ${ref}`.catch(() => {})
+    return NextResponse.json({ error: 'Could not create the location. Nothing was saved.' }, { status: 500 })
+  }
+}

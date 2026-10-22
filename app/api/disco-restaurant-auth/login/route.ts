@@ -5,6 +5,7 @@ import {
   getDiscoRestaurantAccount,
   createDiscoRestaurantSession,
   isDiscoRestaurantArchived,
+  isSystemAdminWithNoLocations,
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
@@ -163,6 +164,12 @@ export async function POST(req: NextRequest) {
     // Archived restaurants have no login path — checked AFTER identity/password
     // (so a wrong password still reads as "invalid," not "archived," giving
     // nothing away to an unauthenticated caller), before a session is issued.
+    // A System Admin with an empty location list has nowhere to land, and the
+    // session gate would refuse any session issued now. Say so plainly.
+    if (await isSystemAdminWithNoLocations(email)) {
+      return NextResponse.json({ error: 'No locations are assigned to your account. Ask the person who invited you, or email concierge@discocater.com.' }, { status: 403 })
+    }
+
     if (await isDiscoRestaurantArchived(restaurantReference)) {
       return NextResponse.json({ error: 'This restaurant is no longer active.' }, { status: 403 })
     }

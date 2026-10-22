@@ -44,6 +44,9 @@ export type AdminAuditAction =
   // the per-target cooldown in lib/password-reset.ts reads). actor_email is the
   // super admin who clicked, or null for a self-service reset.
   | 'password_reset_sent'
+  // Restaurant Admins page (Super Admin): a person's location list, name,
+  // removal, and the Primary System Admin tag.
+  | 'restaurant_admin_update' | 'restaurant_admin_remove' | 'primary_system_admin_change'
 
 let auditTableEnsured = false
 async function ensureAuditTable(): Promise<void> {

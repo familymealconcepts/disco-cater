@@ -1,40 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext, type RestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
-import { assertManagedUser, assertNotFirstSystemAdmin, loadManagedTarget } from '../../../../../../lib/team-management-scope'
-import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
+import { assertManagedUser, loadManagedTarget } from '../../../../../../lib/team-management-scope'
+import { discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
+import { actorScope, checkAssign, checkRemove, currentList, diffLists, applyListChange } from '../../../../../../lib/system-admin-authority'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * The LOCATION rules only — who may manage whom now lives in
- * lib/team-management-scope.ts, mirroring FM's UserServiceImpl. FM's role
- * rules, unchanged: an ADMIN has exactly one location, a SYSTEM_ADMIN one or
- * many, and every requested location must be one the viewer holds themselves
- * (UserServiceImpl.createAdmin/updateAdmin resolve each reference through
- * findManagedRestaurantByReference against the caller's own group).
+ * Who may manage whom: lib/team-management-scope.ts (visibility — the target
+ * sits at one of your locations). What each change may do:
+ * lib/system-admin-authority.ts (assign only what you have; remove only from
+ * your invite chain, only what you have; never your own list; never a Primary).
  */
-async function validateRequestedLocations(
-  ctx: RestaurantAuthContext,
-  targetRole: string,
-  requested: string[],
-): Promise<{ ok: true; refs: string[] } | { ok: false; error: string; status: number }> {
-  const scope = await resolveDiscoAccessScope(ctx)
-  const outside = requested.filter(r => !discoRefAllowed(scope, r))
-  if (outside.length) {
-    return { ok: false, error: `You can only assign locations you have access to (${outside.length} not yours).`, status: 403 }
-  }
-  if (!requested.length) return { ok: false, error: 'Pick at least one location.', status: 400 }
-  if (targetRole.toUpperCase() === 'ADMIN' && requested.length !== 1) {
-    return { ok: false, error: 'A Restaurant User must have exactly one location.', status: 400 }
-  }
-  return { ok: true, refs: [...new Set(requested)] }
-}
-
 // PUT /api/restaurant/team/sub-admins/{email}  { restaurantReferences: string[] }
-// Replace a sub admin's location access. Only locations the PSA has access to may
-// be granted; the sub admin's home location is always retained.
+// Replace a user's locations. Additions and removals are authorized separately.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -51,70 +32,47 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ emai
     const target = await loadManagedTarget(subEmail)
     if (!target) return NextResponse.json({ error: 'No such user' }, { status: 404 })
 
-    // FM: updateAdmin = findManagedUserByReference + validateFirstSystemAdmin.
+    // Visibility first: the target must sit at one of the viewer's locations
+    // (FM's findManagedUserByReference). Authority over each CHANGE is then
+    // decided per direction by lib/system-admin-authority.ts — adding needs
+    // only that the viewer holds the location; removing also needs the target
+    // to be below the viewer in the invite chain, and never a Primary.
     const managed = await assertManagedUser(ctx, target)
     if (!managed.ok) return NextResponse.json({ error: managed.error }, { status: managed.status })
-    const notFirst = await assertNotFirstSystemAdmin(target)
-    if (!notFirst.ok) return NextResponse.json({ error: notFirst.error }, { status: notFirst.status })
 
     const body = await req.json().catch(() => ({}))
     const requested: string[] = Array.isArray(body?.restaurantReferences)
-      ? body.restaurantReferences.map((r: unknown) => String(r)).filter(Boolean)
+      ? [...new Set<string>(body.restaurantReferences.map((r: unknown) => String(r)).filter(Boolean))]
       : []
-
     const targetRole = (target.role || 'ADMIN').toUpperCase()
-    const verdict = await validateRequestedLocations(ctx, targetRole, requested)
-    if (!verdict.ok) return NextResponse.json({ error: verdict.error }, { status: verdict.status })
-    const refs = verdict.refs
-
-    // ANCHOR FIRST, then grants — the same ordering the surplus-grant cleanup
-    // used, and for the same reason: the grant replacement below is written
-    // against the anchor, so correcting it afterwards would leave the wrong row.
-    //
-    // This is the ONLY write to disco_restaurant_accounts.restaurant_reference
-    // in the codebase. Nothing else has ever set it, which is why a wrong
-    // anchor previously had to be corrected by hand in the database.
-    const nextAnchor = targetRole === 'ADMIN'
-      ? refs[0]
-      // A SYSTEM_ADMIN keeps their anchor while it is still in their set;
-      // if it was just removed, it would point at a location they can no
-      // longer reach, so it moves to the first of the new set.
-      : (target.anchor && refs.includes(target.anchor) ? target.anchor : refs[0])
-    if (nextAnchor && nextAnchor !== target.anchor) {
-      await sql`
-        UPDATE disco_restaurant_accounts
-        SET restaurant_reference = ${nextAnchor}, updated_at = NOW()
-        WHERE email = ${subEmail}
-      `
+    if (!requested.length) return NextResponse.json({ error: 'Pick at least one location.' }, { status: 400 })
+    if (targetRole === 'ADMIN' && requested.length !== 1) {
+      return NextResponse.json({ error: 'A Restaurant User must have exactly one location.' }, { status: 400 })
     }
 
-    // ONE statement. There are no transactions here (neon HTTP), so a
-    // delete-then-insert pair could leave the account with no locations at all
-    // if the second half failed. A data-modifying CTE applies both together.
-    const counts = (await sql`
-      WITH desired AS (SELECT UNNEST(${refs}::text[]) AS ref),
-      removed AS (
-        DELETE FROM disco_restaurant_location_access
-        WHERE account_email = ${subEmail}
-          AND restaurant_reference NOT IN (SELECT ref FROM desired)
-        RETURNING 1
-      ),
-      added AS (
-        INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by)
-        SELECT ${subEmail}, ref, ${ctx.email} FROM desired
-        ON CONFLICT (account_email, restaurant_reference) DO NOTHING
-        RETURNING 1
-      )
-      SELECT (SELECT COUNT(*)::int FROM removed) AS removed, (SELECT COUNT(*)::int FROM added) AS added
-    `) as Array<{ removed: number; added: number }>
+    // A Restaurant User's location IS their anchor; a System Admin's is their list.
+    const current = targetRole === 'ADMIN'
+      ? [target.anchor].filter(Boolean) as string[]
+      : await currentList(subEmail)
+    const { added, removed } = diffLists(current, requested)
 
-    return NextResponse.json({
-      success: true,
-      anchor: nextAnchor,
-      anchorChanged: nextAnchor !== target.anchor,
-      removed: counts[0]?.removed ?? 0,
-      added: counts[0]?.added ?? 0,
-    })
+    const canAdd = await checkAssign(ctx, subEmail, added)
+    if (!canAdd.ok) return NextResponse.json({ error: canAdd.error }, { status: canAdd.status })
+    const canRemove = removed.length ? await checkRemove(ctx, subEmail, removed) : { ok: true as const }
+    if (!canRemove.ok) return NextResponse.json({ error: canRemove.error }, { status: canRemove.status })
+
+    if (targetRole === 'ADMIN') {
+      // The ONLY write to an ADMIN's anchor. Their grant row follows it.
+      const next = requested[0]
+      if (next !== target.anchor) {
+        await sql`UPDATE disco_restaurant_accounts SET restaurant_reference = ${next}, updated_at = NOW() WHERE email = ${subEmail}`
+      }
+      const r = await applyListChange(subEmail, [next], (await currentList(subEmail)).filter(x => x !== next), ctx.email)
+      return NextResponse.json({ success: true, anchor: next, anchorChanged: next !== target.anchor, ...r })
+    }
+
+    const r = await applyListChange(subEmail, added, removed, ctx.email)
+    return NextResponse.json({ success: true, ...r })
   } catch (err) {
     console.error('[restaurant/team/sub-admins] PUT failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to update sub admin' }, { status: 500 })
@@ -136,24 +94,34 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     await runDiscoOrderMigrations()
 
-    // FM: deleteAdmin = findManagedUserByReference + validateFirstSystemAdmin.
-    // The old test was `created_by = ctx.email`, which is NULL on every
-    // FM-synced account and so rejected everyone; FM has no creator concept at
-    // all (see lib/team-management-scope.ts).
     const target = await loadManagedTarget(subEmail)
     if (!target) return NextResponse.json({ error: 'No such user' }, { status: 404 })
     const managed = await assertManagedUser(ctx, target)
     if (!managed.ok) return NextResponse.json({ error: managed.error }, { status: managed.status })
-    const notFirst = await assertNotFirstSystemAdmin(target)
-    if (!notFirst.ok) return NextResponse.json({ error: notFirst.error }, { status: notFirst.status })
 
-    // FM's deleteAdmin DISABLES and detaches rather than hard-deleting
-    // (setEnabled(false), restaurant/group/managedRestaurants nulled). Disco's
-    // equivalent is archived_at plus dropping the grants. One statement each;
-    // grants first, so a failure never leaves a live account with no locations.
-    await sql`DELETE FROM disco_restaurant_location_access WHERE account_email = ${subEmail}`
-    await sql`UPDATE disco_restaurant_accounts SET archived_at = NOW(), updated_at = NOW() WHERE email = ${subEmail}`
-    return NextResponse.json({ success: true })
+    // ── REMOVE = TAKE AWAY THE LOCATIONS YOU HAVE, NOT THE PERSON ───────────
+    // Rule 2: only from someone below you in the invite chain, and only the
+    // locations you hold. A person who also holds locations you don't keeps
+    // those, and keeps their account. Only when nothing is left is the account
+    // archived — FM's deleteAdmin disables rather than deletes, and archived_at
+    // is Disco's equivalent.
+    const targetRole = (target.role || 'ADMIN').toUpperCase()
+    const theirs = targetRole === 'ADMIN'
+      ? [target.anchor].filter(Boolean) as string[]
+      : await currentList(subEmail)
+    const scope = await actorScope(ctx)
+    const mine = theirs.filter(r => discoRefAllowed(scope, r))
+    const verdict = await checkRemove(ctx, subEmail, mine.length ? mine : theirs)
+    if (!verdict.ok) return NextResponse.json({ error: verdict.error }, { status: verdict.status })
+
+    await applyListChange(subEmail, [], mine, ctx.email)
+    const left = targetRole === 'ADMIN' ? theirs.filter(r => !mine.includes(r)) : await currentList(subEmail)
+    if (!left.length) {
+      await sql`DELETE FROM disco_restaurant_location_access WHERE lower(account_email) = ${subEmail}`
+      await sql`UPDATE disco_restaurant_accounts SET archived_at = NOW(), invite_token = NULL, invite_token_expires_at = NULL, updated_at = NOW() WHERE email = ${subEmail}`
+      return NextResponse.json({ success: true, archived: true, removed: mine.length })
+    }
+    return NextResponse.json({ success: true, archived: false, removed: mine.length, kept: left.length })
   } catch (err) {
     console.error('[restaurant/team/sub-admins] DELETE failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to remove sub admin' }, { status: 500 })

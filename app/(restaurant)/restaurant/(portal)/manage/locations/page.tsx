@@ -115,6 +115,7 @@ export default function LocationsPage() {
   const [editing, setEditing] = useState<EditLocationFullData | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
+  const [adding, setAdding] = useState(false)
 
   // ── Drag-and-drop (native HTML5 + aesthetic layer) ─────────────────────────
   // CORE LOGIC IS UNCHANGED: on drop we send one position PUT and re-fetch from
@@ -421,6 +422,10 @@ export default function LocationsPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...input, width: 260 }}
           />
+          <button onClick={() => setAdding(true)}
+            style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+            + Add location
+          </button>
         </div>
       </div>
 
@@ -543,6 +548,13 @@ export default function LocationsPage() {
         }}>
           {toast}
         </div>
+      )}
+
+      {adding && (
+        <AddLocationDialog
+          onClose={() => setAdding(false)}
+          onCreated={(name) => { setAdding(false); showToast(`${name} added — hidden from the marketplace with online ordering off.`); load() }}
+        />
       )}
 
       {editLoading && (
@@ -744,5 +756,59 @@ function LocationRow({
         onEdit={onEdit}
       />
     </tr>
+  )
+}
+
+// ── ADD A NEW LOCATION ───────────────────────────────────────────────────────
+// POST /api/restaurant/locations. The server creates it Disco-native, hidden
+// from the marketplace and with online ordering OFF, and puts it on the
+// creator's list and the Primary System Admin's. Nothing customer-facing
+// changes until someone turns it on.
+function AddLocationDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
+  const [f, setF] = useState({ name: '', addressLine1: '', city: '', state: '', zipcode: '', phone: '' })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF(p => ({ ...p, [k]: e.target.value }))
+  async function save() {
+    if (!f.name.trim()) { setErr('Location name is required.'); return }
+    setSaving(true); setErr('')
+    try {
+      const res = await fetch('/api/restaurant/locations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setErr(d?.error || 'Could not add the location.'); return }
+      onCreated(f.name.trim())
+    } finally { setSaving(false) }
+  }
+  const field = (label: string, k: keyof typeof f, flex = '1 1 100%') => (
+    <label style={{ flex, display: 'block', fontSize: 12, fontWeight: 600, color: '#555' }}>
+      {label}
+      <input value={f[k]} onChange={set(k)} style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff', width: '100%', marginTop: 4, boxSizing: 'border-box' }} />
+    </label>
+  )
+  return (
+    <div onClick={() => !saving && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div role="dialog" aria-label="Add location" onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 520, width: '100%', fontFamily: F }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700, color: DARK }}>Add location</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12.5, color: '#777', lineHeight: 1.5 }}>
+          The new location starts hidden from the marketplace with online ordering off. It is added to your locations and your Primary System Admin’s.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {field('Location name*', 'name')}
+          {field('Street address', 'addressLine1')}
+          {field('City', 'city', '1 1 45%')}
+          {field('State', 'state', '1 1 20%')}
+          {field('ZIP', 'zipcode', '1 1 25%')}
+          {field('Phone', 'phone')}
+        </div>
+        {err && <div role="alert" style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 13, color: '#DC2626' }}>{err}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '9px 18px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#555', fontFamily: F }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>{saving ? 'Adding…' : 'Add location'}</button>
+        </div>
+      </div>
+    </div>
   )
 }

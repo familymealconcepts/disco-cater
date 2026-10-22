@@ -154,6 +154,48 @@ export async function isDiscoRestaurantArchived(restaurantReference: string): Pr
   }
 }
 
+/**
+ * Where a System Admin's session should be pinned: `preferred` (their anchor)
+ * when it is on their list, otherwise the first location on it. Anyone who is
+ * not a System Admin — and any lookup failure — keeps `preferred` unchanged.
+ */
+async function landingRefFor(email: string, preferred: string): Promise<string> {
+  try {
+    const rows = (await sql`
+      SELECT a.role,
+             EXISTS (SELECT 1 FROM disco_restaurant_location_access g
+                      WHERE lower(g.account_email) = lower(a.email) AND g.restaurant_reference = ${preferred}) AS on_list,
+             (SELECT g.restaurant_reference FROM disco_restaurant_location_access g
+               WHERE lower(g.account_email) = lower(a.email) ORDER BY g.id ASC LIMIT 1) AS first_ref
+        FROM disco_restaurant_accounts a WHERE lower(a.email) = lower(${email}) LIMIT 1
+    `) as Array<{ role: string | null; on_list: boolean; first_ref: string | null }>
+    const r = rows[0]
+    if (!r || (r.role || '').toUpperCase() !== 'SYSTEM_ADMIN' || r.on_list || !r.first_ref) return preferred
+    return r.first_ref
+  } catch {
+    return preferred
+  }
+}
+
+/**
+ * True when this is a System Admin whose location list is empty. Login refuses
+ * them with a clear message rather than issuing a session the gate would
+ * reject on the very next request.
+ */
+export async function isSystemAdminWithNoLocations(email: string): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      SELECT 1 FROM disco_restaurant_accounts a
+       WHERE lower(a.email) = lower(${email}) AND UPPER(COALESCE(a.role, '')) = 'SYSTEM_ADMIN'
+         AND NOT EXISTS (SELECT 1 FROM disco_restaurant_location_access g WHERE lower(g.account_email) = lower(a.email))
+       LIMIT 1
+    `) as unknown[]
+    return rows.length > 0
+  } catch {
+    return false
+  }
+}
+
 // Create a session token (30 day expiry)
 export async function createDiscoRestaurantSession(
   restaurantReference: string,
@@ -161,6 +203,14 @@ export async function createDiscoRestaurantSession(
   opts?: { role?: string | null; viaMasterPassword?: boolean; restaurantName?: string | null },
 ): Promise<string> {
   console.log('[disco-session] creating session for:', email)
+  // A System Admin lands on a location that is on their list. Their anchor can
+  // be off it (16 such accounts on 22 Oct 2026, from before Disco owned the
+  // list), and the session gate in validateDiscoRestaurantSession would refuse
+  // a session pinned there — so pin it to the first location they do hold.
+  // A master-password entry keeps the reference it was given.
+  if (!opts?.viaMasterPassword) {
+    restaurantReference = await landingRefFor(email, restaurantReference)
+  }
   const token = randomUUID()
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   // role/viaMasterPassword are set ONLY for a master-password entry into a
@@ -207,6 +257,22 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
     LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = s.restaurant_reference
     WHERE s.token = ${token} AND s.expires_at > NOW()
       AND (a.email IS NOT NULL OR s.via_master_password = TRUE)
+      -- ── A SYSTEM ADMIN'S SESSION MUST SIT ON THEIR LIST ─────────────────
+      -- Disco owns each System Admin's location list, and a location removed
+      -- from it must stop working at once — not on the next login. The
+      -- session's restaurant is their anchor at sign-in, so when that anchor
+      -- is taken off the list the session ends here and the next login lands
+      -- on a location they still hold (createDiscoRestaurantSession). An ADMIN
+      -- is unaffected: their reach is their anchor regardless of grants.
+      AND (
+        UPPER(COALESCE(a.role, '')) <> 'SYSTEM_ADMIN'
+        OR s.via_master_password = TRUE
+        OR EXISTS (
+          SELECT 1 FROM disco_restaurant_location_access g
+           WHERE lower(g.account_email) = lower(s.email)
+             AND g.restaurant_reference = s.restaurant_reference
+        )
+      )
     LIMIT 1
   `) as Array<{
     restaurant_reference: string; email: string

@@ -22,8 +22,9 @@ const NAV: NavItem[] = [
   { title: 'Orders', path: '/admin/manage-orders' },
   { title: 'Users', path: '/admin/manage-users' },
   { title: 'Customers', path: '/admin/manage-customers' },
-  { title: 'System Admins', path: '/admin/manage-admins' },
-  { title: 'Admins', path: '/admin/manage-restaurant-admins' },
+  // One page for System Admins and Admins (Peter, 22 Oct 2026). The old System
+  // Admins page stays reachable from its "+ Add System Admin" link for creating.
+  { title: 'Restaurant Admins', path: '/admin/manage-restaurant-admins' },
   {
     title: 'Restaurants', path: '/admin/manage-restaurants/ordering',
     children: [
