@@ -379,68 +379,30 @@ async function createNativeSystemAdmin(
 }
 
 export async function POST(req: NextRequest) {
-  let h: Record<string, string>
-  try { h = await getAdminAuthHeader() } catch {
+  try { await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
     const body = await req.json()
     body.role = 'SYSTEM_ADMIN'
 
-    // ── NATIVE-ONLY SETS NEVER TOUCH FAMILYMEAL ─────────────────────────────
-    // Resolved from the posted references against disco_restaurant_cache, the
-    // AUTHORITATIVE flag (disco_restaurant_accounts.is_disco_native is written
-    // once at account creation and goes stale — reading it here would misroute
-    // exactly the converted restaurants this is for).
-    //
-    // ALL native, or nothing. A mixed set proxies to FM unchanged: those
-    // locations' admins may still need a familymeal.com login, and FM's invite
-    // is the one carrying the password FM knows. Two invites with two different
-    // set-password links would be worse than one wrongly-branded invite.
+    // ── EVERY NEW SYSTEM ADMIN IS CREATED IN DISCO ONLY (22 Oct 2026) ──────
+    // Disco never writes changes to FamilyMeal (Peter). This used to create
+    // the person in FamilyMeal whenever any chosen location was FM-backed (and
+    // FM then sent its own invite). Now every System Admin is a Disco account
+    // with Disco's single location list and Disco's invite — the path
+    // all-native sets already took. A Disco session administers FM-backed
+    // locations through the FM service account, so no location is out of reach.
     const refs = Array.isArray(body.restaurantReferences)
       ? (body.restaurantReferences as unknown[]).map(r => String(r || '').trim()).filter(Boolean)
       : []
-    if (refs.length) {
-      const rows = (await sql`
-        SELECT restaurant_reference::text AS ref, COALESCE(is_disco_native, false) AS native
-        FROM disco_restaurant_cache
-        WHERE restaurant_reference::text = ANY(${refs})
-      `.catch(() => [])) as Array<{ ref: string; native: boolean }>
-      // Every posted reference must be present AND native. A reference with no
-      // cache row is NOT assumed native — unknown means defer to FM.
-      const nativeRefs = new Set(rows.filter(r => r.native).map(r => r.ref))
-      const allNative = refs.every(r => nativeRefs.has(r))
-      if (allNative) {
-        const actor = await getAdminEmail().catch(() => null)
-        return await createNativeSystemAdmin(body, refs, actor)
-      }
-    }
-
-    // ── DISCO NO LONGER WRITES LOCATION ASSIGNMENTS TO FAMILYMEAL ───────────
-    // Disco owns the location list (Peter, 21 Oct 2026). FM still mints the
-    // user — name, email, role, the invite it sends — so the rest of the body
-    // proxies unchanged; only restaurantReferences is withheld, and the list
-    // is written to Disco below.
-    const { restaurantReferences: _locationsAreDiscosNow, ...fmBody } = body as Record<string, unknown>
-    const res = await fetch(`${FM}/api/admin/users/system-admin`, {
-      method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(fmBody),
-    })
-    if (!res.ok) {
-      const raw = await res.text().catch(() => '')
-      return NextResponse.json({ error: 'Failed to create system admin', raw }, { status: res.status })
-    }
-    const email = String((body as Record<string, unknown>)?.email ?? '').trim().toLowerCase()
-    if (email && refs.length) {
-      const actor = await getAdminEmail().catch(() => null)
-      await sql`
-        INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by, invited_by)
-        SELECT ${email}, r, ${actor}, ${actor} FROM unnest(${refs}::text[]) AS r
-        ON CONFLICT (account_email, restaurant_reference) DO NOTHING
-      `.catch(e => console.error('[admin/system-admins] location list write failed:', e instanceof Error ? e.message : e))
-    }
-    const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
+    if (!refs.length) return NextResponse.json({ error: 'Assign at least one location' }, { status: 400 })
+    const known = (await sql`
+      SELECT restaurant_reference::text AS ref FROM disco_restaurant_cache WHERE restaurant_reference::text = ANY(${refs})
+    `) as Array<{ ref: string }>
+    if (known.length !== new Set(refs).size) return NextResponse.json({ error: 'One or more locations were not found in Disco Cater.' }, { status: 400 })
+    const actor = await getAdminEmail().catch(() => null)
+    return await createNativeSystemAdmin(body, refs, actor)
   } catch {
     return NextResponse.json({ error: 'Unable to create system admin' }, { status: 500 })
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getTeamActorContext } from '../../../../../lib/team-management-scope'
 import { randomUUID } from 'crypto'
-import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../lib/db'
 import { grantLocationAccess, hashPassword, setInviteToken } from '../../../../../lib/disco-restaurant-auth'
 import { checkAssign, applyListChange } from '../../../../../lib/system-admin-authority'
@@ -16,11 +16,9 @@ export const dynamic = 'force-dynamic'
 // to a subset of the PSA's own locations. Server-side guard: the sub admin can
 // only be granted locations the PSA themselves has access to.
 export async function POST(req: NextRequest) {
-  const ctx = await getRestaurantAuthContext()
+  // Either kind of session, as a verified person; changes land in Disco only.
+  const ctx = await getTeamActorContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   try {
     const body = await req.json().catch(() => ({}))

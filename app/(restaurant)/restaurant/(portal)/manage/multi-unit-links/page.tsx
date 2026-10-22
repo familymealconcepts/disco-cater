@@ -378,8 +378,8 @@ export default function MultiUnitLinksPage() {
     const fileToUpload = imageFile
     const gradientToSave = gradEnabled ? `linear-gradient(120deg, ${gradStart} 0%, ${gradEnd} 100%)` : null
 
-    // Upload the image to Vercel Blob BEFORE the FM call (it's the source of
-    // truth for display). FM still gets a copy below for its own compatibility.
+    // Upload the image to Vercel Blob BEFORE the save (it's the source of
+    // truth for display). FamilyMeal never gets a copy.
     let blobUrl: string | null = null
     if (fileToUpload) blobUrl = await uploadLinkImage(fileToUpload)
     const isDashboard = editing.urlFrom === 'Dashboard'
@@ -401,7 +401,8 @@ export default function MultiUnitLinksPage() {
     // multipart: JSON `request` part + optional `image` file part (matches FM).
     const fd = new FormData()
     fd.append('request', new Blob([JSON.stringify(reqBody)], { type: 'application/json' }))
-    if (imageFile) fd.append('image', imageFile)
+    // No image part: the image is Disco's (Blob + Neon, patched below) and is
+    // never sent to FamilyMeal. The server strips it as well.
 
     // Dashboard row edits go to the dedicated groups endpoint, NOT the links PUT.
     const url = isDashboard

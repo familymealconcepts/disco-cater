@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../../../lib/db'
 import { setInviteToken } from '../../../../../../../lib/disco-restaurant-auth'
 import { sendTeamMemberInvite } from '../../../../../../../lib/email/notifications'
-import { assertManagedUser, loadManagedTarget } from '../../../../../../../lib/team-management-scope'
+import { assertManagedUser, loadManagedTarget, getTeamActorContext } from '../../../../../../../lib/team-management-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,11 +13,9 @@ const SITE_URL = 'https://www.discocater.com'
 // Re-issues a set-password token for a Sub System Admin the calling PSA created
 // and re-sends the invite email.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
-  const ctx = await getRestaurantAuthContext()
+  // Either kind of session, as a verified person; changes land in Disco only.
+  const ctx = await getTeamActorContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
   const { email: rawEmail } = await params
   const subEmail = decodeURIComponent(rawEmail || '').trim().toLowerCase()
   if (!subEmail) return NextResponse.json({ error: 'email required' }, { status: 400 })

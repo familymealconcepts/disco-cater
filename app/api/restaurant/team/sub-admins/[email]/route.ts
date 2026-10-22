@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
-import { assertManagedUser, loadManagedTarget } from '../../../../../../lib/team-management-scope'
+import { assertManagedUser, loadManagedTarget, getTeamActorContext } from '../../../../../../lib/team-management-scope'
 import { discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { actorScope, checkAssign, checkRemove, currentList, diffLists, applyListChange } from '../../../../../../lib/system-admin-authority'
 
@@ -17,11 +16,9 @@ export const dynamic = 'force-dynamic'
 // PUT /api/restaurant/team/sub-admins/{email}  { restaurantReferences: string[] }
 // Replace a user's locations. Additions and removals are authorized separately.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
-  const ctx = await getRestaurantAuthContext()
+  // Either kind of session, as a verified person; changes land in Disco only.
+  const ctx = await getTeamActorContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
   const { email: rawEmail } = await params
   const subEmail = decodeURIComponent(rawEmail || '').trim().toLowerCase()
   if (!subEmail) return NextResponse.json({ error: 'email required' }, { status: 400 })
@@ -82,11 +79,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ emai
 // DELETE /api/restaurant/team/sub-admins/{email}
 // Remove a sub admin account and all of their location access.
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
-  const ctx = await getRestaurantAuthContext()
+  // Either kind of session, as a verified person; changes land in Disco only.
+  const ctx = await getTeamActorContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
   const { email: rawEmail } = await params
   const subEmail = decodeURIComponent(rawEmail || '').trim().toLowerCase()
   if (!subEmail) return NextResponse.json({ error: 'email required' }, { status: 400 })

@@ -23,35 +23,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Create a new team member. Mirrors FM's userService.createByRestaurant
-// (admin-manager/authorized-users/update-authorized-users.component.ts:90 →
-// _system/_services/user/user.service.ts:19).
-//
-// Body shape per FM source:
-//   { firstName, lastName, email, role: 'SYSTEM_ADMIN' | 'ADMIN',
-//     restaurantReference: string[] }
-//
-// `restaurantReference` is ALWAYS an array on the wire — single-location
-// ADMIN gets [ref] not ref. FM normalizes server-side.
-export async function POST(req: NextRequest) {
-  let h: Record<string, string>
-  try { h = await getRestaurantAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-  try {
-    const body = await req.json()
-    const res = await fetch(`${FM}/api/system-admin/users`, {
-      method: 'POST',
-      headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      const raw = await res.text().catch(() => '')
-      return NextResponse.json({ error: 'Failed to create user', raw }, { status: res.status })
-    }
-    const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
-  } catch {
-    return NextResponse.json({ error: 'Unable to create user' }, { status: 500 })
-  }
+// ── NO LONGER WRITES TO FAMILYMEAL (22 Oct 2026) ──────────────────────────────
+// Disco owns users and their locations and never writes changes to FamilyMeal
+// (Peter). This route used to proxy create to FM's /api/system-admin/users,
+// which created/edited/deleted FamilyMeal users and their location lists. The
+// team screen now saves to Disco for every session (app/api/restaurant/team*),
+// so the write is refused here rather than forwarded. Reads are unchanged.
+export async function POST() {
+  return NextResponse.json({
+    error: 'Team changes are saved in Disco Cater now. Reload the Authorized Users page to manage this person.',
+  }, { status: 410 })
 }

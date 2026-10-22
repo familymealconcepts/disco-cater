@@ -99,34 +99,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   }
 
+  // ── FAMILYMEAL-SOURCED PERSON: DISCO ONLY (22 Oct 2026) ──────────────────
+  // This used to PUT the name/email to FamilyMeal. Disco never writes changes
+  // to FamilyMeal now (Peter), so: the location list goes to Disco (as it
+  // already did), and the name lands on the person's Disco account when they
+  // have one. FamilyMeal's record is left exactly as it is.
   try {
-    const body = await req.json()
-    // ── DISCO NO LONGER WRITES LOCATION ASSIGNMENTS TO FAMILYMEAL ───────────
-    // Disco is the source of truth for which locations a System Admin reaches
-    // (Peter, 21 Oct 2026). FamilyMeal stays independent: its own
-    // tbl_system_admin_restaurants is left exactly as it is, and was read once,
-    // for the migration that seeded Disco's list.
-    //
-    // The person's NAME, EMAIL and user record still proxy to FM unchanged —
-    // those are still FM's to hold, and a rename that only landed in Disco
-    // would leave the two disagreeing about who somebody is. Only
-    // restaurantReferences is withheld.
-    const { restaurantReferences: _locationsAreDiscosNow, ...fmBody } = body as Record<string, unknown>
-    const refs = Array.isArray(_locationsAreDiscosNow)
-      ? (_locationsAreDiscosNow as unknown[]).map(String).filter(Boolean) : []
-    const res = await fetch(`${FM}/api/admin/users/system-admin/${ref}`, {
-      method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(fmBody),
-    })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to update system admin' }, { status: res.status })
-    // The locations land in DISCO, for an FM-sourced admin exactly as for a
-    // native one — one list, one store, whichever system minted the account.
-    if (refs.length) {
-      const email = String((body as Record<string, unknown>)?.email ?? '').trim().toLowerCase()
-      if (email) await writeDiscoLocationList(email, refs, await getAdminEmail().catch(() => null))
+    const body = await req.json() as Record<string, unknown>
+    const email = String(body?.email ?? '').trim().toLowerCase()
+    if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
+    const refs = Array.isArray(body.restaurantReferences)
+      ? (body.restaurantReferences as unknown[]).map(String).filter(Boolean) : []
+    if (refs.length) await writeDiscoLocationList(email, refs, await getAdminEmail().catch(() => null))
+    const first = String(body?.firstName ?? '').trim()
+    if (first) {
+      await sql`
+        UPDATE disco_restaurant_accounts SET first_name = ${first}, last_name = ${String(body?.lastName ?? '').trim() || null}, updated_at = NOW()
+         WHERE lower(email) = ${email} AND archived_at IS NULL`
     }
-    const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
+    return NextResponse.json({ ok: true, locations: refs.length })
   } catch {
     return NextResponse.json({ error: 'Unable to update system admin' }, { status: 500 })
   }
@@ -160,10 +151,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     }
   }
 
+  // ── FAMILYMEAL-SOURCED PERSON: REMOVED FROM DISCO ONLY (22 Oct 2026) ───────
+  // This used to DELETE the user in FamilyMeal. Disco never writes changes to
+  // FamilyMeal now (Peter): the person's Disco location list is cleared and
+  // their Disco account (if any) archived. Their email is looked up from FM's
+  // list with a READ. FamilyMeal's own record is untouched.
   try {
-    const res = await fetch(`${FM}/api/admin/users/${ref}`, { method: 'DELETE', headers: h })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to delete' }, { status: res.status })
-    return NextResponse.json({ ok: true })
+    const res = await fetch(`${FM}/api/admin/users/system-admin?size=2000`, { headers: h })
+    if (!res.ok) return NextResponse.json({ error: 'Could not look this person up' }, { status: 502 })
+    const list = ((await res.json())?.content || []) as Array<{ reference?: string; email?: string }>
+    const email = (list.find(a => a.reference === ref)?.email || '').trim().toLowerCase()
+    if (!email) return NextResponse.json({ error: 'System admin not found' }, { status: 404 })
+    await sql`DELETE FROM disco_restaurant_location_access WHERE lower(account_email) = ${email}`
+    await sql`UPDATE disco_restaurant_accounts SET archived_at = NOW(), is_primary_system_admin = FALSE, updated_at = NOW() WHERE lower(email) = ${email} AND archived_at IS NULL`
+    return NextResponse.json({ ok: true, removedFromDisco: true })
   } catch {
     return NextResponse.json({ error: 'Unable to delete' }, { status: 500 })
   }

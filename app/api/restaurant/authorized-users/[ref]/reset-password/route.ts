@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { resolveResetEligibility, sendPasswordResetTo } from '../../../../../../lib/password-reset'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Reset an authorized user's password from the restaurant portal.
 //
@@ -25,7 +23,7 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { ref } = await params
+  await params
 
   let email = ''
   try {
@@ -43,17 +41,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       }
       return NextResponse.json({ ok: true, native: true })
     }
-    // Not a Disco-owned login (FM-backed restaurant, or no Neon account yet) —
-    // fall through to FM, which is the correct owner in that case.
+    // Not a Disco-owned login. This used to fall through to FamilyMeal's own
+    // reset (PUT /api/system-admin/users/{ref}/reset-password) — a change made
+    // in FamilyMeal. Disco never writes to FamilyMeal now (Peter, 22 Oct 2026),
+    // so it is refused with the reason instead.
+    return NextResponse.json({ error: elig.reason || 'FamilyMeal manages this person’s password.' }, { status: 409 })
   }
 
-  let h: Record<string, string>
-  try { h = await getRestaurantAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
-  try {
-    const res = await fetch(`${FM}/api/system-admin/users/${ref}/reset-password`, { method: 'PUT', headers: h })
-    if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
-    return NextResponse.json({ ok: true, native: false })
-  } catch { return NextResponse.json({ error: 'Unable to reset password' }, { status: 500 }) }
+  return NextResponse.json({ error: 'Email is required to send a Disco Cater reset.' }, { status: 400 })
 }

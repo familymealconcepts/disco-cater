@@ -1,5 +1,7 @@
 import { sql } from './db'
-import type { RestaurantAuthContext } from './restaurant-auth-context'
+import { getRestaurantAuthContext, type RestaurantAuthContext } from './restaurant-auth-context'
+import { getRestaurantRef, getRestaurantEmail, getRestaurantRole } from './restaurant-auth'
+import { isDiscoNativeRestaurant } from './order/native-checkout'
 import { resolveDiscoAccessScope, discoRefAllowed } from './restaurant-write-scope'
 import { getLocationAccessRefs } from './disco-restaurant-auth'
 import { readAuthorizedUsersRaw } from './fm-master-admin-read'
@@ -111,4 +113,32 @@ export async function loadManagedTarget(email: string): Promise<ManagedTarget | 
     FROM disco_restaurant_accounts WHERE email = ${email} AND archived_at IS NULL LIMIT 1
   `) as Array<{ email: string; role: string; anchor: string | null }>
   return rows[0] ?? null
+}
+
+/**
+ * The acting person for the team screen, for EITHER kind of session.
+ *
+ * Disco owns every team change (Peter, 22 Oct 2026): users and locations are
+ * saved to Disco only, never to FamilyMeal. A FamilyMeal-password session used
+ * to be sent to an FM-proxying team page that created, edited and deleted
+ * users — and their locations — in FamilyMeal. Now it is served Disco's team
+ * screen, as the person its VERIFIED token names (lib/fm-token-verify.ts), with
+ * their verified role. Their authority is then exactly the System Admin rules
+ * against Disco's list (lib/system-admin-authority.ts), the same as a
+ * Disco-password user.
+ *
+ * Over a Disco-native restaurant an FM session keeps the role it already had
+ * on this screen (SYSTEM_ADMIN for that restaurant — the master-password case
+ * the team GET documented); that is unchanged.
+ */
+export async function getTeamActorContext(): Promise<RestaurantAuthContext | null> {
+  const raw = await getRestaurantAuthContext()
+  if (!raw) return null
+  if (raw.authType === 'disco') return raw
+  const targetRef = (await getRestaurantRef().catch(() => null)) || ''
+  const email = (await getRestaurantEmail().catch(() => null)) || ''
+  if (!targetRef || !email) return null
+  const native = await isDiscoNativeRestaurant(targetRef)
+  const role = native ? 'SYSTEM_ADMIN' : ((await getRestaurantRole().catch(() => null)) || 'ADMIN').toUpperCase()
+  return { ...raw, authType: 'disco', email, role, restaurantReference: targetRef }
 }

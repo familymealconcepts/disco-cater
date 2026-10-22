@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
-import { getRestaurantRef, getRestaurantEmail } from '../../../../lib/restaurant-auth'
-import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
+import { getTeamActorContext } from '../../../../lib/team-management-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
 import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoAccessScope } from '../../../../lib/restaurant-write-scope'
@@ -15,41 +13,16 @@ export const dynamic = 'force-dynamic'
 // (Section 1) and the Sub System Admins they created (Section 2). Disco-native
 // SYSTEM_ADMIN sessions only.
 export async function GET() {
-  const raw = await getRestaurantAuthContext()
-  if (!raw) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
-  // ── KEYED ON THE RESTAURANT, NOT THE SESSION ──────────────────────────────
-  // This returned 403 to every non-disco session, and the Authorized Users page
-  // reads that 403 as "fall back to FamilyMeal's list". For a CONVERTED
-  // restaurant that list is the wrong one: its people live in
-  // disco_restaurant_accounts and FamilyMeal has never heard of them. The team
-  // routinely enters restaurants with the master password, which issues an
-  // fm_restaurant_token — so the ordinary way of looking at a native
-  // restaurant's team showed a team that was not its own.
-  //
-  // An FM session over a native restaurant is therefore served the NATIVE team,
-  // scoped to that restaurant. Identity comes from the FM JWT's own `sub` claim
-  // (getRestaurantAuthContext leaves ctx.email blank for FM sessions), and the
-  // role is treated as SYSTEM_ADMIN for that one restaurant — a master-password
-  // session can do what the admin it entered as could do, and the scope below
-  // is the restaurant itself, not a chain.
-  //
-  // An FM session over an FM-BACKED restaurant still gets the 403, so the page
-  // still falls back to FamilyMeal, which is correct: FamilyMeal owns that team.
-  let ctx = raw
-  if (raw.authType !== 'disco') {
-    const targetRef = (await getRestaurantRef().catch(() => null)) || ''
-    if (!targetRef || !(await isDiscoNativeRestaurant(targetRef))) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    ctx = {
-      ...raw,
-      authType: 'disco',
-      email: (await getRestaurantEmail().catch(() => null)) || '',
-      role: 'SYSTEM_ADMIN',
-      restaurantReference: targetRef,
-    }
-  }
+  // ── EVERY SESSION GETS DISCO'S TEAM (22 Oct 2026) ─────────────────────────
+  // An FM session over an FM-backed restaurant used to get a 403 here, which
+  // the page read as "fall back to FamilyMeal's list" — and that fallback
+  // created, edited and deleted users and their locations IN FAMILYMEAL. Disco
+  // owns the team now, for every restaurant: getTeamActorContext resolves an FM
+  // session to the person its verified token names, with their verified role.
+  // (Over a native restaurant it keeps the SYSTEM_ADMIN treatment this route
+  // already gave an FM session.)
+  const ctx = await getTeamActorContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   try {
     await runDiscoOrderMigrations()
