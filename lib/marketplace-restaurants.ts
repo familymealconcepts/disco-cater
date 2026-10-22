@@ -16,6 +16,23 @@ export interface MarketplaceRestaurantRow {
   isPremium: boolean | null
   orderUrl: string | null
   featuredOrder: number | null
+  /**
+   * CAN THIS RESTAURANT ACTUALLY TAKE AN ORDER RIGHT NOW?
+   *
+   * Listing and orderability are separate questions (Peter, 21 Oct 2026): a
+   * restaurant with a restricted Stripe account IS listed, and its page tells
+   * the diner it cannot take orders today. The map, the cards, search and the
+   * restaurant pages all ignore this field and are unchanged by it.
+   *
+   * It exists for the ONE consumer that has no page to catch the problem: the
+   * Disco AI chat recommends restaurants in prose, so a diner it points at a
+   * restaurant that cannot take the order has no banner to read. The chat's
+   * data file (lib/generateCompact.ts) filters on this.
+   *
+   * The conditions are the ones assertRestaurantOrderable applies, in the same
+   * order and with the same NULL handling — see the SQL that computes it.
+   */
+  canOrder: boolean
 }
 
 // The single source of truth for "does this restaurant appear on the public
@@ -66,7 +83,21 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
            COALESCE(c.image_url, c.icon_url) AS image_url,
            c.lat, c.lng, c.location, c.address, c.is_disco_native,
            c.address_line1, c.address_line2, c.city, c.state, c.zipcode,
-           o.is_premium, o.order_url, o.featured_order
+           o.is_premium, o.order_url, o.featured_order,
+           -- READINESS, mirroring lib/restaurant-orderable.ts exactly:
+           --   archived                 -> not orderable (already excluded below)
+           --   native + ordering off    -> not orderable
+           --   native + no account      -> not orderable  (nativePaymentUnconfigured)
+           --   native + charges off     -> not orderable  (nativePaymentRestricted)
+           --   native + 'restricted'    -> not orderable  (nativePaymentRestricted)
+           -- An FM-backed restaurant is never gated on these: FamilyMeal takes
+           -- its money, so none of the native payment state applies.
+           (CASE WHEN c.is_disco_native IS NOT TRUE THEN true ELSE (
+                 COALESCE(o.online_ordering_enabled, true) = true
+             AND COALESCE(o.stripe_account_id, a.stripe_account_id) IS NOT NULL
+             AND COALESCE(o.stripe_charges_enabled, true) = true
+             AND COALESCE(o.stripe_status, '') <> 'restricted'
+           ) END) AS can_order
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     LEFT JOIN LATERAL (
@@ -139,7 +170,7 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     location: string | null; address: string | null; is_disco_native: boolean | null
     address_line1: string | null; address_line2: string | null
     city: string | null; state: string | null; zipcode: string | null
-    is_premium: boolean | null; order_url: string | null; featured_order: number | null
+    is_premium: boolean | null; order_url: string | null; featured_order: number | null; can_order: boolean | null
   }[]
 
   return rows.map((r) => ({
@@ -165,5 +196,6 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     isPremium: r.is_premium,
     orderUrl: r.order_url,
     featuredOrder: r.featured_order,
+    canOrder: r.can_order !== false,
   }))
 }

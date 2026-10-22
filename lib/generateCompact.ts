@@ -230,10 +230,20 @@ export async function generateCompact(opts: GenerateOptions = {}): Promise<Gener
   // WHERE clause. This is exactly how this file ended up with a stale,
   // archived_at-less copy in the first place: the AI assistant kept
   // describing archived restaurants as orderable until this was fixed.
-  const rows: NeonRestaurant[] = (await getMarketplaceRestaurants())
-    .filter((r) => !!r.name)
+  // ── ONLY RESTAURANTS THAT CAN ACTUALLY TAKE AN ORDER ────────────────────
+  // Listing and orderability are separate questions: a restaurant with a
+  // restricted Stripe account, or with online ordering switched off, IS on the
+  // marketplace, and its own page tells the diner it cannot take an order
+  // today. The chat has no page — it recommends in prose — so a restaurant it
+  // names has to be one the diner can actually order from. canOrder carries
+  // assertRestaurantOrderable's conditions; see marketplace-restaurants.ts.
+  const all = (await getMarketplaceRestaurants()).filter((r) => !!r.name)
+  const rows: NeonRestaurant[] = all
+    .filter((r) => r.canOrder)
     .map((r) => ({ name: r.name, restaurantReference: r.reference }))
-  log(`     ${rows.length} live marketplace restaurants`)
+  const notOrderable = all.length - rows.length
+  log(`     ${rows.length} live marketplace restaurants that can take an order` +
+      (notOrderable ? `  (${notOrderable} listed but not currently orderable — excluded)` : ''))
 
   const targets = rows.slice(0, limit)
   log(`[2/3] Fetching packages for ${targets.length} restaurants…`)
