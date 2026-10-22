@@ -1,0 +1,52 @@
+# Production drift check: is the live site running the latest commit on main?
+# Runs on GitHub, outside Vercel, so it still works when Vercel is the problem.
+# Alerts #ops-alerts (Disco Alerts) when production is behind for over 15 min,
+# at most once an hour, and once when back in sync. Never deploys.
+# Logic: .github/scripts/prod-drift-check.mjs
+name: Production drift check
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      pretend_live_sha:
+        description: 'TEST ONLY: pretend production runs this commit. Posts one [TEST] alert; changes nothing.'
+        required: false
+        default: ''
+
+# One push run at a time (a newer push supersedes a waiting one); scheduled and
+# manual runs are separate groups so they are never cancelled by a push.
+concurrency:
+  group: prod-drift-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      # A normal deploy takes a couple of minutes. Wait past the 15-minute
+      # threshold so a push run only alerts on a real miss.
+      - name: Give the push time to deploy
+        if: github.event_name == 'push'
+        run: sleep 960
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compare main with production
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLACK_WEBHOOK: ${{ secrets.OPS_ALERTS_SLACK_WEBHOOK }}
+          PROD_URL: https://www.discocater.com
+          PRETEND_LIVE_SHA: ${{ github.event.inputs.pretend_live_sha }}
+        run: node .github/scripts/prod-drift-check.mjs
