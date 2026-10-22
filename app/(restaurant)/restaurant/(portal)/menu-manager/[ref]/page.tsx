@@ -7,6 +7,9 @@ import { useRouter } from 'next/navigation'
 import { DiscoGroupFormDialog, type DiscoGroupSummary } from '../../_components/DiscoGroupFormDialog'
 
 const F = "'DM Sans', sans-serif"
+// Round "×" overlaid on an image preview's top-right corner. Identical copy of
+// removeImageX in manage/multi-unit-links/page.tsx — keep them in step.
+const removeImageX: React.CSSProperties = { position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', border: '2px solid #fff', background: '#1A1028', color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', fontFamily: F }
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const RED = '#E53935'
@@ -526,15 +529,16 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
 
         <label style={dlgLabel}>Image</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {imageUrl ? <img src={imageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} /> : <div style={{ width: 56, height: 56, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
+          {imageUrl ? (
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <img src={imageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee', display: 'block' }} />
+              {!uploading && (
+                // Staged removal, applied on Save (clearImage flag).
+                <button type="button" onClick={() => { setImageUrl(''); setImageRemoved(true) }} aria-label="Remove image" title="Remove image" style={removeImageX}>×</button>
+              )}
+            </div>
+          ) : <div style={{ width: 56, height: 56, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
           <label style={{ fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer' }}>{uploading ? 'Uploading…' : (imageUrl ? 'Replace' : 'Upload')}<input type="file" accept="image/jpeg,image/png" onChange={upload} style={{ display: 'none' }} /></label>
-          {/* Same look as the multi-unit links "Link Image" Remove control. */}
-          {imageUrl && !uploading && (
-            <button type="button" onClick={() => { setImageUrl(''); setImageRemoved(true) }}
-              style={{ background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 0, fontWeight: 600 }}>
-              Remove
-            </button>
-          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

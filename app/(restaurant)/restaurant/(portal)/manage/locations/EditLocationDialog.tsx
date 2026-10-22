@@ -452,8 +452,13 @@ function ImageBlock({ title, preview, onSelect, onRemove, accept }: {
       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 6 }}>{title}</label>
       <div style={{ border: '1.5px dashed #ccc', borderRadius: 10, padding: 10, display: 'flex', gap: 12, alignItems: 'center' }}>
         {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6 }} />
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={preview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+            {onRemove && (
+              <button type="button" onClick={onRemove} aria-label="Remove image" title="Remove image" style={removeImageX}>×</button>
+            )}
+          </div>
         ) : (
           <div style={{ width: 56, height: 56, background: '#f0f0f0', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 10 }}>none</div>
         )}
@@ -461,9 +466,6 @@ function ImageBlock({ title, preview, onSelect, onRemove, accept }: {
           {preview ? 'Change' : 'Choose image'}
         </label>
         <input id={inputId} type="file" accept={accept} onChange={onSelect} style={{ display: 'none' }} />
-        {preview && onRemove && (
-          <button type="button" onClick={onRemove} style={removeImageBtn}>Remove</button>
-        )}
       </div>
     </div>
   )
@@ -554,7 +556,7 @@ const secondaryBtn: React.CSSProperties = { padding: '8px 16px', border: '1px so
 const checkLabel: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: DARK, padding: '4px 8px', background: '#f8f8fc', borderRadius: 6 }
 const modalBackdrop: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }
 const modalBody: React.CSSProperties = { background: '#fff', borderRadius: 14, padding: '28px 32px', width: '100%', fontFamily: F }
-// Same look as the multi-unit links "Link Image" Remove control
-// (manage/multi-unit-links/page.tsx: btnLink + color #E76F51, marginLeft 0).
-const removeImageBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 0, fontWeight: 600 }
+// Round "×" overlaid on an image preview's top-right corner. Identical copy of
+// removeImageX in manage/multi-unit-links/page.tsx — keep them in step.
+const removeImageX: React.CSSProperties = { position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', border: '2px solid #fff', background: '#1A1028', color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', fontFamily: F }
 const errSmall: React.CSSProperties ={ display: 'block', color: '#c00', fontSize: 11, marginTop: 4 }

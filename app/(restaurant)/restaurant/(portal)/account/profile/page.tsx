@@ -7,10 +7,9 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
-// Same look as the multi-unit links "Link Image" Remove control
-// (manage/multi-unit-links/page.tsx: btnLink + color #E76F51, marginLeft 0).
-// marginLeft 8 here only because it sits beside an inline-flex button, not a thumbnail.
-const removeImageBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 8, fontWeight: 600 }
+// Round "×" overlaid on an image preview's top-right corner. Identical copy of
+// removeImageX in manage/multi-unit-links/page.tsx — keep them in step.
+const removeImageX: React.CSSProperties = { position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', border: '2px solid #fff', background: '#1A1028', color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', fontFamily: F }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -677,9 +676,15 @@ export default function ProfilePage() {
               Logo
             </label>
             {discoProfile.iconUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={discoProfile.iconUrl} alt="Logo"
-                style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
+              <div style={{ position: 'relative', width: 100, marginBottom: 10 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={discoProfile.iconUrl} alt="Logo"
+                  style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block' }} />
+                {!discoIconUploading && (
+                  // Staged: '' → icon_url NULL via the disco-profile PUT on Save.
+                  <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, iconUrl: '' }))} aria-label="Remove image" title="Remove image" style={removeImageX}>×</button>
+                )}
+              </div>
             )}
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoIconUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
               {discoIconUploading ? 'Uploading…' : (discoProfile.iconUrl ? 'Replace Image' : 'Upload Image')}
@@ -687,10 +692,6 @@ export default function ProfilePage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'logo') }}
                 style={{ display: 'none' }} />
             </label>
-            {discoProfile.iconUrl && !discoIconUploading && (
-              // Staged: '' → icon_url NULL via the disco-profile PUT on Save.
-              <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, iconUrl: '' }))} style={removeImageBtn}>Remove</button>
-            )}
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Small square icon — your restaurant logo. Click Save to apply.</div>
           </div>
 
@@ -700,9 +701,15 @@ export default function ProfilePage() {
               Marketplace Image
             </label>
             {discoProfile.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={discoProfile.logoUrl} alt="Marketplace"
-                style={{ width: 150, height: 113, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
+              <div style={{ position: 'relative', width: 150, marginBottom: 10 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={discoProfile.logoUrl} alt="Marketplace"
+                  style={{ width: 150, height: 113, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block' }} />
+                {!discoLogoUploading && (
+                  // Staged: '' → image_url NULL via the disco-profile PUT on Save.
+                  <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, logoUrl: '' }))} aria-label="Remove image" title="Remove image" style={removeImageX}>×</button>
+                )}
+              </div>
             )}
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoLogoUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
               {discoLogoUploading ? 'Uploading…' : (discoProfile.logoUrl ? 'Replace Image' : 'Upload Image')}
@@ -710,10 +717,6 @@ export default function ProfilePage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'marketplace') }}
                 style={{ display: 'none' }} />
             </label>
-            {discoProfile.logoUrl && !discoLogoUploading && (
-              // Staged: '' → image_url NULL via the disco-profile PUT on Save.
-              <button type="button" onClick={() => setDiscoProfile(p => ({ ...p, logoUrl: '' }))} style={removeImageBtn}>Remove</button>
-            )}
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Wider hero photo shown on the catering map listing. Click Save to apply.</div>
           </div>
         </Card>

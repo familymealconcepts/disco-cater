@@ -664,9 +664,9 @@ export default function MultiUnitLinksPage() {
                     </div>
                   </div>
                 ) : imagePreview ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
                     <div style={{ width: 120, height: 67.5, borderRadius: 8, border: '1px solid #eee', backgroundImage: `url(${imagePreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
-                    <button type="button" onClick={removeImage} style={{ ...btnLink, color: '#E76F51', marginLeft: 0 }}>Remove</button>
+                    <button type="button" onClick={removeImage} aria-label="Remove image" title="Remove image" style={removeImageX}>×</button>
                   </div>
                 ) : (
                   <label style={{ display: 'inline-block', cursor: 'pointer', padding: '9px 16px', border: '1.5px dashed #cfcfe0', borderRadius: 8, fontSize: 13, color: INDIGO, fontWeight: 600 }}>
@@ -717,7 +717,11 @@ export default function MultiUnitLinksPage() {
   )
 }
 
-const btnLink: React.CSSProperties = { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 4, fontWeight: 600 }
+// Round "×" overlaid on an image preview's top-right corner. Shared look across
+// every portal image-remove control (Links image, location logo/marketplace
+// image, profile images, menu item image) — keep the copies identical.
+const removeImageX: React.CSSProperties = { position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', border: '2px solid #fff', background: '#1A1028', color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', fontFamily: F }
+const btnLink: React.CSSProperties ={ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px', marginLeft: 4, fontWeight: 600 }
 const pageBtn: React.CSSProperties = { background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK }
 const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }
 const iconBtn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12, color: INDIGO, padding: '2px 4px', fontFamily: F }
