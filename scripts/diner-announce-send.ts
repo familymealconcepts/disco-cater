@@ -116,7 +116,14 @@ async function main() {
   // Already-emailed (August) and ever-bounced live in noise-machine's DB. The
   // caller exports them to a file; refusing to run without it is deliberate —
   // silently sending to a bounced address is how a warm domain stops being warm.
-  const exclusionFile = val('--exclusions') ?? '/tmp/diner-exclusions.txt'
+  // DEFAULTS TO ~/.disco-campaign, NOT /tmp. This file is a load-bearing safety
+  // input — it holds every August-blast recipient and every address that has
+  // ever bounced, failed or complained — and /tmp is cleared on reboot. It was,
+  // on 21 Oct 2026, and the campaign could not be relaunched until the list had
+  // been rebuilt from noise-machine's mailgun_events. A safety input does not
+  // belong in a directory the operating system empties.
+  const exclusionFile = val('--exclusions')
+    ?? `${process.env.HOME ?? ''}/.disco-campaign/diner-exclusions.txt`
   let excluded = new Set<string>()
   try {
     const { readFileSync } = await import('fs')

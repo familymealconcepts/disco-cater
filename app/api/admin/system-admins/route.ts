@@ -416,13 +416,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── DISCO NO LONGER WRITES LOCATION ASSIGNMENTS TO FAMILYMEAL ───────────
+    // Disco owns the location list (Peter, 21 Oct 2026). FM still mints the
+    // user — name, email, role, the invite it sends — so the rest of the body
+    // proxies unchanged; only restaurantReferences is withheld, and the list
+    // is written to Disco below.
+    const { restaurantReferences: _locationsAreDiscosNow, ...fmBody } = body as Record<string, unknown>
     const res = await fetch(`${FM}/api/admin/users/system-admin`, {
       method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(fmBody),
     })
     if (!res.ok) {
       const raw = await res.text().catch(() => '')
       return NextResponse.json({ error: 'Failed to create system admin', raw }, { status: res.status })
+    }
+    const email = String((body as Record<string, unknown>)?.email ?? '').trim().toLowerCase()
+    if (email && refs.length) {
+      const actor = await getAdminEmail().catch(() => null)
+      await sql`
+        INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by, invited_by)
+        SELECT ${email}, r, ${actor}, ${actor} FROM unnest(${refs}::text[]) AS r
+        ON CONFLICT (account_email, restaurant_reference) DO NOTHING
+      `.catch(e => console.error('[admin/system-admins] location list write failed:', e instanceof Error ? e.message : e))
     }
     const text = await res.text()
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })

@@ -24,6 +24,24 @@ function discoEmail(ref: string): string | null {
   return e || null
 }
 
+/**
+ * Write a System Admin's SINGLE location list. Disco-only; FamilyMeal is never
+ * touched. Shared by the native and the FM-sourced update paths so both land in
+ * exactly one place.
+ */
+async function writeDiscoLocationList(email: string, refs: string[], actor: string | null) {
+  await sql.transaction([
+    sql`DELETE FROM disco_restaurant_location_access
+         WHERE lower(account_email) = ${email} AND restaurant_reference <> ALL(${refs})`,
+    sql`INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by, invited_by)
+        SELECT ${email}, r, ${actor}, ${actor}
+          FROM unnest(${refs}::text[]) AS r
+         WHERE NOT EXISTS (
+           SELECT 1 FROM disco_restaurant_location_access
+            WHERE lower(account_email) = ${email} AND restaurant_reference = r)`,
+  ])
+}
+
 async function updateDiscoSystemAdmin(email: string, body: Record<string, unknown>, actor: string | null) {
   const firstName = String(body?.firstName ?? '').trim()
   const lastName = String(body?.lastName ?? '').trim()
@@ -83,11 +101,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   try {
     const body = await req.json()
+    // ── DISCO NO LONGER WRITES LOCATION ASSIGNMENTS TO FAMILYMEAL ───────────
+    // Disco is the source of truth for which locations a System Admin reaches
+    // (Peter, 21 Oct 2026). FamilyMeal stays independent: its own
+    // tbl_system_admin_restaurants is left exactly as it is, and was read once,
+    // for the migration that seeded Disco's list.
+    //
+    // The person's NAME, EMAIL and user record still proxy to FM unchanged —
+    // those are still FM's to hold, and a rename that only landed in Disco
+    // would leave the two disagreeing about who somebody is. Only
+    // restaurantReferences is withheld.
+    const { restaurantReferences: _locationsAreDiscosNow, ...fmBody } = body as Record<string, unknown>
+    const refs = Array.isArray(_locationsAreDiscosNow)
+      ? (_locationsAreDiscosNow as unknown[]).map(String).filter(Boolean) : []
     const res = await fetch(`${FM}/api/admin/users/system-admin/${ref}`, {
       method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(fmBody),
     })
     if (!res.ok) return NextResponse.json({ error: 'Failed to update system admin' }, { status: res.status })
+    // The locations land in DISCO, for an FM-sourced admin exactly as for a
+    // native one — one list, one store, whichever system minted the account.
+    if (refs.length) {
+      const email = String((body as Record<string, unknown>)?.email ?? '').trim().toLowerCase()
+      if (email) await writeDiscoLocationList(email, refs, await getAdminEmail().catch(() => null))
+    }
     const text = await res.text()
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
   } catch {

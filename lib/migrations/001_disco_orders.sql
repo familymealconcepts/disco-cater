@@ -301,9 +301,30 @@ CREATE TABLE IF NOT EXISTS disco_restaurant_location_access (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(account_email, restaurant_reference)
 );
+-- ── THE SINGLE LOCATION LIST (21 Oct 2026) ─────────────────────────────────
+-- Disco is now the source of truth for which locations a System Admin reaches.
+-- This table IS that list: assigned here = can view and edit that location.
+-- FamilyMeal's own tbl_system_admin_restaurants is no longer written by Disco
+-- (see app/api/admin/system-admins/*), and was read exactly once, for the
+-- migration that seeded this table.
+--
+-- invited_by records who added the person, so a System Admin's authority to
+-- remove a location can be traced down the chain they created. granted_by
+-- already recorded who granted one specific location; invited_by is about the
+-- PERSON, and is stamped once at invite time.
+ALTER TABLE disco_restaurant_location_access ADD COLUMN IF NOT EXISTS invited_by TEXT;
 CREATE INDEX IF NOT EXISTS idx_disco_location_access_email ON disco_restaurant_location_access(account_email);
 CREATE INDEX IF NOT EXISTS idx_disco_location_access_ref ON disco_restaurant_location_access(restaurant_reference);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_restaurant_ref ON disco_restaurant_accounts(restaurant_reference);
+-- Primary System Admin: the first System Admin created for a FamilyMeal
+-- RestaurantGroup. Holds every location in the group, and only a Super Admin
+-- may move the tag. Everyone else with the SYSTEM_ADMIN role is "Regional" and
+-- holds only what they were assigned.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS is_primary_system_admin BOOLEAN NOT NULL DEFAULT FALSE;
+-- The FM group this person's Primary status belongs to. Kept so a Super Admin
+-- moving the tag can find the other candidates, and so a new location created
+-- by a Regional can be routed to the right Primary.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_group_id TEXT;
 
 -- Disco-native SMS notifications: per-restaurant opt-in + destination number,
 -- independent of FM's own (FM-proxied) text-notification settings. Read by the
