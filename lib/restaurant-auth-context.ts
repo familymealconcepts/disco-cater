@@ -121,7 +121,7 @@ export async function resolveDiscoScopeRef(ctx: RestaurantAuthContext): Promise<
   //
   // SAFE, because getRestaurantRef is FM's own answer: it returns the JWT's home
   // restaurant, and honours the selected cookie only after checking it against
-  // getFmSystemAdminPermittedRefs — FM's list of what this admin manages. No
+  // getFmSessionPermittedRefs — the admin's Disco list (since 22 Oct 2026). No
   // access is widened; a reference is simply resolved where none was before.
   if (ctx.authType !== 'disco') return (await getRestaurantRef()) || ''
 

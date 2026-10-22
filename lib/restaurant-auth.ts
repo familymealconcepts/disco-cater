@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { fmFetch } from './fm-fetch'
 import { verifiedFmClaims } from './fm-token-verify'
-import { nativeSelectionAllowed } from './native-selection-scope'
+import { sql } from './db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -106,65 +106,60 @@ export async function getRestaurantHomeRef(): Promise<string | null> {
   return (payload?.restaurant as string) || null
 }
 
-// SYSTEM_ADMIN's own switch-target list, cached briefly per-token — the
-// FM-session twin of getDiscoGroupAccounts(). Never throws: any failure
-// (network, non-2xx, unexpected shape) resolves to an empty (uncached) set so
-// the caller falls back to home, same fail-closed contract resolveDiscoScopeRef
-// uses for its own group lookup.
+// ── A FAMILYMEAL-PASSWORD SYSTEM ADMIN REACHES DISCO'S LIST (22 Oct 2026) ─────
+// Peter's rule: Disco's single location list decides which locations EVERY
+// System Admin reaches, whichever password they sign in with. This used to be
+// FamilyMeal's own list (GET /api/system-admin/restaurants/list) PLUS every
+// Disco-native location sharing a multi-unit link page with it
+// (lib/native-selection-scope.ts, now deleted). That link-page rule handed
+// 806 grants across businesses — Happy's Pizza franchise stores each reaching
+// ~55 other stores, store logins reaching other operators of their brand — and
+// is no longer a source of access anywhere.
 //
-// NOT used for SUPER_ADMIN — see getRestaurantRef's comment on why that role
-// never calls this endpoint at all.
+// The list is disco_restaurant_location_access for the person the VERIFIED
+// token names (lib/fm-token-verify.ts), excluding archived restaurants — the
+// same rows a Disco-password session resolves through getDiscoGroupAccounts.
+// Before the switch, every FamilyMeal-assigned location was confirmed to be on
+// this list (the 21 Oct migration was a union), so nobody lost one.
 //
-// Cached 30s per JWT (mirrors getFmServiceToken's cache-until-near-expiry
-// pattern in lib/fm-service-auth.ts) so a multi-location SYSTEM_ADMIN actively
-// browsing a non-home location doesn't trigger this FM round-trip on every
-// single request. Only a genuinely successful, well-formed response is cached —
-// errors/non-2xx are never cached, so a real outage is retried on the very next
-// call rather than being stuck fail-closed for the full TTL.
-const fmPermittedRefsCache = new Map<string, { expiresAt: number; refs: Set<string> }>()
-const FM_PERMITTED_REFS_TTL_MS = 30_000
-
-export async function getFmSystemAdminPermittedRefs(token: string): Promise<Set<string>> {
-  const now = Date.now()
-  const cached = fmPermittedRefsCache.get(token)
-  if (cached && now < cached.expiresAt) return cached.refs
-
-  console.log('[getRestaurantRef] fetching FM system-admin/restaurants/list (permitted-set cache miss/expired)')
+// Returns an empty set for anything that is not a verified FM SYSTEM_ADMIN
+// token, and on any error (fail closed; callers fall back to home).
+export async function getFmSessionPermittedRefs(token: string): Promise<Set<string>> {
   try {
-    const res = await fmFetch(`${FM}/api/system-admin/restaurants/list`, {
-      headers: { Authorization: token },
-    }, 5_000)
-    if (!res.ok) return new Set()
-    const list = (await res.json()) as Array<{ reference?: string }>
-    if (!Array.isArray(list)) return new Set()
-    const refs = new Set(list.map(r => r.reference).filter((r): r is string => typeof r === 'string' && !!r))
-    fmPermittedRefsCache.set(token, { expiresAt: now + FM_PERMITTED_REFS_TTL_MS, refs })
-    return refs
+    const claims = await verifiedFmClaims(token)
+    if (!claims || (claims.role as string) !== 'SYSTEM_ADMIN') return new Set()
+    const email = String(claims.sub || claims.email || '').trim().toLowerCase()
+    return await discoListForEmail(email)
   } catch {
     return new Set()
   }
 }
 
+/** A person's Disco location list, archived restaurants excluded. Exported for the comparison script. */
+export async function discoListForEmail(email: string): Promise<Set<string>> {
+  const e = (email || '').trim().toLowerCase()
+  if (!e) return new Set()
+  const rows = (await sql`
+    SELECT g.restaurant_reference AS ref
+      FROM disco_restaurant_location_access g
+     WHERE lower(g.account_email) = ${e}
+       AND NOT EXISTS (SELECT 1 FROM disco_restaurant_overrides o
+                        WHERE o.restaurant_reference = g.restaurant_reference AND o.archived_at IS NOT NULL)
+  `) as Array<{ ref: string }>
+  return new Set(rows.map(r => r.ref).filter(Boolean))
+}
+
 // Decode restaurant reference UUID.
 //
-// SUPER_ADMIN is unrestricted — matches FM's own authorization model exactly:
-// FM's SYSTEM_ADMIN-only controller (api/system-admin/restaurants/*,
-// @PreAuthorize("hasAuthority('SYSTEM_ADMIN')")) flatly denies SUPER_ADMIN
-// (confirmed against a real SUPER_ADMIN account — FM returns a 500 "Access is
-// denied"), while SUPER_ADMIN's own controller (api/admin/restaurants/*,
-// @PreAuthorize("hasAuthority('SUPER_ADMIN')")) takes any restaurantReference
-// directly with no per-restaurant ACL at all. So there is no "permitted list"
-// to check SUPER_ADMIN against — the role itself is FM's authorization. Calling
-// the SYSTEM_ADMIN list endpoint for a SUPER_ADMIN would always 500 and always
-// fall back to home, silently breaking real cross-restaurant access.
+// SUPER_ADMIN is unrestricted — the Disco Cater team. FM's own SUPER_ADMIN
+// controller takes any restaurantReference with no per-restaurant ACL, so the
+// role itself is the authorization. Unchanged.
 //
-// SYSTEM_ADMIN honors the selected-restaurant cookie ONLY if it names a
-// restaurant FM's own system-admin/restaurants/list confirms this admin may
-// manage — otherwise falls back to the 'restaurant' field on the JWT (home).
-// This is the FM-session twin of resolveDiscoScopeRef
-// (lib/restaurant-auth-context.ts) and MUST match its semantics exactly: never
-// widen access, any doubt resolves to home. Plain ADMIN never trusts the
-// cookie, same as before.
+// SYSTEM_ADMIN honours the selected-restaurant cookie ONLY if it is on their
+// Disco list (getFmSessionPermittedRefs). Otherwise their home — the JWT's
+// 'restaurant' claim — when that is on the list, else the first location on
+// the list. This is the FM-session twin of resolveDiscoScopeRef and resolves to
+// the same list. Plain ADMIN never trusts the cookie, same as before.
 export async function getRestaurantRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
@@ -179,26 +174,11 @@ export async function getRestaurantRef(): Promise<string | null> {
   }
   if (role !== 'SYSTEM_ADMIN') return home
 
+  const permitted = await getFmSessionPermittedRefs(token)
   const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
-  if (!selected || selected === home) return home
-
-  const permitted = await getFmSystemAdminPermittedRefs(token)
-  if (permitted.has(selected)) return selected
-
-  // ── A DISCO-NATIVE SELECTION IS DISCO'S TO AUTHORIZE, NOT FAMILYMEAL'S ─────
-  // `permitted` is FM's list. A Disco-native restaurant is never in it, so
-  // returning `home` here discarded the operator's actual selection and handed
-  // back the JWT's home restaurant instead. Every surface built on
-  // getRestaurantRef() then showed the WRONG restaurant on an FM session — and
-  // /api/restaurant/disco-profile wrote to it, rewriting a live source's profile
-  // when the operator was looking at its duplicate.
-  //
-  // Same rule as /api/restaurant/selected-restaurant (4a5299e), now shared via
-  // lib/native-selection-scope.ts so the two cannot drift: honour the selection
-  // when it is native AND shares a multi-unit link with something FM permitted.
-  if (await nativeSelectionAllowed(selected, permitted)) return selected
-
-  return home
+  if (selected && permitted.has(selected)) return selected
+  if (home && (permitted.has(home) || !permitted.size)) return home
+  return permitted.values().next().value ?? home
 }
 
 // For Middleware (Edge runtime — next/headers not available)

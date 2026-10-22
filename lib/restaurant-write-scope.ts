@@ -1,14 +1,13 @@
 import { getRestaurantAuthContext, type RestaurantAuthContext } from './restaurant-auth-context'
-import { getRestaurantRole, getRestaurantHomeRef, getFmSystemAdminPermittedRefs } from './restaurant-auth'
+import { getRestaurantRole, getRestaurantHomeRef, getFmSessionPermittedRefs } from './restaurant-auth'
 import { getDiscoGroupAccounts, discoGroupRefs, getLocationAccessRefs } from './disco-restaurant-auth'
-import { nativeRefsReachableFrom } from './native-selection-scope'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // The restaurant references the authenticated caller may WRITE to.
 //   ADMIN         → their own restaurant only.
-//   SYSTEM_ADMIN  → their own group (disco: getDiscoGroupAccounts; FM:
-//                   getFmSystemAdminPermittedRefs), plus their own home ref.
+//   SYSTEM_ADMIN  → their Disco list (disco: getDiscoGroupAccounts; FM session:
+//                   getFmSessionPermittedRefs), plus their home ref when listed.
 //   SUPER_ADMIN   → unrestricted (allowedRefs is unused — see isRefAllowed).
 export interface WriteScope {
   role: string
@@ -42,20 +41,16 @@ export async function resolveWriteScope(): Promise<WriteScope | null> {
         allowedRefs = group.map(g => g.restaurant_reference).filter(r => UUID_RE.test(r))
       } catch { /* fall through to home-only below — never widen access on error */ }
     } else if (ctx.fmToken) {
-      const fmPermitted = await getFmSystemAdminPermittedRefs(ctx.fmToken)
-      allowedRefs = [...fmPermitted].filter(r => UUID_RE.test(r))
-      // ── VIEW AND WRITE MUST AGREE ABOUT A NATIVE RESTAURANT ───────────────
-      // fmPermitted is FamilyMeal's list, and a Disco-native restaurant is never
-      // in it. getRestaurantRef() and /api/restaurant/selected-restaurant now
-      // honour a native selection (lib/native-selection-scope.ts), so without
-      // this the operator could select a duplicated location, see it rendered
-      // correctly, and then be refused on save with "You do not have access to
-      // that restaurant" — a page the portal shows but will not let you use.
-      // Same rule, same helper: reachable through a shared multi-unit link with
-      // something FM already authorized.
-      const nativeRefs = await nativeRefsReachableFrom(fmPermitted)
-      for (const r of nativeRefs) {
-        if (UUID_RE.test(r) && !allowedRefs.includes(r)) allowedRefs.push(r)
+      // Disco's list for the person the verified FM token names — the same
+      // list getRestaurantRef() and the selection route use, so view and write
+      // agree (22 Oct 2026). The multi-unit-link sibling rule that used to be
+      // merged in here is gone; it is not a source of access.
+      allowedRefs = [...(await getFmSessionPermittedRefs(ctx.fmToken))].filter(r => UUID_RE.test(r))
+      // The JWT home joins only when it is on the list (or the list is empty,
+      // which no FM System Admin's is today): a location Disco took off their
+      // list is not writable just because FamilyMeal calls it home.
+      if (allowedRefs.length && ownRef && !allowedRefs.includes(ownRef)) {
+        return { role, isSuperAdmin, isSystemAdmin, ownRef, allowedRefs, email: ctx.email }
       }
     }
     if (ownRef && UUID_RE.test(ownRef) && !allowedRefs.includes(ownRef)) allowedRefs.push(ownRef)

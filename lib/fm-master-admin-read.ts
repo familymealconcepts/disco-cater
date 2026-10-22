@@ -65,8 +65,7 @@ export interface FmAdminIdentity {
 }
 
 // ── SYSTEM_ADMIN coverage map — one bulk call, cached briefly ────────────────
-// Mirrors the TTL/never-throws contract of getFmSystemAdminPermittedRefs in
-// lib/restaurant-auth.ts. A stale cache just means a restaurant that gained
+// Never throws, cached briefly. A stale cache just means a restaurant that gained
 // SYSTEM_ADMIN coverage in the last few minutes gets resolved via the
 // per-restaurant ADMIN path instead this run — never wrong, just a slower path.
 //

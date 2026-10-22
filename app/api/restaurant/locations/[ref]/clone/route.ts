@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
-import { getRestaurantAuthHeader, getRestaurantEmail } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantEmail, getFmSessionPermittedRefs } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
@@ -115,19 +115,15 @@ async function rollbackPartialClone(ref: string): Promise<void> {
   void steps
 }
 
+// An FM-password System Admin may duplicate a location on their Disco list —
+// the same list every other System Admin is scoped by (22 Oct 2026; this asked
+// FamilyMeal's own list, which never contains a Disco-native source).
 async function fmCallerMayActOn(ref: string): Promise<boolean> {
-  const want = ref.trim().toLowerCase()
   try {
-    const h = await getRestaurantAuthHeader()
-    const res = await fetch(`${FM}/api/system-admin/restaurants?size=1000`, { headers: h })
-    if (!res.ok) return false
-    const data = await res.json()
-    const list: Array<{ reference?: unknown }> = Array.isArray(data?.content) ? data.content : []
-    return list.some((l) => String(l?.reference ?? '').trim().toLowerCase() === want)
+    const token = (await getRestaurantAuthHeader()).Authorization
+    return (await getFmSessionPermittedRefs(token)).has(ref.trim())
   } catch {
-    // A refusal, never a silent allow: failing open here would let any FM session
-    // duplicate any location.
-    return false
+    return false // a refusal, never a silent allow
   }
 }
 

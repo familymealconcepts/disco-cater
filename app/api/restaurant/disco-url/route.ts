@@ -36,9 +36,8 @@ export async function PUT(req: NextRequest) {
   // at all) and Royal Oak (in FM, directly permitted) — both 403'd.
   //
   // Authorization is NOT being relaxed. requireWritableRestaurantRef below is the
-  // real check and already understands both session types, including reaching a
-  // Disco-native reference from an FM token via a shared multi-unit link
-  // (lib/native-selection-scope.ts). This gate was a second, cruder door that
+  // real check and already understands both session types (an FM-password
+  // System Admin reaches their Disco list). This gate was a second, cruder door that
   // only ever produced false negatives. Same shape as disco-settings' PUT.
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

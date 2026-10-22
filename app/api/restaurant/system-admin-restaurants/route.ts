@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRole, getFmSessionPermittedRefs } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
 
@@ -65,7 +65,17 @@ export async function GET() {
     if (!res.ok) {
       return NextResponse.json({ error: 'Failed to fetch locations', status: res.status }, { status: res.status })
     }
-    return NextResponse.json(await res.json())
+    // Disco's list decides (22 Oct 2026): FamilyMeal's list, narrowed to the
+    // locations also on this System Admin's Disco list, so a location Disco
+    // removed is not offered. (Every FM-assigned location was on the Disco list
+    // at the switch, so this hid nothing then.) Other roles pass through.
+    const list = await res.json()
+    const token = h.Authorization
+    if ((await getRestaurantRole()) === 'SYSTEM_ADMIN' && Array.isArray(list)) {
+      const permitted = await getFmSessionPermittedRefs(token)
+      return NextResponse.json(list.filter((l: { reference?: string }) => permitted.has(String(l?.reference || ''))))
+    }
+    return NextResponse.json(list)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })
   }

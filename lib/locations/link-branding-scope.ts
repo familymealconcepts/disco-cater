@@ -24,7 +24,7 @@
 //     ADMIN gets their own location regardless of how many grant rows exist; a
 //     SYSTEM_ADMIN gets exactly their granted set.
 //   * FamilyMeal session — FamilyMeal's own answer for that token
-//     (getFmSystemAdminPermittedRefs) plus the JWT's home restaurant. Nothing is
+//     (getFmSessionPermittedRefs) plus the JWT's home restaurant. Nothing is
 //     inherited from Disco for an FM session, which has no Disco identity.
 //
 // ── FAILS CLOSED ────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@
 // throw into `false`. The caller returns 403 and writes nothing.
 import { sql } from '../db'
 import { resolveDiscoAccessScope } from '../restaurant-write-scope'
-import { getFmSystemAdminPermittedRefs, getRestaurantRef, RESTAURANT_TOKEN_COOKIE } from '../restaurant-auth'
+import { getFmSessionPermittedRefs, getRestaurantRef, RESTAURANT_TOKEN_COOKIE } from '../restaurant-auth'
 import type { RestaurantAuthContext } from '../restaurant-auth-context'
 import { cookies } from 'next/headers'
 
@@ -84,7 +84,7 @@ export async function canBrandLink(ctx: RestaurantAuthContext | null, slug: stri
     // FamilyMeal session: FamilyMeal's answer for THIS token, plus its home.
     const token = (await cookies()).get(RESTAURANT_TOKEN_COOKIE)?.value || ''
     if (!token) return { allowed: false, reason: 'Not authenticated.' }
-    const permitted = new Set<string>(await getFmSystemAdminPermittedRefs(token))
+    const permitted = new Set<string>(await getFmSessionPermittedRefs(token))
     const home = (await getRestaurantRef()) || ''
     if (home) permitted.add(home)
     if (!permitted.size) {

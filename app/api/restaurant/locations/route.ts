@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripeStatusByReference, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
 import { runStripeCapabilityMigrations } from '../../../../lib/db'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRole, getRestaurantEmail, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
@@ -81,6 +81,19 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') return discoLocations(ctx, req)
+  // ── A FAMILYMEAL-PASSWORD SYSTEM ADMIN SEES DISCO'S LIST (22 Oct 2026) ─────
+  // Same list, same screen as a Disco-password System Admin: the person the
+  // verified FM token names, resolved through Disco's grants. This replaced
+  // FamilyMeal's list plus the multi-unit-link sibling merge below it, which
+  // reached other businesses' locations and is no longer a source of access.
+  if (ctx && (await getRestaurantRole()) === 'SYSTEM_ADMIN') {
+    const email = (await getRestaurantEmail()) || ''
+    if (!email) return NextResponse.json({ content: [], totalElements: 0 })
+    return discoLocations({
+      ...ctx, authType: 'disco', email, role: 'SYSTEM_ADMIN',
+      restaurantReference: (await getRestaurantRef()) || '', businessName: null,
+    }, req)
+  }
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
@@ -114,81 +127,10 @@ export async function GET(req: NextRequest) {
         data.content = list.map((l: { reference?: unknown }) => ({ ...l, stripe: statuses[String(l?.reference ?? '')] ?? null }))
       }
     } catch { /* leave FM's payload untouched */ }
-    // ── NATIVE SIBLINGS, WHICH FM CANNOT KNOW ABOUT ──────────────────────────
-    // A Disco-native location has no FM record, so FM's list can never contain
-    // it — and this branch runs for exactly the session our team uses most: the
-    // master password on an FM-backed chain issues an fm_restaurant_token, where
-    // ctx.email is '' and there is no Disco identity to scope with. That is why
-    // a duplicated Stacks & Cordials location was invisible to Peter here.
-    //
-    // THE AUTHORITY IS THE MULTI-UNIT LINK, which is Disco's own native chain
-    // grouping (disco_multi_unit_link_members). It is keyed on the RESTAURANT,
-    // not on the caller, so it needs no email and no grant — the two things a
-    // master-password session does not have. The clone adds the copy to its
-    // source's link, so a duplicate inherits exactly the audience the original
-    // had. No FM lookup is involved in resolving it.
-    //
-    // ── SEEDED FROM FM'S OWN ANSWER, NOT FROM A COOKIE ───────────────────────
-    // The first version of this asked getRestaurantRef() for a single "home"
-    // reference and looked up that restaurant's chain. That silently did nothing
-    // for the exact session it was written for: getRestaurantRef reads the FM
-    // JWT's `restaurant` claim, and an FM SYSTEM_ADMIN managing a chain does not
-    // necessarily carry one — so homeRef was '' and the whole merge was skipped.
-    // Alexander Karana saw "2 of 2" because FM returned 2 and nothing was added.
-    //
-    // SEEDING FROM FM'S RETURNED REFERENCES fixes that and is better in principle:
-    // FM has already decided which locations this caller may see, so using that
-    // set as the seed inherits FM's authorization exactly, needs no cookie, no
-    // email and no grant, and cannot grant reach the caller did not already have.
-    // For every location FM returned, its Disco-native chain siblings are added.
-    try {
-      const fmList: Array<{ reference?: unknown }> = Array.isArray(data?.content) ? data.content : []
-      const seedRefs = fmList.map((l) => String(l?.reference ?? '')).filter(Boolean)
-      if (seedRefs.length) {
-        const fmRefs = new Set(seedRefs.map((r) => r.toLowerCase()))
-        const siblings = (await sql`
-          SELECT DISTINCT c.restaurant_reference AS reference, c.name AS "businessName",
-                 c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
-                 -- Same correction as above: the registration date, not the
-                 -- last cache refresh.
-                 to_char(COALESCE(ovr2.created_at, c.cached_at), 'YYYY-MM-DD') AS "createdDate",
-                 (NOT COALESCE(ovr2.visible, true)) AS blocked
-            FROM disco_multi_unit_link_members seed
-            JOIN disco_multi_unit_link_members sib ON sib.link_reference = seed.link_reference
-            JOIN disco_restaurant_cache c ON c.restaurant_reference = sib.restaurant_reference
-            LEFT JOIN disco_restaurant_overrides ovr2 ON ovr2.restaurant_reference = c.restaurant_reference
-           WHERE seed.restaurant_reference = ANY(${seedRefs}::text[])
-             AND c.is_disco_native = true
-             AND c.archived_at IS NULL
-        `) as Array<Record<string, unknown>>
-        const extra = siblings
-          .filter((r) => !fmRefs.has(String(r.reference).toLowerCase()))
-          .map((r) => ({
-            reference: r.reference,
-            businessName: r.businessName,
-            address: {
-              addressLine1: r.address || '', addressLine2: r.address_line2 || '',
-              city: r.city || '', state: r.state || '', zipcode: r.zipcode || '',
-              phoneNumber: r.phone || '',
-            },
-            createdDate: r.createdDate,
-            blocked: r.blocked,
-            archived: false,
-            stripe: null,
-            discoNative: true,
-          }))
-        if (extra.length) {
-          data.content = [...fmList, ...extra]
-          data.totalElements = (Number(data.totalElements) || fmList.length) + extra.length
-        }
-      }
-    } catch (e) {
-      // Never let this blank FM's list — a degraded list beats no list. LOGGED
-      // loudly: the previous version failed silently and looked identical to
-      // "there is nothing to add", which is what made this take two attempts.
-      console.error('[restaurant/locations] native sibling merge failed:', e instanceof Error ? (e.stack || e.message) : e)
-    }
-
+    // The multi-unit-link "native siblings" merge that lived here was removed
+    // on 22 Oct 2026: link pages are customer-facing listings, not access, and
+    // the merge exposed other businesses' locations. Only a non-System-Admin
+    // FM session reaches this branch now, and it gets FamilyMeal's own answer.
     return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })

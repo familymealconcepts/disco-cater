@@ -33,7 +33,7 @@
 import { sql } from './db'
 import { matchesMasterPassword } from './master-login'
 import { setResetToken } from './disco-restaurant-auth'
-import { getFmSystemAdminPermittedRefs } from './restaurant-auth'
+import { getFmSessionPermittedRefs } from './restaurant-auth'
 import { decodeJwtPayload } from './jwt'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
@@ -88,7 +88,7 @@ async function fmVerify(email: string, password: string): Promise<{
   }
 }
 
-/** Every restaurant this login can reach, according to FamilyMeal. */
+/** Every restaurant this login can reach: its home, plus a System Admin's Disco list. */
 async function fmReachableRefs(v: { role: string; token: string; restaurantRef: string | null }): Promise<string[]> {
   const out = new Set<string>()
   if (v.restaurantRef) out.add(v.restaurantRef)
@@ -96,7 +96,7 @@ async function fmReachableRefs(v: { role: string; token: string; restaurantRef: 
     // A GET. Returns an empty set on any failure, which — because the caller
     // requires EVERY ref to be native and treats an empty result as unknown —
     // fails closed rather than opening the flow to someone out of scope.
-    const permitted = await getFmSystemAdminPermittedRefs(v.token)
+    const permitted = await getFmSessionPermittedRefs(v.token)
     for (const r of permitted) out.add(r)
   }
   return [...out]

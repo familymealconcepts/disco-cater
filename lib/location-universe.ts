@@ -36,7 +36,7 @@
  * reports them, so an operator is never shown a short list that looks complete.
  */
 import { getRestaurantAuthContext } from './restaurant-auth-context'
-import { getRestaurantRole, getRestaurantHomeRef, getFmSystemAdminPermittedRefs } from './restaurant-auth'
+import { getRestaurantRole, getRestaurantHomeRef, getFmSessionPermittedRefs } from './restaurant-auth'
 import { getDiscoGroupAccounts, getLocationAccessRefs } from './disco-restaurant-auth'
 import { sql } from './db'
 
@@ -75,12 +75,11 @@ export async function resolveLocationUniverse(): Promise<LocationUniverse | null
 
   add(ctx.authType === 'disco' ? ctx.restaurantReference : await getRestaurantHomeRef().catch(() => ''))
 
-  // FamilyMeal's own answer, when there is a token to ask with. Note FM's
-  // SYSTEM_ADMIN controller denies SUPER_ADMIN outright, so a SUPER_ADMIN FM
-  // session gets an empty set back — that is FM's model, not a failure here.
+  // An FM-session System Admin's Disco list (getFmSessionPermittedRefs; it was
+  // FamilyMeal's own list before 22 Oct 2026). Empty for any other role.
   const fmAuth = ctx.fmToken ? { Authorization: ctx.fmToken } : null
   if (ctx.fmToken) {
-    try { for (const r of await getFmSystemAdminPermittedRefs(ctx.fmToken)) add(r) } catch { /* never widen on error */ }
+    try { for (const r of await getFmSessionPermittedRefs(ctx.fmToken)) add(r) } catch { /* never widen on error */ }
   }
 
   // Disco's own group and explicit ACL.

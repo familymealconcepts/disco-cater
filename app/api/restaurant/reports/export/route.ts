@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
-import { getRestaurantRef, getFmSystemAdminPermittedRefs, RESTAURANT_TOKEN_COOKIE } from '../../../../../lib/restaurant-auth'
+import { getRestaurantRef, getFmSessionPermittedRefs, RESTAURANT_TOKEN_COOKIE } from '../../../../../lib/restaurant-auth'
 import { cookies } from 'next/headers'
 import { sql } from '../../../../../lib/db'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
@@ -158,7 +158,8 @@ export async function GET(req: NextRequest) {
   // (2026-07-16) — it is not fallout from the master-password, set-password or
   // scheduled-reports work.
   //
-  // Such a session does have a scope: FM's own list of what the admin manages.
+  // Such a session does have a scope: the admin's Disco list (since 22 Oct
+  // 2026; it was FamilyMeal's own list).
   // That is the SAME set the Reporting dashboard already charts for them
   // (dashboard/sale-stats builds refs the same way and deliberately never
   // errors), so Export now matches the figures on screen instead of refusing.
@@ -166,7 +167,7 @@ export async function GET(req: NextRequest) {
   let fmFallbackRefs: string[] = []
   if (!ref && ctx.authType !== 'disco') {
     const token = (await cookies()).get(RESTAURANT_TOKEN_COOKIE)?.value || ''
-    if (token) fmFallbackRefs = [...(await getFmSystemAdminPermittedRefs(token).catch(() => new Set<string>()))]
+    if (token) fmFallbackRefs = [...(await getFmSessionPermittedRefs(token).catch(() => new Set<string>()))]
   }
 
   const sp = req.nextUrl.searchParams
