@@ -251,6 +251,8 @@ export default function CheckoutDrawer({
   const contactCompletedRef = useRef(false)
   const paymentStartedRef = useRef(false)
   const totalRef = useRef(0)
+  // One Place Order in flight at a time -- see handlePlaceOrder.
+  const placeOrderLockRef = useRef(false)
 
   // Contact fields — pre-filled from authUser but EDITABLE (customers often
   // order for someone else). Mirrors FM's customerInfoForm pattern in
@@ -892,7 +894,30 @@ export default function CheckoutDrawer({
     trackEvent('checkout_payment_failed', { restaurant_name: restaurantName, total: trackingTotal, error_type: errorType })
   }
 
+  // ── ONE PLACE ORDER IN FLIGHT AT A TIME ──────────────────────────────────
+  // The button stays clickable until React re-renders the 'placing' step, and on
+  // the card path that only happens after two Stripe round trips (createToken,
+  // createPaymentMethod), so a double-click started two submissions. Measured
+  // 23 Oct 2026: 6 order pairs since June placed 0-2 seconds apart with the same
+  // customer, restaurant and total; in one the diner was charged twice.
+  //
+  // The lock is released on EVERY exit, success included. That is safe because
+  // a successful place has already moved the drawer off the payment step (to
+  // 'placing', then 'sent' or a page navigation), where no Place Order button is
+  // rendered; and it means a declined card, a validation message or an exception
+  // always leaves the button usable again. A ref rather than state: it must hold
+  // between two clicks that land before any re-render.
   async function handlePlaceOrder() {
+    if (placeOrderLockRef.current) return
+    placeOrderLockRef.current = true
+    try {
+      await placeOrderOnce()
+    } finally {
+      placeOrderLockRef.current = false
+    }
+  }
+
+  async function placeOrderOnce() {
     // Customer payment path still requires a logged-in diner; direct entry does
     // not (admin auth is the restaurant cookie).
     if (!isDirectEntry && !authUser) return
@@ -1644,7 +1669,7 @@ export default function CheckoutDrawer({
           {error && (
             <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#991B1B', fontSize: 13 }}>{error}</div>
           )}
-          <button onClick={handlePlaceOrder}
+          <button onClick={handlePlaceOrder} disabled={step !== 'payment'}
             style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)', transition: 'all 0.15s' }}>
             {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(payTotal)}`}
           </button>
