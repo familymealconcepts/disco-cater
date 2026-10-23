@@ -51,10 +51,9 @@
 // have is the wrong cost/value trade for this field; the moment a
 // restaurant activates its first native promo code, it enters this set
 // automatically (the query is live, not a fixed list).
-import { createHash } from 'crypto'
 import { sql } from './db'
 import { readWalledFieldsForRestaurants } from './fm-master-admin-read'
-import { alertOnce } from './ops-alert'
+import { alertGroup, syncAlertSet } from './ops-alert'
 
 export type PromoDriftKind = 'fm-has-code-neon-does-not' | 'neon-has-stale-code' | 'value-mismatch'
 
@@ -225,15 +224,25 @@ export async function reconcilePromoCodes(): Promise<PromoCodeReconcileResult> {
       .join('\n')
     console.warn(`[promo-code-reconcile] ${drifts.length} drift(s) of ${rows.length} checked:\n${detail}`)
 
-    const fingerprint = createHash('sha256')
-      .update(drifts.map(d => d.restaurantReference).sort().join(','))
-      .digest('hex')
-      .slice(0, 16)
-    await alertOnce(
-      `promo-code-reconcile:${fingerprint}`,
-      `promo-code-reconcile: ${drifts.length} promo code drift(s) against FamilyMeal across ${rows.length} FM-backed restaurant-funded code(s). Details are in the cron log.`,
-    )
+    // One key per restaurant, posted together, each closed on its own.
+    const byRef = new Map(drifts.map(d => [d.restaurantReference, d]))
+    await alertGroup([...byRef.values()].map(d => ({ ...d, key: `promo:${d.restaurantReference.toLowerCase()}` })), fresh => ({
+      severity: 'warn',
+      headline: `Promo codes differ from FamilyMeal at ${fresh.length} restaurant${fresh.length === 1 ? '' : 's'}`,
+      lines: [`${fresh.slice(0, 10).map(d => d.restaurantName || d.restaurantReference).join(', ')}${fresh.length > 10 ? `, and ${fresh.length - 10} more` : ''} (FM-backed, restaurant-funded codes).`],
+      action: 'see the reconcile-promo-codes log for each difference.',
+      context: { refs: fresh.map(d => d.restaurantReference) },
+    }))
   }
 
+  // Only a run that read every restaurant may say one matches again: an errored
+  // read is not a match.
+  if (errored === 0) {
+    const names = new Map(rows.map(r => [String(r.restaurant_reference).toLowerCase(), r.name ?? null]))
+    await syncAlertSet('promo:', drifts.map(d => `promo:${d.restaurantReference.toLowerCase()}`), key => {
+      const name = names.get(key.slice('promo:'.length))
+      return `Resolved: ${name ?? 'this restaurant'} matches FamilyMeal again.`
+    })
+  }
   return { total: rows.length, matched, drifted: drifts.length, errored, drifts, durationMs: Date.now() - startedAt }
 }

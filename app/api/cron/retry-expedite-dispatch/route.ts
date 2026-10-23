@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runDiscoOrderMigrations } from '../../../../lib/db'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 import { sweepFailedExpediteDispatches, DISPATCH_MARGIN_MINUTES } from '../../../../lib/order/expedite-dispatch-sweep'
 
 export const runtime = 'nodejs'
@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
       `tooLate=${s.tooLate.length} silentlyStale=${s.silentlyStale.length} failed=${s.failed.length} unbuildable=${s.unbuildable.length} ` +
       `(margin=${DISPATCH_MARGIN_MINUTES}m)`,
     )
+    await noteJobSuccess('retry-expedite-dispatch')
     return NextResponse.json({
       ok: true,
       marginMinutes: DISPATCH_MARGIN_MINUTES,
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
     console.error('[cron/retry-expedite-dispatch] failed:', message)
     // The sweep silently failing would recreate the exact blind spot it exists to close: nobody
     // finds out that nobody is checking.
-    await alertOps('expedite sweep: THE SWEEP ITSELF FAILED — stranded orders are not being retried', { error: message })
+    await noteJobFailure('retry-expedite-dispatch', message)
     return NextResponse.json({ error: 'Sweep failed' }, { status: 500 })
   }
 }

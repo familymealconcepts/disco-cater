@@ -3,9 +3,12 @@
 // works when Vercel is what failed (GitHub not handing a push to Vercel has
 // silently left production on old code several times).
 //
-// Alerts #ops-alerts (the "Disco Alerts" webhook, secret OPS_ALERTS_SLACK_WEBHOOK)
-// when production has been behind main for more than 15 minutes; repeats at
-// most once an hour while it stays behind; posts once when it is back in sync.
+// Alerts #ops-alerts when production has been behind main for more than 15
+// minutes — ONCE, not hourly (Kevin, 2026-10-23: a standing condition posts
+// once) — and says so again when it is back in sync. With the bot token
+// (secret SLACK_OPS_ALERTS_BOT_TOKEN) the "back in sync" is a reply in the
+// alert's own thread; without it, the "Disco Alerts" webhook (secret
+// OPS_ALERTS_SLACK_WEBHOOK) is used and it posts top-level.
 // NEVER deploys anything.
 //
 // State lives in ONE open GitHub issue labelled `prod-drift` (the GITHUB_TOKEN
@@ -18,12 +21,12 @@
 // touched either way — this script only reads /api/version.
 
 const {
-  GITHUB_TOKEN, GITHUB_REPOSITORY, SLACK_WEBHOOK, PROD_URL = 'https://www.discocater.com',
+  GITHUB_TOKEN, GITHUB_REPOSITORY, SLACK_WEBHOOK, SLACK_BOT_TOKEN, SLACK_CHANNEL_ID = 'C0C21FDU8KT',
+  PROD_URL = 'https://www.discocater.com',
   PRETEND_LIVE_SHA = '', MAIN_SHA_OVERRIDE = '',
 } = process.env
 const TEST = !!PRETEND_LIVE_SHA.trim()
 const BEHIND_ALERT_MIN = 15
-const REPEAT_MIN = 60
 const LABEL = 'prod-drift'
 const api = 'https://api.github.com'
 const now = Date.now()
@@ -48,10 +51,22 @@ async function liveSha() {
   return null
 }
 
-async function slack(text) {
-  if (!SLACK_WEBHOOK) { console.log('No webhook configured; would have posted:\n' + text); return }
+/** Post to #ops-alerts; returns the message ts when the bot token was used, so a reply can thread. */
+async function slack(text, threadTs) {
+  if (SLACK_BOT_TOKEN) {
+    const res = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      body: JSON.stringify({ channel: SLACK_CHANNEL_ID, text, unfurl_links: false, ...(threadTs ? { thread_ts: threadTs } : {}) }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (j.ok) return j.ts
+    console.log(`chat.postMessage failed (${j.error ?? res.status}); trying the webhook`) // never the token
+  }
+  if (!SLACK_WEBHOOK) { console.log('No webhook configured; would have posted:\n' + text); return null }
   const res = await fetch(SLACK_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
   if (!res.ok) throw new Error(`Slack post failed: ${res.status}`) // the status only, never the URL
+  return null
 }
 
 const fmtAge = ms => { const m = Math.round(ms / 60000); return m < 120 ? `${m} min` : `${(m / 60).toFixed(1)} h` }
@@ -88,7 +103,8 @@ async function main() {
   if (live && live === mainSha) {
     if (issue) {
       if (state.alertedAt) {
-        await slack(`:white_check_mark: *Production is back in sync with main.* The live site (${PROD_URL}) is running \`${mainSha.slice(0, 7)}\`, the latest commit on main. Behind for about ${fmtAge(now - (state.behindSince || state.alertedAt))}.`)
+        if (state.slackTs) await slack(`:white_check_mark: Production is back in sync (\`${mainSha.slice(0, 7)}\`).`, state.slackTs)
+        else await slack(`:white_check_mark: *Production is back in sync with main.* The live site (${PROD_URL}) is running \`${mainSha.slice(0, 7)}\`, the latest commit on main. Behind for about ${fmtAge(now - (state.behindSince || state.alertedAt))}.`)
       }
       await gh(`/repos/${GITHUB_REPOSITORY}/issues/${issue.number}/comments`, { method: 'POST', body: JSON.stringify({ body: `Back in sync at \`${mainSha.slice(0, 7)}\`.` }) })
       await gh(`/repos/${GITHUB_REPOSITORY}/issues/${issue.number}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed' }) })
@@ -124,14 +140,14 @@ async function main() {
   }
 
   if (!TEST && age < BEHIND_ALERT_MIN * 60000) { console.log(`Under ${BEHIND_ALERT_MIN} min — a normal deploy may still be running. No alert.`); return }
-  if (!TEST && state.alertedAt && now - state.alertedAt < REPEAT_MIN * 60000) { console.log('Alerted within the last hour — not repeating.'); return }
+  if (!TEST && state.alertedAt) { console.log('Already alerted for this drift — not repeating.'); return }
 
   const text = `${TEST ? '*[TEST — nothing is wrong]* ' : ''}:warning: *Production is behind main* (${fmtAge(age)}). ${detail}\n` +
     `Nothing was deployed automatically. Usually GitHub did not hand the push to Vercel: redeploy main from Vercel, or push an empty commit.`
-  await slack(text)
+  const ts = await slack(text)
   if (TEST) { console.log('Test alert posted.'); return }
 
-  await saveState(issue, detail, { behindSince: since, alertedAt: now })
+  await saveState(issue, detail, { behindSince: since, alertedAt: now, ...(ts ? { slackTs: ts } : {}) })
   console.log('Alert posted.')
 }
 

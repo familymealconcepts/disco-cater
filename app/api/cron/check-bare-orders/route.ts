@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkBareOrderIntegrity } from '../../../../lib/bare-order-check'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,10 +29,11 @@ async function handle(): Promise<NextResponse> {
   try {
     const result = await checkBareOrderIntegrity()
     console.log('[check-bare-orders] done:', JSON.stringify({ total: result.count, actionable: result.actionableCount, alerted: result.alerted }))
+    await noteJobSuccess('check-bare-orders')
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('check-bare-orders: FAILED', { error })
+    await noteJobFailure('check-bare-orders', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

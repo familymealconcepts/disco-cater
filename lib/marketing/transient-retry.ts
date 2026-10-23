@@ -1,4 +1,5 @@
-import { alertOps } from '../ops-alert'
+import { alertOps, alertOnce, resolveAlert, replyToAlert, postResolvedNoLedger, type OpsAlert } from '../ops-alert'
+import { shortError } from '../ops-alert-format'
 
 /**
  * Retry-with-backoff for the transient network failures that end a long send.
@@ -25,8 +26,9 @@ import { alertOps } from '../ops-alert'
  * Exhaustion still throws, so a genuinely sustained outage still stops the run
  * rather than being silently swallowed. And a sustained outage is ANNOUNCED:
  * ops is alerted once the retries pass a minute, again when the budget is spent,
- * and again on recovery. alertOps touches no database, so it still works when
- * the database is the thing that is gone.
+ * and again on recovery. While the DATABASE is what is down, these never touch
+ * the alert ledger (alertOps / postResolvedNoLedger), so they still go out;
+ * for Mailgun and NM OS they thread in #ops-alerts like every other alert.
  */
 
 export const TRANSIENT =
@@ -75,7 +77,10 @@ export async function withTransientRetry<T>(
     try {
       const out = await fn()
       if (alerted) {
-        await alertOps(`campaign ${kind} connectivity RECOVERED on ${label} after ${Math.round((Date.now() - startedAt) / 1000)}s — the run continued`)
+        const sec = Math.round((Date.now() - startedAt) / 1000)
+        const text = `${kind} is back after ${sec < 90 ? `${sec} seconds` : `${Math.round(sec / 60)} minutes`}; the campaign carried on.`
+        if (kind === 'database') await postResolvedNoLedger(`Campaign can't reach ${kind}`, text)
+        else await resolveAlert(`campaign-unreachable:${kind}`, text)
       }
       return out
     } catch (e) {
@@ -87,19 +92,33 @@ export async function withTransientRetry<T>(
       if (i === attempts - 1) break
       if (i === RETRY_ALERT_AFTER && !alerted) {
         alerted = true
-        await alertOps(`campaign ${kind} unreachable — still retrying, the run has NOT stopped`, {
-          label, error: msg.slice(0, 200),
-          elapsedSec: Math.round((Date.now() - startedAt) / 1000), budgetSec: BUDGET_SEC,
-        })
+        const a: OpsAlert = {
+          severity: 'warn',
+          headline: `Campaign can't reach ${kind}`,
+          lines: [`Sending is paused while Disco retries for up to ${Math.round(BUDGET_SEC / 60)} minutes. Nothing to do yet.`],
+          context: { label, error: shortError(msg), elapsedSec: Math.round((Date.now() - startedAt) / 1000) },
+        }
+        if (kind === 'database') await alertOps(a)
+        else await alertOnce(`campaign-unreachable:${kind}`, a)
       }
       const backoff = Math.min(1000 * 2 ** i, 30_000) + Math.floor(Math.random() * 1000)
       console.warn(`[campaign] ${label} failed (${msg.slice(0, 90)}) — retry ${i + 1}/${attempts - 1} in ${Math.round(backoff / 1000)}s`)
       await sleep(backoff)
     }
   }
-  await alertOps(`campaign STOPPING — ${kind} unreachable for the whole retry budget`, {
-    label, attempts, elapsedSec: Math.round((Date.now() - startedAt) / 1000),
-    error: lastErr instanceof Error ? lastErr.message.slice(0, 200) : String(lastErr),
-  })
+  const mins = Math.round((Date.now() - startedAt) / 60000)
+  const stopped: OpsAlert = {
+    severity: 'urgent',
+    headline: `Campaign stopped — can't reach ${kind}`,
+    lines: [`Gave up after ${mins} minutes, so the campaign has stopped.`],
+    action: "relaunch it once it's reachable; recipients already sent to are skipped.",
+    context: { label, attempts },
+  }
+  // A reply in the outage's thread when there is one; top-level when the
+  // database is what's down, or no thread was ever opened.
+  const replied = kind !== 'database' && await replyToAlert(`campaign-unreachable:${kind}`, 'stopped',
+    `Gave up after ${mins} minutes, so the campaign has stopped.`,
+    { broadcast: true, severity: 'urgent', action: stopped.action })
+  if (!replied) await alertOps(stopped)
   throw lastErr
 }

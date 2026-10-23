@@ -21,7 +21,7 @@ import { createClient } from '@sanity/client'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
-import { alertOps } from '../../../../lib/ops-alert'
+import { alertOnce, resolveAlert, noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 import { getFmServiceToken } from '../../../../lib/fm-service-auth'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
@@ -350,15 +350,14 @@ async function runSync() {
   const nextOffset = cycleComplete ? 0 : startOffset + CAP
   try {
     await saveSyncOffset(nextOffset)
+    await noteJobSuccess('sync-restaurants:cursor')
   } catch (e) {
     // A silent failure here is exactly how this stalled for weeks: the cursor
     // stops advancing, the sync quietly re-processes the same window forever,
     // and nothing surfaces. Alert loudly.
     const error = e instanceof Error ? e.message : String(e)
     errors.push(`save offset: ${error}`)
-    await alertOps('sync-restaurants: cursor save FAILED — sync will repeat the same window next run', {
-      nextOffset, error,
-    })
+    await noteJobFailure('sync-restaurants:cursor', error)
   }
 
   // STEP 4 — deactivate Sanity docs whose fmReference is no longer qualifying.
@@ -420,14 +419,22 @@ async function runSync() {
 // /api/cron/refresh-map-cache (04:00 UTC). This one runs at 05:00.
 async function handle(): Promise<NextResponse> {
   if (!process.env.SANITY_TOKEN) {
-    await alertOps('sync-restaurants: skipped — SANITY_TOKEN not configured', {})
+    await alertOnce('config:sanity-token', {
+      severity: 'urgent',
+      headline: "Restaurant sync can't run: SANITY_TOKEN is not set",
+      lines: ["New and changed restaurants won't reach the site until it is."],
+      action: 'set SANITY_TOKEN in Vercel (Production).',
+    })
     return NextResponse.json({ success: false, error: 'SANITY_TOKEN not configured on the server' }, { status: 500 })
   }
   try {
-    return NextResponse.json(await runSync())
+    await resolveAlert('config:sanity-token', 'Resolved: the token is set and the sync ran.')
+    const result = await runSync()
+    await noteJobSuccess('sync-restaurants')
+    return NextResponse.json(result)
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('sync-restaurants: Sanity restaurant sync FAILED', { error })
+    await noteJobFailure('sync-restaurants', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

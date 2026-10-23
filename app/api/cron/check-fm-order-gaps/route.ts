@@ -36,8 +36,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
-import { alertOps } from '../../../../lib/ops-alert'
-import { mirrorAlert } from '../../../../lib/mirror-alert'
+import { alertGroup, openAlertKeys, resolveAlert, noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
+import { money, formatDay } from '../../../../lib/ops-alert-format'
+import { recordMirrorAlert } from '../../../../lib/mirror-alert'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { fmFetch } from '../../../../lib/fm-fetch'
 
@@ -132,7 +133,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
     // ── PASS 2: name the orders, only where pass 1 saw a gap ─────────────────
     const cutoff = Date.now() - LOOKBACK_DAYS * 24 * 3600 * 1000
-    const missing: { restaurant: string; orderNumber: string; total: string; orderDate: string; status: string }[] = []
+    const missing: { fmRef: string; restaurant: string; orderNumber: string; total: string; orderDate: string; status: string }[] = []
     let unmirrorable = 0
     let carts = 0
     let detailChecked = 0
@@ -164,9 +165,10 @@ async function handle(req: NextRequest): Promise<NextResponse> {
           if (created < cutoff) continue
         } else if (o.orderDate && Date.parse(o.orderDate) < cutoff) continue
         missing.push({
+          fmRef: ref,
           restaurant: g.name || g.ref,
           orderNumber: String(o.orderNumber ?? '?'),
-          total: o.total == null ? 'unknown' : `$${o.total}`,
+          total: o.total == null ? 'unknown' : money(o.total),
           orderDate: String(o.orderDate ?? ''),
           status,
         })
@@ -174,17 +176,35 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     }
 
     const duration_ms = Date.now() - startedAt
-    if (missing.length) {
-      await mirrorAlert(
-        'order-gap',
-        `FM order gap: ${missing.length} real FamilyMeal order(s) missing from Disco for more than 2 hours`,
-        {
-          orders: missing.slice(0, 25).map(m => `${m.restaurant} — FM #${m.orderNumber} ${m.total} (${m.status}, for ${m.orderDate})`),
-          restaurantsWithGap: gapped.length,
-          truncated: missing.length > 25 ? missing.length - 25 : 0,
-        },
-      )
+    // One key per FamilyMeal order, posted together; an order already posted is
+    // never posted again, and each closes in its thread once it is in Disco.
+    const fresh = await alertGroup(missing.map(m => ({ ...m, key: `fm-gap:${m.fmRef.toLowerCase()}:${m.orderNumber}` })), items => ({
+      severity: 'warn',
+      headline: `${items.length} FamilyMeal order${items.length === 1 ? '' : 's'} missing from Disco`,
+      lines: [
+        `Older than 2 hours and still not in Disco, so ${items.length === 1 ? "this restaurant's Disco portal doesn't" : "these restaurants' Disco portals don't"} show ${items.length === 1 ? 'it' : 'them'}:`,
+        ...items.slice(0, 15).map(m => `• ${m.restaurant} · FM #${m.orderNumber} · ${m.total}${m.orderDate ? ` · for ${formatDay(m.orderDate)}` : ''}`),
+        ...(items.length > 15 ? [`…and ${items.length - 15} more`] : []),
+      ],
+      action: 'nothing if they arrive within the hour; otherwise run the FM order sync.',
+      context: { restaurantsWithGap: gapped.length },
+    }))
+    if (fresh.length) await recordMirrorAlert('order-gap', `${fresh.length} FamilyMeal order(s) missing`, { orders: fresh.map(m => `${m.restaurant} — FM #${m.orderNumber}`) })
+
+    // Close the ones that have arrived — on evidence (the row exists), never
+    // because this partial check happened not to look at them.
+    const openGap = await openAlertKeys('fm-gap:')
+    if (openGap.length) {
+      const refs = openGap.map(k => k.split(':')[1])
+      const arrived = new Set(((await sql`
+        SELECT LOWER(fm_order_reference::text) AS r FROM disco_orders WHERE fm_order_reference::text = ANY(${refs})
+      `.catch(() => [])) as Array<{ r: string }>).map(x => x.r))
+      for (const k of openGap) {
+        const [, ref, n] = k.split(':')
+        if (arrived.has(ref)) await resolveAlert(k, `FM #${n} is in Disco now.`)
+      }
     }
+    await noteJobSuccess('check-fm-order-gaps')
 
     console.log(`[cron/check-fm-order-gaps] converted=${targets.length} countChecked=${countChecked} gapped=${gapped.length} detailChecked=${detailChecked} missing=${missing.length} carts=${carts} unmirrorable=${unmirrorable} (${duration_ms}ms)`)
     return NextResponse.json({
@@ -194,7 +214,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/check-fm-order-gaps] failed:', error)
-    await mirrorAlert('run-failed', `check-fm-order-gaps FAILED (the mirror is now unwatched): ${error}`, { error })
+    await noteJobFailure('check-fm-order-gaps', error)
+    await recordMirrorAlert('run-failed', `check-fm-order-gaps FAILED: ${error}`, { error })
     return NextResponse.json({ error: 'gap check failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

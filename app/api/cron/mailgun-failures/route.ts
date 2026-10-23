@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkEmailFailures } from '../../../../lib/email-failures'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,10 +29,11 @@ async function handle(hours: number): Promise<NextResponse> {
   try {
     const result = await checkEmailFailures(hours)
     console.log('[mailgun-failures] done:', JSON.stringify({ hours, scanned: result.scanned, orderEmails: result.orderEmails, recorded: result.recorded.length }))
+    await noteJobSuccess('mailgun-failures')
     return NextResponse.json({ success: true, hours, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('mailgun-failures: FAILED', { error })
+    await noteJobFailure('mailgun-failures', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

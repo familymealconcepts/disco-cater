@@ -4,7 +4,7 @@ import { sql } from '../db'
 // Statuses meaning the order was already dead before this refund.
 const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'REJECTED'])
 import { cents } from '../promo-pricing'
-import { alertOps } from '../ops-alert'
+import { alertRefundRefused, alertRefundFromDiscoFunds, alertRestaurantKeptPayout } from './money-alerts'
 
 // Issue a REAL Stripe refund for a Disco-native order against its original
 // PaymentIntent (from disco_stripe_payments). For a destination charge
@@ -137,11 +137,13 @@ async function assertReversalIsFunded(
   if (headroom >= shareCents) return
 
   const money = (c: number) => `$${(c / 100).toFixed(2)}`
-  await alertOps('refund REFUSED — the restaurant cannot fund the payout reversal', {
-    ...ctx, connectedAccountId: acct,
-    reversalNeeded: money(shareCents),
+  console.error('[native-refund] refund refused — reversal unfunded', {
+    ...ctx, connectedAccountId: acct, reversalNeeded: money(shareCents),
     availableBalance: money(available), pendingBalance: money(pending), combined: money(headroom),
-    shortfall: money(shareCents - headroom),
+  })
+  await alertRefundRefused(String(ctx.orderReference ?? ''), {
+    refund: Number(String(ctx.refundAmount ?? '').replace(/[$,]/g, '')) || 0,
+    needed: shareCents / 100, holds: headroom / 100,
   })
   throw new Error(
     `This refund needs ${money(shareCents)} back from the restaurant's Stripe balance, which holds ` +
@@ -255,7 +257,7 @@ async function refundNativeInvoiceOrder(
     // surfaced, because on an order that SHOULD have paid out it means the
     // payout transfer is missing.
     console.warn('[native-refund] no payout transfer for invoice order — refunding from funds Disco still holds:', orderReference)
-    await alertOps('invoice refund: no payout transfer found, so nothing was reversed', { orderReference, invoiceId })
+    await alertRefundFromDiscoFunds(orderReference, { refund: apply / 100, invoiceId })
   }
 
   const creditNote = await stripe.creditNotes.create({
@@ -276,11 +278,7 @@ async function refundNativeInvoiceOrder(
       await stripe.transfers.createReversal(pendingReversal.transferId, { amount: pendingReversal.share })
     } catch (e) {
       console.error('[native-refund] invoice payout reversal FAILED AFTER a successful balance check — the customer was refunded and the restaurant kept its payout:', orderReference, e instanceof Error ? e.message : e)
-      await alertOps('invoice refund issued but the restaurant payout was NOT reversed (balance drained after the pre-check)', {
-        orderReference, invoiceId, creditNoteId: creditNote.id,
-        transferId: pendingReversal.transferId, share: `$${(pendingReversal.share / 100).toFixed(2)}`,
-        error: e instanceof Error ? e.message : String(e),
-      })
+      await alertRestaurantKeptPayout(orderReference, { refund: apply / 100, transferId: pendingReversal.transferId, error: e })
     }
   }
 
@@ -382,10 +380,7 @@ export async function refundNativeOrder(
       await stripe.transfers.createReversal(exactReversal.transferId, { amount: exactReversal.amount })
     } catch (e) {
       console.error('[native-refund] exact transfer reversal failed AFTER a successful balance check (customer refund already succeeded):', e instanceof Error ? e.message : e)
-      await alertOps('native order-edit refund succeeded but the transfer reversal failed (balance drained after the pre-check)', {
-        orderReference, paymentIntentId, refundId: refund.id,
-        transferReversalDollars, error: e instanceof Error ? e.message : String(e),
-      })
+      await alertRestaurantKeptPayout(orderReference, { refund: amountDollars, transferId: exactReversal.transferId, error: e })
     }
   }
 

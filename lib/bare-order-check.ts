@@ -21,7 +21,8 @@
 // restaurant portal, the customer confirmation) — that's the one worth a
 // standing check.
 import { sql } from './db'
-import { alertOnce } from './ops-alert'
+import { alertGroup, syncAlertSet, openAlertKeys } from './ops-alert'
+import { formatDay, orderLink } from './ops-alert-format'
 
 export interface BareOrderFinding {
   orderNumber: string
@@ -50,7 +51,7 @@ export async function findBareOrdersOnNativeRestaurants(): Promise<BareOrderFind
     -- fixed anything.
     WHERE (t.id IS NULL OR t.source = 'FM_LIST') AND c.is_disco_native = true
     ORDER BY o.created_at DESC
-  `.catch(() => [])) as {
+  `) as {
     order_number: string | number; reference: string; restaurant_reference: string
     restaurant_name: string | null; source_of_order: string | null; created_at: string
     order_date: string | null
@@ -83,9 +84,11 @@ export async function findBareOrdersOnNativeRestaurants(): Promise<BareOrderFind
 // range. The per-order detail stays in the return value for the Vercel log and
 // for any caller that wants it — a chat message is not a data export.
 //
-// alertOnce keyed on the SET of actionable orders, so the alert fires when the
-// set changes and stays silent while it does not. A new bare order tomorrow
-// raises a new alert; the same sixteen at 11am do not raise a seventeenth.
+// ONE KEY PER ORDER (bare-order:<ref>), posted grouped by restaurant, and each
+// closed in its thread when it gets its items (or its date passes). The query
+// above has NO .catch(() => []) for that reason: a failed read that looked like
+// "no bare orders" would close every open thread. It throws, and the cron's
+// job-failure alert says the check is down instead.
 export async function checkBareOrderIntegrity(): Promise<{
   count: number
   actionableCount: number
@@ -99,37 +102,38 @@ export async function checkBareOrderIntegrity(): Promise<{
   const actionable = findings.filter(f => (f.orderDate ?? '') >= today)
 
   let alerted = false
-  if (actionable.length > 0) {
-    // Worst few restaurants by count — enough to see where to look, not a dump.
-    const byRestaurant = new Map<string, number>()
-    for (const f of actionable) {
-      const k = f.restaurantName || f.restaurantReference
-      byRestaurant.set(k, (byRestaurant.get(k) ?? 0) + 1)
-    }
-    const worst = [...byRestaurant.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, n]) => `${name} (${n})`)
-      .join(', ')
-
-    const dates = actionable.map(f => f.orderDate).filter(Boolean).sort()
-    const range = dates.length ? `${dates[0]} … ${dates[dates.length - 1]}` : 'unknown'
-
-    // The key is the sorted set of affected order numbers: same set, no repeat;
-    // one new bare order, new alert.
-    const key = `bare-orders:${actionable.map(f => f.orderNumber).sort().join(',')}`
-
-    alerted = await alertOnce(
-      key,
-      `bare-order-check: ${actionable.length} upcoming order(s) on native restaurants are missing their sale transaction — ` +
-      `Edit Order / PDF / emails show "Unavailable" and the restaurant cannot see what to cook. ` +
-      `Restaurants: ${worst}. Dates: ${range}.` +
-      (findings.length > actionable.length
-        ? ` (${findings.length - actionable.length} older bare order(s) exist and are expected during the FM transition — not alerted.)`
-        : ''),
-      { actionableCount: actionable.length, totalBare: findings.length, dateRange: range },
-    )
+  const byRestaurant = new Map<string, BareOrderFinding[]>()
+  for (const f of actionable) {
+    const k = f.restaurantReference
+    byRestaurant.set(k, [...(byRestaurant.get(k) ?? []), f])
   }
+  for (const group of byRestaurant.values()) {
+    const fresh = await alertGroup(group.map(f => ({ ...f, key: `bare-order:${f.reference.toLowerCase()}` })), items => {
+      const name = items[0].restaurantName || items[0].restaurantReference
+      const list = items.slice(0, 10).map(f => `#${f.orderNumber}${f.orderDate ? `, for ${formatDay(f.orderDate)}` : ''}`).join('; ')
+      return {
+        severity: 'warn',
+        headline: `${items.length} upcoming order${items.length === 1 ? ' has' : 's have'} no line items — ${name}`,
+        lines: [`${list}${items.length > 10 ? `; and ${items.length - 10} more` : ''}. Edit Order, the PDF and emails show "Unavailable", so the restaurant can't see what to cook.`],
+        action: `re-sync the order${items.length === 1 ? "'s" : "s'"} items from FamilyMeal.`,
+        link: items.length === 1 ? orderLink(items[0].reference, items[0].orderNumber) : undefined,
+        context: { refs: items.map(f => f.reference), olderBare: findings.length - actionable.length },
+      }
+    })
+    if (fresh.length) alerted = true
+  }
+  const stillBare = new Set(findings.map(f => f.reference.toLowerCase()))
+  const openRefs = (await openAlertKeys('bare-order:')).map(k => k.slice('bare-order:'.length))
+  const numbers = openRefs.length ? (await sql`
+    SELECT LOWER(reference::text) AS ref, order_number::text AS n FROM disco_orders WHERE reference::text = ANY(${openRefs})
+  `.catch(() => [])) as Array<{ ref: string; n: string }> : []
+  const numberOf = new Map(numbers.map(r => [r.ref, r.n]))
+  await syncAlertSet('bare-order:', actionable.map(f => `bare-order:${f.reference.toLowerCase()}`), key => {
+    const ref = key.slice('bare-order:'.length)
+    return stillBare.has(ref)
+      ? `#${numberOf.get(ref) ?? ref}'s date has passed, so this is closed.`
+      : `Resolved: #${numberOf.get(ref) ?? ref} has its items now.`
+  })
 
   return { count: findings.length, actionableCount: actionable.length, findings, actionable, alerted }
 }

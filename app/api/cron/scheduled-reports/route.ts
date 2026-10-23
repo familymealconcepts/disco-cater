@@ -3,7 +3,9 @@ import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
 import { layout } from '../../../../lib/email/layout'
 import { buildReport, isReportDue, reportPeriod, ReportReconciliationError, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
-import { alertOps } from '../../../../lib/ops-alert'
+import { alertOnce, resolveAlert } from '../../../../lib/ops-alert'
+import { SUGGESTIONS, money } from '../../../../lib/ops-alert-format'
+import { restaurantName } from '../../../../lib/ops-alert-facts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -83,6 +85,7 @@ export async function GET(req: NextRequest) {
     let rowCount = 0
     let lateRows = 0
     let error = ''
+    let hadInvalidColumns = false
     try {
       // The window now comes from the report's OWN timezone and range choice —
       // see lib/reports/report-period.ts for the three defects this replaced.
@@ -111,9 +114,16 @@ export async function GET(req: NextRequest) {
           // is a content defect. Alerted, not merely logged: nobody is watching
           // a scheduled send, and this is how a report arrives with no money
           // columns and nothing says so.
-          await alertOps('scheduled report is missing columns it was configured with', {
-            report: r.name, reference: r.reference,
-            missing: gen.invalidColumns, restaurantReference: r.restaurant_reference,
+          hadInvalidColumns = true
+          const where = (await restaurantName(r.restaurant_reference)) ?? 'a restaurant'
+          const cols = gen.invalidColumns.join(', ').replace(/, ([^,]*)$/, ' and $1')
+          await alertOnce(`report-columns:${String(r.reference).toLowerCase()}`, {
+            severity: 'warn',
+            headline: `Scheduled report sent without some columns — "${r.name}", ${where}`,
+            lines: [`It was set up with ${cols}, which no longer exist, so they were left out of the email.`],
+            action: "edit the report's columns.",
+            link: SUGGESTIONS.accountManagement,
+            context: { reference: r.reference, restaurantReference: r.restaurant_reference, missing: gen.invalidColumns },
           })
         }
         const suffix = one ? `_${one.slice(0, 8)}` : ''
@@ -151,14 +161,27 @@ export async function GET(req: NextRequest) {
       // not watching. This is the one send path where a wrong number would reach
       // someone with nobody looking, so it is alerted rather than merely logged.
       //
-      // alertOps (not alertOnce): each scheduled run is a distinct event, and a
-      // report that fails two weeks running should say so twice.
+      // One thread per report, closed by its next successful run — not a new post
+      // every run it stays wrong.
       if (e instanceof ReportReconciliationError) {
-        await alertOps('scheduled report WITHHELD — the payout figures did not reconcile, so no email was sent', {
-          report: r.name, reference: r.reference, restaurantReference: r.restaurant_reference,
-          recipients: recipients.length, failures: e.failures.slice(0, 5),
+        const where = (await restaurantName(r.restaurant_reference)) ?? 'a restaurant'
+        const first = e.failures[0]
+        await alertOnce(`report:${String(r.reference).toLowerCase()}`, {
+          severity: 'warn',
+          headline: `Scheduled report not sent — "${r.name}", ${where}`,
+          lines: [
+            `The payout figures didn't add up, so the email to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'} was held back.` +
+            (first ? ` First mismatch: order #${first.orderId} pays out ${money(first.got)} against ${money(first.expected)} expected.` : ''),
+          ],
+          action: `check the report's figures before the next run (${String(freq).toLowerCase()}).`,
+          link: SUGGESTIONS.accountManagement,
+          context: { reference: r.reference, restaurantReference: r.restaurant_reference, failures: e.failures.slice(0, 5) },
         })
       }
+    }
+    if (status === 'SUCCESS') {
+      await resolveAlert(`report:${String(r.reference).toLowerCase()}`, 'Resolved: the next run sent normally.')
+      if (!hadInvalidColumns) await resolveAlert(`report-columns:${String(r.reference).toLowerCase()}`, 'Resolved: the report ran with all its columns.')
     }
     await sql`
       INSERT INTO disco_report_runs (scheduled_report_reference, restaurant_reference, report_name, file_type, run_status, row_count)

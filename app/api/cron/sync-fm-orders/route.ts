@@ -43,8 +43,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { syncAllRestaurantOrders, cleanupOrphanedDraftMirrors } from '../../../../lib/fm-orders-sync'
-import { alertOps } from '../../../../lib/ops-alert'
-import { mirrorAlert } from '../../../../lib/mirror-alert'
+import { alertGroup, resolveAlert, openAlertKeys, noteJobFailure, noteJobSuccess, bumpStreaks, clearStreaks } from '../../../../lib/ops-alert'
+import { shortError } from '../../../../lib/ops-alert-format'
+import { restaurantName } from '../../../../lib/ops-alert-facts'
+import { mirrorAlert, recordMirrorAlert } from '../../../../lib/mirror-alert'
+import { resolveMissingOrderAlerts } from '../../../../lib/order/missing-order-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -96,16 +99,25 @@ async function alertIfCursorStalled(): Promise<void> {
     `) as { offset_value: number; hours_stale: string | number }[]
     if (!rows[0]) return
     const hours = Number(rows[0].hours_stale)
-    if (!Number.isFinite(hours) || hours < STALL_ALERT_HOURS) return
-    await mirrorAlert(
-      'cursor-stalled',
-      `FM order mirror STALLED — the sync cursor has not advanced in ${hours.toFixed(1)} hours`,
-      {
-        cursorOffset: rows[0].offset_value,
-        hoursStale: Number(hours.toFixed(1)),
-        meaning: 'FamilyMeal orders for converted restaurants are not reaching Disco',
-      },
-    )
+    if (!Number.isFinite(hours)) return
+    if (hours < STALL_ALERT_HOURS) {
+      // Moving again: close the thread, saying how long it was stuck.
+      if ((await openAlertKeys('fm-mirror:stalled')).length) {
+        const since = (await sql`
+          SELECT EXTRACT(EPOCH FROM (NOW() - first_alerted_at)) / 3600 AS h FROM disco_alert_dedup WHERE alert_key = 'fm-mirror:stalled'
+        `.catch(() => [])) as Array<{ h: string | number }>
+        const stuck = Number(since[0]?.h) + STALL_ALERT_HOURS
+        await resolveAlert('fm-mirror:stalled', `Resolved: the sync is moving again${Number.isFinite(stuck) ? ` (it was stuck about ${stuck.toFixed(1)} hours)` : ''}.`)
+      }
+      return
+    }
+    await mirrorAlert('cursor-stalled', {
+      severity: 'urgent',
+      headline: "FamilyMeal orders aren't reaching Disco",
+      lines: [`The order sync hasn't moved in ${hours.toFixed(1)} hours, so new FamilyMeal orders for converted restaurants aren't showing up in their Disco portals.`],
+      action: 'check the sync-fm-orders cron in Vercel.',
+      context: { cursorOffset: rows[0].offset_value, hoursStale: Number(hours.toFixed(1)) },
+    }, { key: 'fm-mirror:stalled' })
   } catch (e) {
     console.error('[cron/sync-fm-orders] stall check failed (non-fatal):', e instanceof Error ? e.message : e)
   }
@@ -120,8 +132,10 @@ async function writeCursor(offset: number): Promise<void> {
     `
   } catch (e) {
     console.error('[cron/sync-fm-orders] CURSOR WRITE FAILED — rotation will stall:', e instanceof Error ? e.message : e)
-    await alertOps(`FM orders sync cursor write failed (rotation stalled): ${e instanceof Error ? e.message : e}`)
+    await noteJobFailure('sync-fm-orders:cursor', e)
+    return
   }
+  await noteJobSuccess('sync-fm-orders:cursor')
 }
 
 async function handle(req: NextRequest): Promise<NextResponse> {
@@ -207,17 +221,32 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // skips the same restaurant every hour looks identical to a healthy one on
     // the summary line. Name them, so "it's been failing for days" is not a
     // thing anyone has to discover by hand.
-    if (failures.length) {
-      await mirrorAlert(
-        'restaurants-failed',
-        `FM order mirror: ${failures.length} restaurant(s) failed and were skipped this run`,
-        {
-          failures: failures.slice(0, 20).map(f => `${f.restaurantReference} [${f.stage}] ${f.error}`),
-          truncated: failures.length > 20 ? failures.length - 20 : 0,
-          offset,
-        },
-      )
+    // Per restaurant, after 2 failed runs in a row — one skip is a blip.
+    const failedRefs = Array.from(new Set(failures.map(f => f.restaurantReference)))
+    const streaks = await bumpStreaks('fm-sync:', failedRefs)
+    const due = failures.filter(f => (streaks.get(f.restaurantReference) ?? 0) >= 2)
+    if (due.length) {
+      const named = await Promise.all(due.map(async f => ({
+        ...f, key: `fm-sync-fail:${f.restaurantReference.toLowerCase()}`,
+        name: (await restaurantName(f.restaurantReference)) ?? f.restaurantReference,
+        runs: streaks.get(f.restaurantReference) ?? 2,
+      })))
+      const fresh = await alertGroup(named, items => ({
+        severity: 'warn',
+        headline: `FamilyMeal order sync failing for ${items.length} restaurant${items.length === 1 ? '' : 's'}`,
+        lines: [`Skipped ${Math.min(...items.map(x => x.runs))} runs in a row: ${items.slice(0, 10).map(x => `${x.name} (${shortError(x.error, 60)})`).join(', ')}. Their new orders may not reach Disco.`],
+        action: 'nothing if it clears next run; otherwise check the restaurant in FamilyMeal.',
+        context: { failures: items.map(x => `${x.restaurantReference} [${x.stage}] ${x.error}`), offset },
+      }))
+      if (fresh.length) await recordMirrorAlert('restaurants-failed', `${fresh.length} restaurant(s) failing`, { refs: fresh.map(x => x.restaurantReference) })
     }
+    const okRefs = results.filter(r => !r.error && !failedRefs.includes(r.restaurantReference)).map(r => r.restaurantReference)
+    for (const ref of await clearStreaks('fm-sync:', okRefs)) {
+      const name = (await restaurantName(ref)) ?? ref
+      await resolveAlert(`fm-sync-fail:${ref.toLowerCase()}`, `${name} is syncing again.`)
+    }
+    await resolveMissingOrderAlerts().catch(() => {})
+    await noteJobSuccess('sync-fm-orders')
 
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
@@ -233,7 +262,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // missing order. A platform timeout kills the function outright and never
     // reaches here, which is exactly why the time budget above matters more
     // than this alert does; this covers every other failure mode.
-    await mirrorAlert('run-failed', `sync-fm-orders FAILED (rotation may be stalled): ${error}`, { error })
+    await noteJobFailure('sync-fm-orders', error)
+    await recordMirrorAlert('run-failed', `sync-fm-orders FAILED: ${error}`, { error })
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

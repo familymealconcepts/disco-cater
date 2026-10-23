@@ -15,7 +15,8 @@ import { getFmServiceAuthHeader } from './fm-service-auth'
 import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-edit'
 import { fmFetch } from './fm-fetch'
 import { dispatchOrderConfirmations } from './order-notifications'
-import { alertOps } from './ops-alert'
+import { alertOps, alertOnce, resolveAlert, openAlertKeys } from './ops-alert'
+import { formatDay, shortError, orderLink } from './ops-alert-format'
 import { isKnownFmDuplicateOrderNumber, knownFmDuplicateCount } from './known-fm-order-duplicates'
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 import { fetchAllFmRestaurants } from './restaurant-cache'
@@ -503,6 +504,14 @@ interface ExistingRow { id: number; source_of_order: string; edit_count: number 
 // order freezes the restaurant's details at mirror time — the order stays viewable
 // even if the restaurant is later renamed or deleted. Cached per restaurant within a
 // sync process to avoid a per-order lookup.
+let openOrderKeysCache: { at: number; keys: Set<string> } | null = null
+async function openOrderAlertKeys(): Promise<Set<string>> {
+  if (!openOrderKeysCache || Date.now() - openOrderKeysCache.at > 60_000) {
+    openOrderKeysCache = { at: Date.now(), keys: new Set([...await openAlertKeys('fm-copy:'), ...await openAlertKeys('order-missing:')]) }
+  }
+  return openOrderKeysCache.keys
+}
+
 const snapshotCache = new Map<string, { name: string | null; address: string | null; phone: string | null }>()
 async function restaurantSnapshot(ref: string): Promise<{ name: string | null; address: string | null; phone: string | null }> {
   const hit = snapshotCache.get(ref)
@@ -562,9 +571,17 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       } else {
         // Alert so a silently-dropped order is visible rather than lost in
         // the skip counter.
-        await alertOps('fm-orders-sync: order insert skipped (dropped)', {
-          orderNumber: o.orderNumber ?? null, restaurantReference,
-          error: e instanceof Error ? e.message : String(e),
+        // One thread per FamilyMeal order, not one post per hourly run; it closes
+        // when a later run copies the order (below).
+        await alertOnce(`fm-copy:${String(o.fmRef).toLowerCase()}`, {
+          severity: 'warn',
+          headline: `FamilyMeal order couldn't be copied to Disco — FM #${o.orderNumber ?? '?'}`,
+          lines: [
+            [o.restaurantName || snap.name, o.dateIso ? `for ${formatDay(o.dateIso)}` : null].filter(Boolean).join(' · '),
+            `The sync skipped it: ${shortError(e)}. It tries again every hour.`,
+          ],
+          action: 'nothing unless this is still open tomorrow; then it needs a code fix.',
+          context: { fmRef: o.fmRef, orderNumber: o.orderNumber ?? null, restaurantReference, error: e instanceof Error ? e.message : String(e) },
         })
       }
       return 'skipped'
@@ -573,6 +590,16 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
     // report reads; it must exist for every inserted order regardless of which
     // pull created it. Cheap (no FM call) and idempotent.
     if (inserted[0]?.id) await writeProvisionalSaleTransaction(inserted[0].id, o)
+    // Close any thread this order had open: a failed copy, or "paid order missing".
+    // Checked against a short-lived set of open keys, so a bulk pull of thousands
+    // of historical orders costs one query rather than two writes per order.
+    if (inserted[0]?.id) {
+      const open = await openOrderAlertKeys()
+      const copyKey = `fm-copy:${String(o.fmRef).toLowerCase()}`
+      const missingKey = `order-missing:${String(o.fmRef).toLowerCase()}`
+      if (open.has(copyKey)) await resolveAlert(copyKey, 'Resolved: the sync copied it.')
+      if (open.has(missingKey)) await resolveAlert(missingKey, 'Resolved: the sync recorded it and sent the confirmations.')
+    }
     if (withItems && inserted[0]?.id) await syncOrderDetail(inserted[0].id, o.fmRef)
 
     // ── ITEMS FOR ANY UPCOMING ORDER, WHATEVER ITS SOURCE ──────────────────────
@@ -627,8 +654,18 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
         // FM round trip and a second atomic item replace for the same row.
         await dispatchOrderConfirmations(inserted[0].id, 'FM_SYNC_BACKFILL')
       } catch (e) {
-        await alertOps('fm-orders-sync: backfill confirmation failed', {
-          orderNumber: o.orderNumber ?? null, error: e instanceof Error ? e.message : String(e),
+        const { orderFacts, orderLine } = await import('./ops-alert-facts')
+        const f = await orderFacts(o.fmRef)
+        await alertOps({
+          severity: 'warn',
+          headline: `Confirmation not sent — order #${o.orderNumber ?? '?'}`,
+          lines: [
+            orderLine(f, { amount: null }) || (o.restaurantName ?? ''),
+            `Disco recovered this order from FamilyMeal, but sending its confirmation failed: ${shortError(e)}.`,
+          ],
+          action: 'resend the confirmation from Admin › Manage Customers.',
+          link: f ? orderLink(f.reference, o.orderNumber) : undefined,
+          context: { fmRef: o.fmRef, orderNumber: o.orderNumber ?? null, error: e instanceof Error ? e.message : String(e) },
         })
       }
     }

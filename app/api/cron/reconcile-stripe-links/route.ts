@@ -24,7 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { reconcileStripeLinks } from '../../../../lib/stripe-link-reconcile'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -47,13 +47,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       scanned: result.stripeAccountsScanned, budgetStopped: result.budgetStopped,
       dryRun, durationMs: result.durationMs,
     }))
+    await noteJobSuccess('reconcile-stripe-links')
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[reconcile-stripe-links] failed:', error)
     // Alert, never a silent 500 — the same omission that let sync-fm-orders
     // fail every hour for four and a half days with no signal anywhere.
-    await alertOps(`reconcile-stripe-links FAILED: ${error}`)
+    await noteJobFailure('reconcile-stripe-links', error)
     return NextResponse.json({ success: false, error, duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

@@ -5,7 +5,7 @@ import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
-import { alertOps } from '../../../../lib/ops-alert'
+import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
 import { cancelDelivery } from '../../../../lib/expedite'
 import { waitUntil } from '@vercel/functions'
 
@@ -343,9 +343,8 @@ export async function POST(request: NextRequest) {
               }, { idempotencyKey: `native-edit-invoice-transfer-${invoice.id}` })
             } catch (e) {
               console.error('[Webhook] order-edit invoice payout transfer failed:', e instanceof Error ? e.message : e)
-              await alertOps('order-edit invoice paid but payout transfer failed', {
-                invoiceId: invoice.id, orderReference: order.reference,
-                error: e instanceof Error ? e.message : String(e),
+              await alertRestaurantNotPaid(order.reference, {
+                paid: (invoice.amount_paid ?? 0) / 100, error: e, invoiceId: invoice.id, edit: true,
               })
             }
           }
@@ -430,9 +429,7 @@ export async function POST(request: NextRequest) {
           // no money moves and a human is told instead.
           if (flipped.length === 0) {
             console.error('[Webhook] native invoice paid but order was not UNPAID — no payout:', order.reference, invoice.id)
-            await alertOps('native invoice paid on an order that was not UNPAID — payout withheld', {
-              invoiceId: invoice.id, orderReference: order.reference,
-            })
+            await alertPaidOnClosedOrder(order.reference, invoice.id)
           } else if (stripeMovedIt) {
             // Destination-charge invoice: Stripe already transferred the
             // restaurant's share. Record the payment anyway — refundNativeOrder
@@ -497,9 +494,8 @@ export async function POST(request: NextRequest) {
               `.catch(e => console.error('[Webhook] native invoice payment row insert failed (non-fatal):', e instanceof Error ? e.message : e))
             } catch (e) {
               console.error('[Webhook] native invoice payout transfer failed:', e instanceof Error ? e.message : e)
-              await alertOps('native invoice paid but payout transfer failed', {
-                invoiceId: invoice.id, orderReference: order.reference,
-                error: e instanceof Error ? e.message : String(e),
+              await alertRestaurantNotPaid(order.reference, {
+                paid: (invoice.amount_paid ?? 0) / 100, error: e, invoiceId: invoice.id,
               })
             }
           }

@@ -26,7 +26,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { refreshRestaurantCache } from '../../../../lib/restaurant-cache'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -39,16 +39,14 @@ function hasCronSecret(req: NextRequest): boolean {
 }
 
 async function handle(): Promise<NextResponse> {
-  const startedAt = Date.now()
   try {
     const result = await refreshRestaurantCache()
     console.log('[refresh-map-cache] done:', JSON.stringify(result))
+    await noteJobSuccess('refresh-map-cache')
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('refresh-map-cache: FAILED — public marketplace data is now stale', {
-      error, elapsedMs: Date.now() - startedAt,
-    })
+    await noteJobFailure('refresh-map-cache', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

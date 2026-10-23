@@ -1,6 +1,8 @@
 import Stripe from 'stripe'
 import { sql } from './db'
-import { alertOps } from './ops-alert'
+import { alertGroup, alertOnce, resolveAlert, noteJobFailure, noteJobSuccess } from './ops-alert'
+import { SUGGESTIONS } from './ops-alert-format'
+import { restaurantName } from './ops-alert-facts'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 
 // Reconcile Disco's Stripe link against FamilyMeal's, for CONVERTED restaurants.
@@ -323,42 +325,60 @@ export async function reconcileStripeLinks(
       // believing state is current is not.
       stateUnavailable = true
       console.error('[stripe-link-reconcile] state table unwritable:', e instanceof Error ? e.message : e)
-      await alertOps(`stripe-link-reconcile: could NOT persist reported state — the next run will re-report these restaurants. ${e instanceof Error ? e.message : e}`)
+      await noteJobFailure('reconcile-stripe-links:state', e)
     }
   }
 
-  // linked and conflicts ALWAYS alert immediately: both are rare, and a conflict
-  // is a potential wrong payout destination.
-  const mustAlert = linked.length > 0 || conflicts.length > 0 || newlyRefused.length > 0 || resolved.length > 0
-  if (mustAlert) {
-    const lines: string[] = []
-    if (stateUnavailable) {
-      lines.push('⚠ STATE UNAVAILABLE — reporting the FULL refused set rather than suppressing anything.')
+  if (!dryRun && !stateUnavailable) await noteJobSuccess('reconcile-stripe-links:state')
+
+  // ── #ops-alerts (approved wording, Kevin 2026-10-23) ─────────────────────────
+  // Newly refused restaurants are named in ONE message, each still its own key
+  // (stripe-link:<ref>) so each closes in that thread when it is linked or stops
+  // needing a link. A restaurant that links on the first try, never refused,
+  // goes to the log only. A conflict is per restaurant and urgent: a wrong link
+  // pays another business. A dry run posts nothing.
+  console.log(`[stripe-link-reconcile] linked=${linked.length} newlyRefused=${newlyRefused.length} resolved=${resolved.length} conflicts=${conflicts.length}`,
+    { linked: linked.map(l => `${l.name ?? l.restaurantReference} → ${l.accountId}`) })
+  if (!dryRun) {
+    const why: Record<string, string> = {
+      'needs-reconnect': "FamilyMeal's account can't be used, so the restaurant must reconnect Stripe through Disco",
+      'ambiguous-metadata': 'more than one Stripe account claims it',
+      'account-taken': 'its Stripe account is already linked to another restaurant',
+      'unhealthy': "its Stripe account can't take payments yet",
     }
-    if (linked.length) {
-      lines.push(`LINKED (${linked.length}):`)
-      for (const l of linked) lines.push(`  • ${l.name ?? l.restaurantReference} → ${l.accountId}`)
-    }
-    if (conflicts.length) {
-      lines.push(`⚠ CONFLICTS — NOT changed (${conflicts.length}):`)
-      for (const c of conflicts) lines.push(`  • ${c.name ?? c.restaurantReference}: ${c.detail}`)
-    }
-    if (resolved.length) {
-      lines.push(`RESOLVED — no longer refused (${resolved.length}):`)
-      for (const r of resolved) lines.push(`  • ${r.restaurantReference}`)
-    }
-    if (newlyRefused.length) {
-      lines.push(`NEEDS THE RESTAURANT TO RECONNECT — new since the last report (${newlyRefused.length}):`)
-      for (const r of newlyRefused.slice(0, 30)) {
-        lines.push(`  • ${r.name ?? r.restaurantReference} [${r.reason}]: ${r.detail}`)
+    await alertGroup(newlyRefused.map(r => ({ ...r, key: `stripe-link:${r.restaurantReference.toLowerCase()}` })), fresh => {
+      const allReconnect = fresh.every(r => r.reason === 'needs-reconnect')
+      return {
+        severity: 'warn',
+        headline: `${fresh.length} converted restaurant${fresh.length === 1 ? " can't" : "s can't"} take card payments`,
+        lines: [
+          `Disco couldn't link a usable Stripe account for ${fresh.length === 1 ? 'it' : 'them'}:`,
+          ...fresh.slice(0, 15).map(r => `• ${r.name ?? r.restaurantReference}${r.onlineOrderingEnabled ? ' (online ordering is on)' : ''}: ${why[r.reason] ?? r.reason}`),
+          ...(fresh.length > 15 ? [`…and ${fresh.length - 15} more`] : []),
+        ],
+        action: allReconnect
+          ? 'ask each restaurant to reconnect Stripe through Disco.'
+          : 'get each Stripe account id from FamilyMeal and link it in Admin, or ask the restaurant to reconnect Stripe through Disco.',
+        link: SUGGESTIONS.accountManagement,
+        context: { refs: fresh.map(r => r.restaurantReference) },
       }
-      if (newlyRefused.length > 30) lines.push(`  …and ${newlyRefused.length - 30} more`)
+    })
+    const linkedRefs = new Set(linked.map(l => l.restaurantReference))
+    for (const r of resolved) {
+      const name = (await restaurantName(r.restaurantReference)) ?? r.restaurantReference
+      await resolveAlert(`stripe-link:${r.restaurantReference.toLowerCase()}`,
+        linkedRefs.has(r.restaurantReference) ? `${name} is linked now.` : `${name} no longer needs linking.`)
     }
-    const silent = refused.length - newlyRefused.length
-    if (silent > 0) lines.push(`(${silent} previously-reported restaurant(s) unchanged and not repeated here.)`)
-    await alertOps(
-      `stripe-link-reconcile${dryRun ? ' (DRY RUN)' : ''}: ${linked.length} linked, ${newlyRefused.length} newly refused, ${resolved.length} resolved, ${conflicts.length} conflict(s) across ${candidates.length} converted restaurants with no Disco account:\n${lines.join('\n')}`,
-    )
+    for (const c of conflicts) {
+      await alertOnce(`stripe-link-conflict:${c.restaurantReference.toLowerCase()}`, {
+        severity: 'urgent',
+        headline: `Stripe link conflict — ${c.name ?? c.restaurantReference}`,
+        lines: ["Disco's link and Stripe's own records name different accounts for this restaurant, so Disco changed nothing. A wrong link would send its payouts to another business."],
+        action: 'confirm the right account with the restaurant and link it by hand.',
+        link: SUGGESTIONS.accountManagement,
+        context: { restaurantReference: c.restaurantReference, detail: c.detail },
+      })
+    }
   }
 
   return {

@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkMenuDrift } from '../../../../lib/menu-drift'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,10 +58,11 @@ async function handle(): Promise<NextResponse> {
     // disco_menu_drift_snapshots (has_drift/drift_details, written inside
     // checkMenuDrift). Nothing pushes this anymore; check the manage-restaurants admin
     // list badge or EditRestaurantDialog's drift panel to see it.
+    await noteJobSuccess('menu-drift-check')
     return NextResponse.json({ success: true, ...summary, drifts })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('menu-drift-check: FAILED', { error, elapsedMs: Date.now() - startedAt })
+    await noteJobFailure('menu-drift-check', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }
