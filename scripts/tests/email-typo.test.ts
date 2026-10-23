@@ -23,6 +23,12 @@ check('every listed typo suggests its correction, and one with no correction sug
   for (const [typo, fix] of Object.entries(shared.exact as Record<string, string | null>)) eq(suggestEmailCorrection(`pat@${typo}`), fix ? `pat@${fix}` : null, typo)
 })
 check('hmail.com gets no hint (ambiguous: gmail or hotmail; Kevin, 2026-10-23)', () => eq(suggestEmailCorrection('pat@hmail.com'), null, 'hmail'))
+check('aol.co gets no hint (could be a cut-off aol.co.uk; Kevin, 2026-10-23)', () => eq(suggestEmailCorrection('pat@aol.co'), null, 'aol.co'))
+check('a broken ending is fixed only on known free mail, never a company domain', () => {
+  eq(suggestEmailCorrection('pat@gmail.con'), 'pat@gmail.com', 'free mail')
+  eq(suggestEmailCorrection('pat@acme-catering.xom'), null, 'company')
+  for (const name of shared.freeMail as string[]) eq(suggestEmailCorrection(`pat@${name.slice(0, -3)}con`), `pat@${name}`, name)
+})
 check('emailDomainOf gives the domain for the "Use ..." button', () => eq(emailDomainOf('pat@gmail.com'), 'gmail.com', 'domain'))
 
 console.log('\n=== the approved wording, warn only ===')

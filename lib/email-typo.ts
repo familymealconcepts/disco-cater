@@ -12,13 +12,17 @@ import shared from './email-typo-domains.json'
 
 const EXACT = shared.exact as Record<string, string | null>
 const ENDINGS = shared.endings as Record<string, string>
+// Known free mail (noise-machine's FREE_EMAIL_DOMAINS and PERSONAL_EMAIL_DOMAINS ending in .com, pinned
+// there). A broken ending is only fixed when the result is one of these, never on a company domain.
+const FREE_MAIL = new Set<string>(shared.freeMail as string[])
 
 /**
  * The corrected address, or null when there is nothing to suggest. Trims; the domain is everything
  * after the LAST @, matched lowercased; the local part is kept exactly as typed. A listed domain is
  * replaced whole; otherwise a last label in the endings list (.con, .cmo, ...) becomes .com.
- * A listed domain whose correction is null (hmail.com: gmail or hotmail?) gets NO suggestion, by
- * Kevin's rule that the hint only speaks when the correction is unambiguous (2026-10-23).
+ * A listed domain whose correction is null (hmail.com: gmail or hotmail? aol.co: a cut-off aol.co.uk?)
+ * gets NO suggestion, by Kevin's rule that the hint only speaks when the correction is unambiguous; and a
+ * broken ending is fixed only for known free mail (gmail.con), never a company domain (2026-10-23).
  */
 export function suggestEmailCorrection(email: string | null | undefined): string | null {
   const v = (email ?? '').trim()
@@ -33,7 +37,10 @@ export function suggestEmailCorrection(email: string | null | undefined): string
     return exact ? `${local}@${exact}` : null
   }
   const ending = ENDINGS[domain.slice(dot + 1)]
-  if (ending) return `${local}@${domain.slice(0, dot + 1)}${ending}`
+  if (ending) {
+    const fixed = `${domain.slice(0, dot + 1)}${ending}`
+    if (FREE_MAIL.has(fixed)) return `${local}@${fixed}`
+  }
   return null
 }
 
