@@ -261,13 +261,22 @@ export interface ThirdPartyDelivery {
 // RestaurantSaleTransactionServiceImpl.calculateThirdPartyDeliverySubsiding exactly:
 //   fullFee     = min(subtotal × 15%, $85)              (unrounded, capped)
 //   customerFee = r2( fullFee × (15 − subsidyPct)/15 )  (HALF_UP, 2dp)
-//   subsidy     = r2( fullFee − customerFee )
+//   subsidy     = r2( r2(fullFee) − customerFee )
 // The subsidy shifts cost from customer to restaurant; Disco always nets fullFee.
+//
+// THE SUBSIDY COMES FROM THE ROUNDED FULL FEE (Peter, 23 Oct 2026). It used to
+// be r2(fullFee − customerFee) on the UNROUNDED fee, which FM also does: when
+// 15% of the subtotal lands on a half cent ($405.50 → 60.825) the customer fee
+// rounds up to 60.83 and a 0% subsidy came out −$0.01. That cent was taken off
+// the restaurant's transfer the wrong way — 7 native orders paid a restaurant
+// 1¢ too much ($0.07 in all, left as settled). From the rounded fee, a 0%
+// subsidy is exactly $0.00 and fullFee = customerFee + subsidy to the cent.
+// Future orders only: past sale transactions keep their stored value.
 export function computeThirdPartyDelivery(subtotal: number, subsidyPct = 0): ThirdPartyDelivery {
   const s = Math.max(0, Math.min(THIRD_PARTY_DELIVERY_FEE_PCT, subsidyPct))
   const fullFee = Math.min(subtotal * THIRD_PARTY_DELIVERY_FEE_PCT / 100, THIRD_PARTY_DELIVERY_FEE_CAP)
   const customerFee = r2(fullFee * (THIRD_PARTY_DELIVERY_FEE_PCT - s) / THIRD_PARTY_DELIVERY_FEE_PCT)
-  const subsidy = r2(fullFee - customerFee)
+  const subsidy = r2(r2(fullFee) - customerFee)
   return { fullFee: r2(fullFee), customerFee, subsidy }
 }
 
