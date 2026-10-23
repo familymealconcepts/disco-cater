@@ -24,6 +24,7 @@ import { isDiscoNativeRestaurant, chargeAndPlaceNativeRecurringOrder, loadRestau
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { sendEmail as sendEmailShared } from '../../../../lib/email/send'
 import { formatTime12 } from '../../../../lib/utils/time'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 // Shared 12-hour formatter; this caller's copy-specific empty fallback is kept.
 const fmtTime = (t?: string | null) => formatTime12(t, { fallback: 'your scheduled time' })
@@ -410,7 +411,7 @@ async function placeFmOrder(restaurantRef: string, cart: CartItem[], scheduledDa
 
 // ── Cron handler ─────────────────────────────────────────────────────────────
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const base = todayUTC()
@@ -781,3 +782,6 @@ export async function GET(req: NextRequest) {
     errors,
   })
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('recurring-orders', runGet)

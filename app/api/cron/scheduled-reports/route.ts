@@ -6,6 +6,7 @@ import { buildReport, isReportDue, reportPeriod, ReportReconciliationError, type
 import { alertOnce, resolveAlert } from '../../../../lib/ops-alert'
 import { SUGGESTIONS, money } from '../../../../lib/ops-alert-format'
 import { restaurantName } from '../../../../lib/ops-alert-facts'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,7 +34,7 @@ interface ReportRow {
   last_run_at: string | null
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const force = req.nextUrl.searchParams.get('force') === '1'
   const forceRef = req.nextUrl.searchParams.get('reportRef') || ''
@@ -192,3 +193,6 @@ export async function GET(req: NextRequest) {
   }
   return NextResponse.json({ ran: results.length, results })
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('scheduled-reports', runGet)
