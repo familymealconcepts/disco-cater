@@ -160,6 +160,8 @@ function Footer() {
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
         <a href="/privacy" style={{ fontSize: 13, color: '#727272' }}>Privacy Policy</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+        <a href="/privacy-choices" style={{ fontSize: 13, color: '#727272' }}>Your Privacy Choices</a>
+        <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
         <a href="/terms" style={{ fontSize: 13, color: '#727272' }}>Terms</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
         <a href="mailto:concierge@discocater.com" style={{ fontSize: 13, color: '#727272' }}>Contact</a>

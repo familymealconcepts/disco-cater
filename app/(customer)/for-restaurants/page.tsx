@@ -98,6 +98,8 @@ export default function ForRestaurantsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
           <a href="/privacy" style={{ fontSize: 13 }}>Privacy Policy</a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <a href="/privacy-choices" style={{ fontSize: 13 }}>Your Privacy Choices</a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
           <a href="/terms" style={{ fontSize: 13 }}>Terms</a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
           <a href="mailto:concierge@discocater.com" style={{ fontSize: 13 }}>Contact</a>

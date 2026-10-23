@@ -364,6 +364,13 @@ export default function HomeClient() {
                 Privacy Policy
               </a>
               <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+              <a href="/privacy-choices"
+                style={{ fontSize: 13, color: '#727272', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6466E8')}
+                onMouseOut={e => (e.currentTarget.style.color = '#727272')}>
+                Your Privacy Choices
+              </a>
+              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
               <a href="/terms"
                 style={{ fontSize: 13, color: '#727272', textDecoration: 'none', transition: 'color 0.15s' }}
                 onMouseOver={e => (e.currentTarget.style.color = '#6466E8')}

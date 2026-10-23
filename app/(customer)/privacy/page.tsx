@@ -65,7 +65,7 @@ export default function PrivacyPage() {
         <li><strong>For legal reasons</strong> — when we believe disclosure is necessary to comply with applicable law, legal process, or governmental request, or to protect the rights, property, or safety of Disco Cater, our users, or others.</li>
         <li><strong>In a business transaction</strong> — in connection with a merger, acquisition, financing, reorganization, or sale of assets, information may be transferred as part of that transaction.</li>
         <li><strong>With your consent</strong> — when you direct us to share your information.</li>
-        <li><strong>Advertising partners.</strong> We may share hashed (scrambled) contact information, such as your email address, with advertising partners to show you relevant Disco Cater ads. You can opt out at any time by emailing concierge@discocater.com.</li>
+        <li><strong>Advertising partners.</strong> We work with Google, Meta (Facebook and Instagram) and LinkedIn to show Disco Cater ads and to measure how they perform. We may upload lists of our customers&rsquo; contact information, such as email addresses, to these partners so they can match them to people who use their services. The lists are hashed (converted into a scrambled code) before they are uploaded, and the partners use the matches only to show and measure our ads. You can opt out as described in Section VI, &ldquo;<a href="#your-privacy-choices">Your Privacy Choices</a>.&rdquo;</li>
       </ul>
 
       {/* IV */}
@@ -87,25 +87,61 @@ export default function PrivacyPage() {
         deliver and measure marketing. You can control cookies through your browser settings; disabling some
         cookies may affect the functionality of the Services.
       </p>
+      <p>
+        <strong>Advertising tags.</strong> Our site uses the Meta Pixel and the LinkedIn Insight Tag, which
+        record your visits so Meta and LinkedIn can show you Disco Cater ads and tell us how our ads perform.
+        We also use Google&rsquo;s tags for the same purpose.
+      </p>
+      <p>
+        <strong>Visitor identification.</strong> We use RB2B and Apollo.io&rsquo;s website tracker, services
+        that may match a visit to our site to a person&rsquo;s business identity, such as name, job title,
+        company, professional email address and LinkedIn profile, using their own data. We use this to reach
+        restaurants and businesses that may be interested in Disco Cater.
+      </p>
+      <p>
+        <strong>Analytics and session recording.</strong> We use Google Analytics to understand how our site
+        is used, and Microsoft Clarity, which records how visitors interact with our pages, such as clicks,
+        scrolling and mouse movement, so we can find and fix problems. Clarity is set to mask the text on our
+        pages and anything you type, so it does not capture what you enter.
+      </p>
 
       {/* VI */}
-      <h2>VI. Links to Other Websites</h2>
+      <h2 id="your-privacy-choices">VI. Your Privacy Choices</h2>
+      <p>You can opt out of advertising and visitor identification on our site in two ways:</p>
+      <ul>
+        <li><strong>Your Privacy Choices page.</strong> Turn on the switch at <a href="/privacy-choices">discocater.com/privacy-choices</a>. Your choice is saved in that browser, so set it again if you clear your browser data or use another browser or device.</li>
+        <li><strong>Global Privacy Control.</strong> If your browser or an extension sends a Global Privacy Control (GPC) signal, we treat it as the same opt-out.</li>
+      </ul>
+      <p>
+        When you opt out, we do not load the Meta Pixel, the LinkedIn Insight Tag or RB2B and Apollo.io&rsquo;s
+        website tracker, and we tell Google not to use your visit for advertising. Google Analytics and
+        Microsoft Clarity keep running to help us understand how our site is used; they are not used to show
+        you ads.
+      </p>
+      <p>
+        These choices apply to the browser you use. To have your email address removed from the customer
+        lists we share with advertising partners, or to opt out of marketing email, email{' '}
+        <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>.
+      </p>
+
+      {/* VII */}
+      <h2>VII. Links to Other Websites</h2>
       <p>
         The Services may contain links to third-party websites or services that are not operated by us. This
         Policy does not apply to those third-party sites. We encourage you to review the privacy policies of
         any third-party site you visit, as we are not responsible for their content or practices.
       </p>
 
-      {/* VII */}
-      <h2>VII. Changes to This Policy</h2>
+      {/* VIII */}
+      <h2>VIII. Changes to This Policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we do, we will revise the effective date at
         the top of this page and, where appropriate, provide additional notice. Your continued use of the
         Services after an update becomes effective constitutes your acceptance of the updated Policy.
       </p>
 
-      {/* VIII */}
-      <h2>VIII. Disco Cater CRM Extension</h2>
+      {/* IX */}
+      <h2>IX. Disco Cater CRM Extension</h2>
       <p>
         Disco Cater staff use a Chrome browser extension, &ldquo;Disco Cater CRM,&rdquo; to record
         restaurants and other business prospects in our internal customer-relationship management

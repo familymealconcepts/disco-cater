@@ -5,6 +5,7 @@ import "./globals.css"
 import { AuthProvider } from './context/AuthContext'
 import AcquisitionCapture from './components/AcquisitionCapture'
 import VisitorIdentification from './components/VisitorIdentification'
+import { OPT_OUT_EXPR } from '../lib/privacy-choices'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -83,6 +84,9 @@ export default function RootLayout({
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
+            if (${OPT_OUT_EXPR}) {
+              gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
+            }
             gtag('config', 'G-KQV7RLHXTH');
           `}
         </Script>
@@ -110,7 +114,7 @@ export default function RootLayout({
 
         {/* LinkedIn Insight Tag */}
         <Script id="linkedin-insight" strategy="afterInteractive">{`
-          if (!document.cookie.includes('disco_internal=true')) {
+          if (!document.cookie.includes('disco_internal=true') && !${OPT_OUT_EXPR}) {
             _linkedin_partner_id = "539930009";
             window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
             window._linkedin_data_partner_ids.push(_linkedin_partner_id);
@@ -128,7 +132,7 @@ export default function RootLayout({
 
         {/* Meta Pixel */}
         <Script id="meta-pixel" strategy="afterInteractive">{`
-          if (!document.cookie.includes('disco_internal=true')) {
+          if (!document.cookie.includes('disco_internal=true') && !${OPT_OUT_EXPR}) {
             !function(f,b,e,v,n,t,s)
             {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
             n.callMethod.apply(n,arguments):n.queue.push(arguments)};
