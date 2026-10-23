@@ -11,7 +11,8 @@
 // Apollo did not until this component).
 //
 // Both also skip a visitor who has opted out — Global Privacy Control or the /privacy-choices
-// switch, decided by lib/privacy-choices.ts.
+// switch, decided by lib/privacy-choices.ts — and neither loads until the visitor accepts
+// optional cookies (the consent banner).
 //
 // The two loaders are the vendors' own snippets, unchanged apart from being called from here
 // instead of inline <Script> tags in app/layout.tsx.
@@ -19,7 +20,7 @@
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { visitorIdentificationAllowed } from '../../lib/visitor-identification'
-import { adTrackingOptedOut } from '../../lib/privacy-choices'
+import { adTrackingOptedOut, optionalCookiesAllowed, CONSENT_EVENT } from '../../lib/privacy-choices'
 
 declare global {
   interface Window {
@@ -61,11 +62,18 @@ export default function VisitorIdentification() {
 
   useEffect(() => {
     if (!pathname) return
-    if (!visitorIdentificationAllowed(pathname, window.location.hostname)) return
-    if (isInternal()) return
-    if (adTrackingOptedOut()) return
-    try { loadRb2b('GNLKQH7D136Q') } catch { /* a vendor must never break the page */ }
-    try { loadApollo('698b7a4f08b116001d87b092') } catch { /* same */ }
+    const load = () => {
+      if (!visitorIdentificationAllowed(pathname, window.location.hostname)) return
+      if (isInternal()) return
+      if (adTrackingOptedOut()) return
+      if (!optionalCookiesAllowed()) return
+      try { loadRb2b('GNLKQH7D136Q') } catch { /* a vendor must never break the page */ }
+      try { loadApollo('698b7a4f08b116001d87b092') } catch { /* same */ }
+    }
+    load()
+    // An Accept in the banner or on /privacy-choices loads both on this page, with no reload.
+    window.addEventListener(CONSENT_EVENT, load)
+    return () => window.removeEventListener(CONSENT_EVENT, load)
   }, [pathname])
 
   return null

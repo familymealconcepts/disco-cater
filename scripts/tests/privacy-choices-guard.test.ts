@@ -1,6 +1,7 @@
 // Guards for the advertising opt-out (lib/privacy-choices.ts): Global Privacy Control or the
 // /privacy-choices switch stops the Meta Pixel, the LinkedIn Insight Tag, RB2B and Apollo's
-// website tracker, and denies Google's ad consent before GA4 is configured.
+// website tracker, and denies Google's ad consent before GA4 is configured. And the separate
+// optional-cookies choice (the banner): Clarity, RB2B and Apollo wait for Accept; GPC is Decline.
 // Run: npx tsx scripts/tests/privacy-choices-guard.test.ts
 //
 //   1. The rule itself, both forms (the module's functions and the inline-script expression),
@@ -8,7 +9,7 @@
 //   2. Source guards: every governed loader checks the rule. Each is control-tested against a
 //      doctored copy of the real file text, so none of them passes vacuously.
 import { readFileSync } from 'node:fs'
-import { OPT_OUT_EXPR, PRIVACY_OPT_OUT_KEY, adTrackingOptedOut } from '../../lib/privacy-choices'
+import { OPT_OUT_EXPR, PRIVACY_OPT_OUT_KEY, CONSENT_KEY, adTrackingOptedOut, consentChoice, optionalCookiesAllowed } from '../../lib/privacy-choices'
 
 let passed = 0
 const failures: string[] = []
@@ -17,14 +18,14 @@ function check(name: string, fn: () => void) {
 }
 function ok(cond: unknown, msg: string) { if (!cond) throw new Error(msg) }
 
-type Env = { gpc?: boolean; stored?: string | null; storageThrows?: boolean }
+type Env = { gpc?: boolean; stored?: string | null; consent?: string | null; storageThrows?: boolean }
 function withEnv<T>(env: Env, fn: () => T): T {
   const g = globalThis as Record<string, unknown>
   const prevNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
   const prevLs = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'navigator', { value: env.gpc === undefined ? {} : { globalPrivacyControl: env.gpc }, configurable: true })
   Object.defineProperty(globalThis, 'localStorage', {
-    value: { getItem: (k: string) => { if (env.storageThrows) throw new Error('blocked'); return k === PRIVACY_OPT_OUT_KEY ? (env.stored ?? null) : null } },
+    value: { getItem: (k: string) => { if (env.storageThrows) throw new Error('blocked'); return k === PRIVACY_OPT_OUT_KEY ? (env.stored ?? null) : k === CONSENT_KEY ? (env.consent ?? null) : null } },
     configurable: true,
   })
   try { return fn() } finally {
@@ -48,6 +49,22 @@ const CASES: [string, Env, boolean][] = [
 for (const [name, env, want] of CASES) {
   check(`module: ${name} -> ${want}`, () => ok(withEnv(env, adTrackingOptedOut) === want, 'wrong'))
   check(`inline expression: ${name} -> ${want}`, () => ok(withEnv(env, evalExpr) === want, 'wrong'))
+}
+
+console.log('\n=== the optional-cookies choice (banner) ===')
+const CONSENT_CASES: [string, Env, 'accepted' | 'declined' | null][] = [
+  ['no choice yet', {}, null],
+  ['accepted', { consent: 'accepted' }, 'accepted'],
+  ['declined', { consent: 'declined' }, 'declined'],
+  ['an unknown stored value is no choice', { consent: 'yes' }, null],
+  ['GPC reads as declined with nothing stored', { gpc: true }, 'declined'],
+  ['GPC beats a stored accept', { gpc: true, consent: 'accepted' }, 'declined'],
+  ['storage blocked is no choice', { storageThrows: true }, null],
+  ['the ad opt-out switch does not touch it', { stored: '1', consent: 'accepted' }, 'accepted'],
+]
+for (const [name, env, want] of CONSENT_CASES) {
+  check(`consentChoice: ${name} -> ${want}`, () => ok(withEnv(env, consentChoice) === want, 'wrong'))
+  check(`optionalCookiesAllowed: ${name} -> ${want === 'accepted'}`, () => ok(withEnv(env, optionalCookiesAllowed) === (want === 'accepted'), 'wrong'))
 }
 
 console.log('\n=== source guards ===')
@@ -87,6 +104,29 @@ check('  control: moving the consent call after config is caught', () => {
 check('the analytics config itself is not gated (GA4 stays)', () => ok(!/if \([^)]*\)\s*\{\s*gtag\('config'/.test(scriptBody(layout, 'google-analytics')), 'config is conditional'))
 check('RB2B and Apollo load only after the opt-out check', () => ok(vendorsGated(component), 'ungated'))
 check('  control: removing the opt-out check is caught', () => ok(!vendorsGated(component.replace(/ *if \(adTrackingOptedOut\(\)\) return\n/, '')), 'not caught'))
+
+console.log('\n=== consent-gated loaders and the banner ===')
+const clarity = readFileSync('app/components/ClarityLoader.tsx', 'utf8')
+const banner = readFileSync('app/components/ConsentBanner.tsx', 'utf8')
+// Gated: the consent check comes before every load call, and the loader re-runs on CONSENT_EVENT
+// (that listener is what makes an Accept take effect with no reload).
+const consentGated = (src: string, loads: string[]) => {
+  const gate = src.indexOf('if (!optionalCookiesAllowed()) return')
+  return gate > 0 && loads.every(l => src.indexOf(l) > gate) && /addEventListener\(CONSENT_EVENT, load\)/.test(src)
+}
+check('RB2B and Apollo load only after Accept, and react to it', () => ok(consentGated(component, ["loadRb2b('", "loadApollo('"]), 'ungated'))
+check('  control: removing the consent check is caught', () => ok(!consentGated(component.replace(/ *if \(!optionalCookiesAllowed\(\)\) return\n/, ''), ["loadRb2b('", "loadApollo('"]), 'not caught'))
+check('  control: removing the Accept listener is caught', () => ok(!consentGated(component.replace(/ *window\.addEventListener\(CONSENT_EVENT, load\)\n/, ''), ["loadRb2b('", "loadApollo('"]), 'not caught'))
+check('Clarity loads only after Accept, and reacts to it', () => ok(consentGated(clarity, ["loadClarity('"]), 'ungated'))
+check('  control: removing the consent check is caught', () => ok(!consentGated(clarity.replace(/ *if \(!optionalCookiesAllowed\(\)\) return\n/, ''), ["loadClarity('"]), 'not caught'))
+check('Clarity does not read the ad opt-out (the banner alone controls it)', () => ok(!/adTrackingOptedOut|switchOptedOut/.test(clarity), 'reads the opt-out'))
+const CLARITY_SRC = /clarity\.ms\/tag/
+check('app/layout.tsx no longer loads Clarity directly', () => ok(!CLARITY_SRC.test(layout), 'Clarity snippet in layout'))
+check('  control: the old inline snippet put back is caught', () => ok(CLARITY_SRC.test(layout + '\nt.src="https://www.clarity.ms/tag/"+i;'), 'not caught'))
+check('app/layout.tsx mounts <ClarityLoader /> and <ConsentBanner />', () => ok(/<ClarityLoader \/>/.test(layout) && /<ConsentBanner \/>/.test(layout), 'not mounted'))
+check('the banner shows only while there is no choice (so GPC, which reads as declined, never sees it)', () => ok(/const needsChoice = \(\) => consentChoice\(\) === null/.test(banner) && /if \(!show\) return null/.test(banner), 'wrong condition'))
+check('the banner renders nothing on the server', () => ok(/const serverSnapshot = \(\) => false/.test(banner), 'server-rendered'))
+check('the banner stacks above the restaurant order bar', () => ok(/'\.mobile-order-bar'/.test(banner) && /el\.style\.bottom = `\$\{h\}px`/.test(banner), 'no offset'))
 
 console.log(`\n${failures.length ? 'FAILED' : 'ALL PASS'} ${passed} passed${failures.length ? `, ${failures.length} failed: ${failures.join('; ')}` : ''}`)
 if (failures.length) process.exit(1)

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import LegalShell from '../_legal/LegalShell'
-import PrivacyChoicesSwitch from './PrivacyChoicesSwitch'
+import PrivacyChoicesSwitch, { ConsentSwitch } from './PrivacyChoicesSwitch'
 
 export const metadata: Metadata = {
   title: 'Your Privacy Choices — Disco Cater',
@@ -18,7 +18,15 @@ export default function PrivacyChoicesPage() {
       <p>
         When this is on, we don&rsquo;t load the Meta Pixel, the LinkedIn Insight Tag or RB2B and
         Apollo.io&rsquo;s website tracker, and we tell Google not to use your visit for advertising. Google
-        Analytics and Microsoft Clarity keep running to help us understand how the site is used.
+        Analytics keeps running to help us understand how the site is used.
+      </p>
+
+      <ConsentSwitch />
+
+      <p>
+        When this is on, we run Microsoft Clarity, which records how visitors use our pages, and RB2B and
+        Apollo.io&rsquo;s website tracker, which may identify the business you visit from. This is the same
+        choice as Accept or Decline in the banner.
       </p>
       <p>
         Your choice is saved in this browser. If you clear your browser data or use another browser or

@@ -5,6 +5,8 @@ import "./globals.css"
 import { AuthProvider } from './context/AuthContext'
 import AcquisitionCapture from './components/AcquisitionCapture'
 import VisitorIdentification from './components/VisitorIdentification'
+import ClarityLoader from './components/ClarityLoader'
+import ConsentBanner from './components/ConsentBanner'
 import { OPT_OUT_EXPR } from '../lib/privacy-choices'
 
 const geistSans = Geist({
@@ -98,16 +100,8 @@ export default function RootLayout({
           `}
         </Script>
 
-        {/* Microsoft Clarity */}
-        <Script id="microsoft-clarity" strategy="afterInteractive">
-          {`
-            (function(c,l,a,r,i,t,y){
-              c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-              t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-              y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-            })(window, document, "clarity", "script", "vv8ibgkwby");
-          `}
-        </Script>
+        {/* Microsoft Clarity loads from <ClarityLoader /> below, only after the visitor accepts
+            optional cookies — see lib/privacy-choices.ts. */}
 
         {/* RB2B and Apollo load from <VisitorIdentification /> below, on allowed pages only —
             see lib/visitor-identification.ts. */}
@@ -152,7 +146,9 @@ export default function RootLayout({
         <AuthProvider>
           <AcquisitionCapture />
           <VisitorIdentification />
+          <ClarityLoader />
           {children}
+          <ConsentBanner />
         </AuthProvider>
       </body>
     </html>
