@@ -19,6 +19,7 @@ import { alertOps } from './ops-alert'
 import { isKnownFmDuplicateOrderNumber, knownFmDuplicateCount } from './known-fm-order-duplicates'
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 import { fetchAllFmRestaurants } from './restaurant-cache'
+import { lookupFmStripeFee } from './fm-stripe-fee'
 
 // A backfilled order is worth confirming only if its pickup is still upcoming —
 // a full-cycle sync also inserts historical orders, which must NOT trigger emails.
@@ -417,7 +418,7 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
     // only in FM's own tbl_restaurant_sale_transactions, which is not reachable
     // over any FM HTTP route we can authenticate to; scripts/backfill-fm-sale-
     // transaction-fees.ts fills it from there. See that script's header.
-    leadGenOne: null, leadGenTwo: null, stripeFee: null,
+    leadGenOne: null, leadGenTwo: null, stripeFee: null, // filled below from the existing row or Stripe
     // serviceCharge WAS hardcoded null here, described as a "dead field". It is
     // not dead: FM's order-detail response carries the real value (verified
     // against FM's own tbl_restaurant_sale_transactions — order #11372483
@@ -458,6 +459,25 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
   }
   const txnStatus = transactionStatusForOrder(statusSource)
 
+  // ── THE STRIPE FEE SURVIVES A RE-SYNC (Peter, 23 Oct 2026) ────────────────
+  // This rebuild deletes and re-inserts the row, and used to write stripe_fee
+  // (and the PaymentIntent id) as NULL every time — undoing the 2026-09-23
+  // backfill on 2,580 of 2,604 rows and overstating Total Distributed. Keep
+  // what the row already knew; when the fee is still unknown on a paid order,
+  // read the real one from Stripe (lib/fm-stripe-fee.ts — read-only, never FM).
+  const prior = (await sql`
+    SELECT stripe_fee, stripe_payment_intent_id FROM disco_sale_transactions
+     WHERE order_id = ${orderId} AND source IN ('FM_SYNC', 'FM_LIST') AND (stripe_fee IS NOT NULL OR stripe_payment_intent_id IS NOT NULL)
+     ORDER BY id DESC LIMIT 1
+  `.catch(() => [])) as { stripe_fee: string | null; stripe_payment_intent_id: string | null }[]
+  let stripeFee: number | null = prior[0]?.stripe_fee != null ? Number(prior[0].stripe_fee) : null
+  let paymentIntentId: string | null = prior[0]?.stripe_payment_intent_id ?? null
+  if (stripeFee == null && txnStatus === 'PAID') {
+    const ref = (await sql`SELECT fm_order_reference::text AS r FROM disco_orders WHERE id = ${orderId} LIMIT 1`.catch(() => [])) as { r: string | null }[]
+    const found = await lookupFmStripeFee(ref[0]?.r)
+    if (found) { stripeFee = found.fee; paymentIntentId = paymentIntentId ?? found.paymentIntentId }
+  }
+
   // FM_LIST is the provisional row written at insert (see writeProvisionalSaleTransaction);
   // this detail-sourced row supersedes it.
   await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${orderId} AND source IN ('FM_SYNC', 'FM_LIST')`
@@ -466,12 +486,12 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
       order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
       state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
       own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
-      lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
+      lead_gen_one_disco_fee, lead_gen_two_disco_fee, stripe_payment_intent_id, source
     ) VALUES (
-      ${orderId}, ${txnStatus}, 'ORIGINAL', ${fields.subtotal}, ${fields.total}, ${fields.fee}, ${fields.serviceCharge}, ${fields.stripeFee},
+      ${orderId}, ${txnStatus}, 'ORIGINAL', ${fields.subtotal}, ${fields.total}, ${fields.fee}, ${fields.serviceCharge}, ${stripeFee},
       ${fields.stateTax}, ${fields.localTax}, ${fields.otherTax}, ${fields.tipsInPrice}, ${fields.thirdPartyDeliveryTips},
       ${fields.ownDeliveryFee}, ${fields.thirdPartyDeliveryFee}, ${fields.thirdPartyDeliverySubsiding}, ${fields.discount},
-      ${fields.leadGenOne}, ${fields.leadGenTwo}, 'FM_SYNC'
+      ${fields.leadGenOne}, ${fields.leadGenTwo}, ${paymentIntentId}, 'FM_SYNC'
     )
   `.catch(e => console.error('[fm-orders-sync] sale_transaction insert failed:', e instanceof Error ? e.message : e))
 }
