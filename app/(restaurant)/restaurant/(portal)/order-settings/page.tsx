@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { isFmSystemHolidayName } from '../../../../../lib/holidays'
+import { suggestEmailCorrection, emailDomainOf } from '../../../../../lib/email-typo'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -289,11 +290,24 @@ export default function OrderSettingsPage() {
     }
   }
 
+  // "Did you mean ...?" before adding an address with a known domain typo (lib/email-typo.ts, Kevin
+  // 2026-10-23): new-order emails to it would bounce. WARN ONLY: both buttons add an address, so nothing
+  // is ever blocked; an address with no suggestion is added at once, exactly as before.
+  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null)
+
+  function addEmailValue(value: string) {
+    if (!value || !notifications) return
+    const updated = { ...notifications, email: [...notifications.email, value] }
+    setNewEmail('')
+    setPendingSuggestion(null)
+    saveNotifications(updated)
+  }
+
   function addEmail() {
     if (!newEmail || !notifications) return
-    const updated = { ...notifications, email: [...notifications.email, newEmail.trim()] }
-    setNewEmail('')
-    saveNotifications(updated)
+    const suggestion = suggestEmailCorrection(newEmail)
+    if (suggestion) { setPendingSuggestion(suggestion); return }
+    addEmailValue(newEmail.trim())
   }
 
   function removeEmail(e: string) {
@@ -450,11 +464,19 @@ export default function OrderSettingsPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input type="email" name="notification-add-email" autoComplete="email" placeholder="Add email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              <input type="email" name="notification-add-email" autoComplete="email" placeholder="Add email" value={newEmail} onChange={e => { setNewEmail(e.target.value); setPendingSuggestion(null) }}
                 onKeyDown={e => e.key === 'Enter' && addEmail()}
                 style={{ ...inputStyle, minWidth: 220 }} />
               <button onClick={addEmail} style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: F }}>Add</button>
             </div>
+            {/* Approved word for word (Kevin, 2026-10-23): the sentence and both buttons. */}
+            {pendingSuggestion && (
+              <div role="status" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#727272', fontFamily: F }}>
+                <span>Did you mean {pendingSuggestion}?</span>
+                <button onClick={() => addEmailValue(pendingSuggestion)} style={{ padding: '6px 12px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: F }}>Use {emailDomainOf(pendingSuggestion)}</button>
+                <button onClick={() => addEmailValue(newEmail.trim())} style={{ padding: '6px 12px', background: 'none', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: F }}>Add as typed</button>
+              </div>
+            )}
           </div>
 
           <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16, marginBottom: 16 }}>

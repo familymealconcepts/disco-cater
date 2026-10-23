@@ -1,0 +1,171 @@
+{
+  "_about": [
+    "Email domain typos and their corrections, shared by noise-machine and disco-cater (Kevin, 2026-10-23).",
+    "noise-machine: scripts/tests/emailTypoDomains.shared.json. Its TYPO_EMAIL_DOMAINS and the .com-ending part of SOCIAL_DOMAIN_PATTERN (src/lib/dinerType.ts) must equal `exact` and `endings` here; scripts/tests/emailTypoDomains.test.ts fails CI when they differ.",
+    "disco-cater: lib/email-typo-domains.json, read by lib/email-typo.ts (the 'Did you mean ...?' hint at checkout and in Order Settings); scripts/tests/email-typo.test.ts runs every vector.",
+    "Edit one copy, edit the other in the same change, and check they match: shasum -a 256 on both. Neither CI can see the other repo.",
+    "Rules: trim; the domain is everything after the LAST @, lowercased; the local part is kept exactly as typed. An `exact` domain is replaced whole by its correction, or gets NO suggestion when its correction is null (a known typo whose intended domain is ambiguous: hmail.com, aol.co; NM OS still counts it as a typo). Otherwise a last label in `endings` is replaced, but ONLY when the result is in `freeMail` (gmail.con -> gmail.com); never for a company domain (Kevin, 2026-10-23). `freeMail` is NM OS's FREE_EMAIL_DOMAINS and PERSONAL_EMAIL_DOMAINS that end in .com, pinned by NM OS's test. No dot, no @ or no local part: no suggestion.",
+    "Warn only: a listed domain can be real, so nothing here may block a checkout or a save."
+  ],
+  "exact": {
+    "gmai.com": "gmail.com",
+    "gmial.com": "gmail.com",
+    "gamil.com": "gmail.com",
+    "gnail.com": "gmail.com",
+    "gmaill.com": "gmail.com",
+    "gmal.com": "gmail.com",
+    "hmail.com": null,
+    "yaho.com": "yahoo.com",
+    "yahooo.com": "yahoo.com",
+    "yhoo.com": "yahoo.com",
+    "hotmial.com": "hotmail.com",
+    "hotmai.com": "hotmail.com",
+    "hotmal.com": "hotmail.com",
+    "outlok.com": "outlook.com",
+    "iclod.com": "icloud.com",
+    "icoud.com": "icloud.com",
+    "aol.co": null
+  },
+  "endings": {
+    "con": "com",
+    "cmo": "com",
+    "comm": "com",
+    "fom": "com",
+    "vom": "com",
+    "xom": "com",
+    "ocm": "com",
+    "cpm": "com"
+  },
+  "freeMail": [
+    "163.com",
+    "aim.com",
+    "aol.com",
+    "btinternet.com",
+    "cs.com",
+    "duck.com",
+    "email.com",
+    "embarqmail.com",
+    "excite.com",
+    "fastmail.com",
+    "frontier.com",
+    "gmail.com",
+    "gmx.com",
+    "googlemail.com",
+    "hey.com",
+    "hotmail.com",
+    "icloud.com",
+    "juno.com",
+    "live.com",
+    "mac.com",
+    "mail.com",
+    "me.com",
+    "mindspring.com",
+    "mozmail.com",
+    "msn.com",
+    "naver.com",
+    "netzero.com",
+    "outlook.com",
+    "protonmail.com",
+    "q.com",
+    "qq.com",
+    "rcn.com",
+    "roadrunner.com",
+    "rocketmail.com",
+    "simplelogin.com",
+    "sky.com",
+    "tutanota.com",
+    "twc.com",
+    "yahoo.com",
+    "yandex.com",
+    "ymail.com",
+    "yopmail.com",
+    "zoho.com"
+  ],
+  "vectors": [
+    {
+      "email": "pat@gmail.con",
+      "suggest": "pat@gmail.com",
+      "why": "broken .com ending"
+    },
+    {
+      "email": "pat@gmai.com",
+      "suggest": "pat@gmail.com",
+      "why": "exact typo"
+    },
+    {
+      "email": "pat@hmail.com",
+      "suggest": null,
+      "why": "a known typo with no correction: gmail or hotmail is ambiguous, so no hint (Kevin, 2026-10-23)"
+    },
+    {
+      "email": "pat@aol.co",
+      "suggest": null,
+      "why": "a known typo with no correction: aol.co could be a cut-off aol.co.uk, so no hint (Kevin, 2026-10-23)"
+    },
+    {
+      "email": "pat@example.co",
+      "suggest": null,
+      "why": ".co is a real ending companies use"
+    },
+    {
+      "email": "pat@acme-catering.xom",
+      "suggest": null,
+      "why": "broken endings are fixed only for known free mail, never a company domain (Kevin, 2026-10-23)"
+    },
+    {
+      "email": "pat@yahoo.comm",
+      "suggest": "pat@yahoo.com",
+      "why": "broken ending on known free mail"
+    },
+    {
+      "email": "pat@icloud.vom",
+      "suggest": "pat@icloud.com",
+      "why": "broken ending on known free mail"
+    },
+    {
+      "email": "pat@aol.con",
+      "suggest": "pat@aol.com",
+      "why": "broken ending on known free mail (only aol.co itself is ambiguous)"
+    },
+    {
+      "email": "Pat.Smith@GMAI.COM",
+      "suggest": "Pat.Smith@gmail.com",
+      "why": "the local part keeps its case; the domain is matched lowercased"
+    },
+    {
+      "email": "  pat@gmail.con  ",
+      "suggest": "pat@gmail.com",
+      "why": "surrounding spaces are trimmed"
+    },
+    {
+      "email": "pat@gmail.com",
+      "suggest": null,
+      "why": "already correct"
+    },
+    {
+      "email": "pat@mail.example.con",
+      "suggest": null,
+      "why": "not a known free-mail domain, so no ending fix"
+    },
+    {
+      "email": "pat@con",
+      "suggest": null,
+      "why": "no dot: not a domain with an ending"
+    },
+    {
+      "email": "not-an-email",
+      "suggest": null,
+      "why": "no @"
+    },
+    {
+      "email": "@gmail.con",
+      "suggest": null,
+      "why": "no local part"
+    },
+    {
+      "email": "",
+      "suggest": null,
+      "why": "empty"
+    }
+  ]
+}
