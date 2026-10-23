@@ -23,6 +23,7 @@ import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
 import { alertOnce, resolveAlert, noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 import { getFmServiceToken } from '../../../../lib/fm-service-auth'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
 // in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
@@ -440,7 +441,7 @@ async function handle(): Promise<NextResponse> {
 }
 
 // Vercel Cron + CLI — Bearer CRON_SECRET only.
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }
@@ -451,3 +452,6 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('sync-restaurants', runGet)

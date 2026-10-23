@@ -8,6 +8,7 @@ import {
 import Stripe from 'stripe'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -216,7 +217,7 @@ function deliveryAddress(o: ReminderRow): string {
 
 // Shared SELECT + FROM/JOIN + 24h-window + placement-skip. The two passes differ
 // only in the toggle column and the idempotency filter, appended by the caller.
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
@@ -388,3 +389,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Reminder run failed' }, { status: 500 })
   }
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('order-reminders', runGet)

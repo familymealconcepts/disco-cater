@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, withDiscoTables, runCheckoutFunnelMigrations, runCheckoutContactsMigrations } from '../../../../lib/db'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -18,7 +19,7 @@ function hasCronSecret(req: NextRequest): boolean {
   return auth === `Bearer ${secret}` || auth === secret
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
@@ -63,3 +64,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Cleanup failed' }, { status: 500 })
   }
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('cleanup-checkout-funnel', runGet)
