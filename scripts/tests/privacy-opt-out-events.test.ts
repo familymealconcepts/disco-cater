@@ -1,5 +1,5 @@
 // Guards for browser ad opt-outs recorded against an email (lib/privacy-opt-out-events.ts, table
-// 007_privacy_opt_out_events.sql). Run: npx tsx scripts/tests/privacy-opt-out-events.test.ts
+// 008_privacy_opt_out_events.sql). Run: npx tsx scripts/tests/privacy-opt-out-events.test.ts
 //
 //   1. Which opt-out a checkout carries: the Sec-GPC header, else the drawer's flag; GPC wins.
 //   2. Emails are normalized and de-duplicated.
@@ -58,7 +58,7 @@ check('the switch route takes the email from the session, never the body', () =>
 check('the switch route refuses an opt_in under GPC', () => ok(/!body\.optOut && req\.headers\.get\('sec-gpc'\)/.test(sw), 'gpc guard'))
 const page = read('app/(customer)/privacy-choices/PrivacyChoicesSwitch.tsx')
 check('the /privacy-choices switch calls the route', () => ok(/onChange=\{setOptOut\}/.test(page) && /\/api\/customer\/privacy-choices/.test(page), 'switch not wired'))
-const mig = read('lib/migrations/007_privacy_opt_out_events.sql')
+const mig = read('lib/migrations/008_privacy_opt_out_events.sql')
 check('the table only lets the switch opt back in, and NM OS can read it', () => {
   ok(/CHECK \(kind = 'opt_out' OR source = 'privacy_choices_switch'\)/.test(mig), 'opt_in source check')
   ok(/GRANT SELECT ON privacy_opt_out_events TO crm_readonly/.test(mig), 'grant')

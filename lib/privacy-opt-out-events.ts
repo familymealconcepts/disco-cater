@@ -1,7 +1,7 @@
 import { sql } from './db'
 
 // Browser ad opt-outs, recorded against an email so NM OS can keep the person out of ad
-// audiences (Google Customer Match). Table: lib/migrations/007_privacy_opt_out_events.sql.
+// audiences (Google Customer Match). Table: lib/migrations/008_privacy_opt_out_events.sql.
 //
 // The opt-out itself (Global Privacy Control or the /privacy-choices switch) lives only in the
 // visitor's browser (lib/privacy-choices.ts). This is where it meets an email:

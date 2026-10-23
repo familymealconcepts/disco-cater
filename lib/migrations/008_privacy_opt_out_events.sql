@@ -1,4 +1,4 @@
--- 007_privacy_opt_out_events.sql
+-- 008_privacy_opt_out_events.sql
 -- Browser ad opt-outs (Global Privacy Control, or the /privacy-choices switch) recorded against an
 -- email, so NM OS can keep that person out of ad audiences. Written by lib/privacy-opt-out-events.ts;
 -- read nightly by NM OS (noise-machine dnc-reconcile, as crm_readonly) into an `ads` do-not-contact
