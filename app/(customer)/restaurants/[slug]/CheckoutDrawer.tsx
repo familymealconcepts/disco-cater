@@ -6,6 +6,7 @@ import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
+import { conversionValue, firstConversionForOrder } from '../../../../lib/checkout-conversion'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
@@ -894,6 +895,29 @@ export default function CheckoutDrawer({
     trackEvent('checkout_payment_failed', { restaurant_name: restaurantName, total: trackingTotal, error_type: errorType })
   }
 
+  // GA funnel: order completed -- also the Google Ads conversion (lib/checkout-conversion.ts).
+  // transaction_id is the order number, value the amount charged as the place response states it
+  // (trackingTotal only when it does not), currency USD. Fires once per order per browser session:
+  // GA4 de-duplicates transaction_id for `purchase` only, not for a custom event like this one.
+  function trackCheckoutCompleted(orderNumber: number | string, placeData: Record<string, unknown> | null) {
+    const transactionId = String(orderNumber)
+    let store: Storage | null = null
+    try { store = window.sessionStorage } catch {}
+    if (!firstConversionForOrder(transactionId, store)) return
+    const { value, source: valueSource } = conversionValue(placeData, trackingTotal)
+    trackEvent('checkout_completed', {
+      restaurant_name: restaurantName,
+      order_number: orderNumber,
+      transaction_id: transactionId,
+      value,
+      currency: 'USD',
+      value_source: valueSource,
+      total: trackingTotal,
+      order_type: orderType,
+      source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+    })
+  }
+
   // ── ONE PLACE ORDER IN FLIGHT AT A TIME ──────────────────────────────────
   // The button stays clickable until React re-renders the 'placing' step, and on
   // the card path that only happens after two Stripe round trips (createToken,
@@ -1003,6 +1027,8 @@ export default function CheckoutDrawer({
       let finalRef: string
       let paymentIntentId: string | undefined
       let placedOrderNumber: number | string | undefined // for checkout_completed
+      // The place response, kept for checkout_completed's value: it carries what the diner is charged.
+      let placeResponse: Record<string, unknown> | null = null
 
       if (retry) {
         finalRef = retry.orderReference
@@ -1084,6 +1110,7 @@ export default function CheckoutDrawer({
           }),
         })
         const placeData = await placeRes.json().catch(() => ({} as any))
+        placeResponse = placeData
         // ── A REFUSAL MUST ALWAYS SURFACE, AND MUST SAY WHAT THE SERVER SAID ──
         // This threw only when the body happened to carry an `error` key, so a
         // non-OK response without one — an edge 401, a gateway page, anything
@@ -1134,10 +1161,7 @@ export default function CheckoutDrawer({
             setError(nativeConfirm.error?.message || 'Payment could not be completed. Please try again.')
             setStep('payment'); return
           }
-          trackEvent('checkout_completed', {
-            restaurant_name: restaurantName, order_number: placedOrderNumber ?? finalRef,
-            total: trackingTotal, order_type: orderType, source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
-          })
+          trackCheckoutCompleted(placedOrderNumber ?? finalRef, placeData)
           router.push(`/order-confirmation/${finalRef}`)
           return
         }
@@ -1269,15 +1293,7 @@ export default function CheckoutDrawer({
       // GA funnel: order completed. Customer flow only (Direct Entry excluded).
       // Fires after payment confirmed 'succeeded' (or, for non-card flows, a
       // successful place), just before the confirmation redirect.
-      if (!isDirectEntry) {
-        trackEvent('checkout_completed', {
-          restaurant_name: restaurantName,
-          order_number: placedOrderNumber ?? finalRef,
-          total: trackingTotal,
-          order_type: orderType,
-          source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
-        })
-      }
+      if (!isDirectEntry) trackCheckoutCompleted(placedOrderNumber ?? finalRef, placeResponse)
 
       // Direct entry returns to the portal Orders list; the customer flow goes
       // to the public order-confirmation page.
