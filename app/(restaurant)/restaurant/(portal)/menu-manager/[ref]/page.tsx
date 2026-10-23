@@ -45,9 +45,18 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setKebab(''); setItemMenu(null) } }
     // A tap anywhere outside the page content (the sidebar, the blank shell
-    // below short content) also closes the menus. Taps on a menu or its ⋯
-    // button stopPropagation, so they never reach the document.
-    const onDocClick = () => { setKebab(''); setItemMenu(null) }
+    // below short content) also closes the menus.
+    //
+    // stopPropagation does NOT keep a click away from this listener: React
+    // attaches its own listeners to the document here, so a ⋯ button's
+    // stopPropagation runs on the same node and this still fires — it closed
+    // every ⋯ menu the instant it opened (reported 23 Oct 2026: category ⋯
+    // "does nothing"). Clicks on a ⋯ button or inside a menu are marked with
+    // data-mm-menu and ignored instead.
+    const onDocClick = (e: MouseEvent) => {
+      if (e.target instanceof Element && e.target.closest('[data-mm-menu]')) return
+      setKebab(''); setItemMenu(null)
+    }
     window.addEventListener('keydown', onKey)
     document.addEventListener('click', onDocClick)
     return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('click', onDocClick) }
@@ -326,10 +335,10 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                 background: isOver ? '#EEF0FD' : selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
               <span {...handleProps} className="mm-drag-handle" style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: selCat === c.reference ? 700 : 500, color: DARK }}>{c.name}</span>
-              <button onClick={e => { e.stopPropagation(); setItemMenu(null); setKebab(kebab === c.reference ? '' : c.reference) }}
+              <button data-mm-menu onClick={e => { e.stopPropagation(); setItemMenu(null); setKebab(kebab === c.reference ? '' : c.reference) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 16, padding: '0 4px' }}>⋯</button>
               {kebab === c.reference && (
-                <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 6, top: 34, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 20, minWidth: 120 }}>
+                <div data-mm-menu onClick={e => e.stopPropagation()} style={{ position: 'absolute', right: 6, top: 34, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 20, minWidth: 120 }}>
                   <button onClick={() => { setCatDlg({ mode: 'edit', cat: c }); setKebab('') }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }}>Edit</button>
                   <button onClick={() => deleteCat(c)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: RED, cursor: 'pointer', fontFamily: F }}>Delete</button>
                 </div>
@@ -392,7 +401,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
                       {/* Delete lives in the ⋯ menu, like the categories' (Peter). */}
-                      <button title="More actions" aria-label={`More actions for ${it.name}`} aria-haspopup="menu"
+                      <button data-mm-menu title="More actions" aria-label={`More actions for ${it.name}`} aria-haspopup="menu"
                         aria-expanded={itemMenu?.item.reference === it.reference}
                         onClick={e => openItemMenu(e, it)}
                         style={{ ...iconBtn, color: '#999', fontSize: 16 }}>⋯</button>
@@ -410,7 +419,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
       </DndContext>
 
       {itemMenu && (
-        <div role="menu" onClick={e => e.stopPropagation()}
+        <div role="menu" data-mm-menu onClick={e => e.stopPropagation()}
           style={{ position: 'fixed', top: itemMenu.top, right: itemMenu.right, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, minWidth: 120 }}>
           <button role="menuitem" onClick={() => { const it = itemMenu.item; setItemMenu(null); deleteItem(it) }}
             style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: RED, cursor: 'pointer', fontFamily: F }}>Delete</button>
