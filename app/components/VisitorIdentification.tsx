@@ -10,12 +10,16 @@
 // Both skip the disco_internal=true cookie, so the team is never identified (RB2B always did;
 // Apollo did not until this component).
 //
+// Both also skip a visitor who has opted out — Global Privacy Control or the /privacy-choices
+// switch, decided by lib/privacy-choices.ts.
+//
 // The two loaders are the vendors' own snippets, unchanged apart from being called from here
 // instead of inline <Script> tags in app/layout.tsx.
 
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { visitorIdentificationAllowed } from '../../lib/visitor-identification'
+import { adTrackingOptedOut } from '../../lib/privacy-choices'
 
 declare global {
   interface Window {
@@ -59,6 +63,7 @@ export default function VisitorIdentification() {
     if (!pathname) return
     if (!visitorIdentificationAllowed(pathname, window.location.hostname)) return
     if (isInternal()) return
+    if (adTrackingOptedOut()) return
     try { loadRb2b('GNLKQH7D136Q') } catch { /* a vendor must never break the page */ }
     try { loadApollo('698b7a4f08b116001d87b092') } catch { /* same */ }
   }, [pathname])

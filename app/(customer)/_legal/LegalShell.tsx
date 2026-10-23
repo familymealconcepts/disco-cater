@@ -45,6 +45,8 @@ export default function LegalShell({ title, updated, children }: { title: string
         <span>·</span>
         <a href="/privacy">Privacy Policy</a>
         <span>·</span>
+        <a href="/privacy-choices">Your Privacy Choices</a>
+        <span>·</span>
         <a href="/terms">Terms</a>
         <span>·</span>
         <a href="mailto:concierge@discocater.com">Contact</a>
