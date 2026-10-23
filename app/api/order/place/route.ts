@@ -17,7 +17,7 @@ import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout
 import { parseTaxExempt } from '../../../../lib/order/tax-exempt'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 import { getCustomerSession } from '../../../../lib/customer-auth'
-import { alertOps } from '../../../../lib/ops-alert'
+import { alertPaidOrderMissing } from '../../../../lib/order/missing-order-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
 import { stampCheckoutContactOrderPlaced } from '../../../../lib/checkout-contacts'
 import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition, checkoutPagePath, sourceForCheckoutPage, recordCheckoutPath } from '../../../../lib/attribution'
@@ -182,10 +182,11 @@ async function mirrorOrderToNeon(args: {
     // Bail (no row) if any NOT-NULL-without-default column is missing — better
     // than a guaranteed constraint error. Logged so gaps are visible.
     if (!customerEmail || !restaurantRef || !orderDate || !orderTime || !orderNumber) {
-      await alertOps('order/place: Neon mirror skipped — missing required field (order not recorded)', {
+      console.error('[order/place] Neon mirror skipped — missing required field', {
         orderNumber: orderNumber || null, restaurantRef: restaurantRef || null,
         hasEmail: !!customerEmail, hasDate: !!orderDate, hasTime: !!orderTime,
       })
+      await alertPaidOrderMissing(reference, { orderNumber, restaurantReference: restaurantRef, total, why: 'missing required field' })
       return
     }
 
@@ -297,9 +298,12 @@ async function mirrorOrderToNeon(args: {
     // A paid FM order that failed to mirror can go invisible on Disco's side.
     // The confirm-payment fallback + the sync-fm-orders backstop may still recover
     // it, but make the failure loud rather than a swallowed console line.
-    await alertOps('order/place: Neon mirror failed (paid order may be unrecorded until backfill)', {
-      error: e instanceof Error ? e.message : String(e),
-    })
+    console.error('[order/place] Neon mirror failed:', e instanceof Error ? e.message : e)
+    const fm = (args.fmData ?? {}) as Record<string, unknown>
+    const inner = (fm.data ?? {}) as Record<string, unknown>
+    const ref = String(inner.orderReference ?? fm.orderReference ?? args.orderRef ?? '') || null
+    const n = String(inner.orderNumber ?? fm.orderNumber ?? '') || null
+    await alertPaidOrderMissing(ref, { orderNumber: n, restaurantReference: args.restaurantRef, why: e instanceof Error ? e.message : String(e) })
   }
 }
 

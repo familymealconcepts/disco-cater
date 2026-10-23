@@ -1,5 +1,4 @@
 import { sql } from './db'
-import { alertOps } from './ops-alert'
 
 // Mirrors disco_restaurant_overrides.online_ordering_enabled from FM's
 // onlineOrderingAllowed for every FM-BACKED restaurant.
@@ -164,10 +163,11 @@ export async function mirrorOnlineOrderingFromFm(
       `• ${f.name || f.restaurantReference} (${f.restaurantReference}): ${f.before === null ? 'unset' : f.before} → ${f.after}${f.dangerous ? ' ⚠ removes ordering at conversion' : ''}`,
     ).join('\n')
     const more = flips.length > show.length ? `\n…and ${flips.length - show.length} more` : ''
-    await alertOps(
-      `online-ordering-mirror${opts.dryRun ? ' (DRY RUN, nothing written)' : ''}: ${flips.length} FM-backed row(s) corrected from FM out of ${withValue.length} compared` +
-      `${dangerous.length ? ` — ${dangerous.length} in the true→false direction` : ''}` +
-      `. Inert until conversion: no FM-backed gate reads this column.\n${lines}${more}`,
+    // A REPORT, not an alert (Kevin, 2026-10-23): these rows are inert until
+    // conversion and the run has already corrected them, so it is logged only.
+    console.log(
+      `[online-ordering-mirror]${opts.dryRun ? ' (DRY RUN, nothing written)' : ''} ${flips.length} FM-backed row(s) corrected from FM out of ${withValue.length} compared` +
+      `${dangerous.length ? ` — ${dangerous.length} in the true→false direction` : ''}.\n${lines}${more}`,
     )
   }
 

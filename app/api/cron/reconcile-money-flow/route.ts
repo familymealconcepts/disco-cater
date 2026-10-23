@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { reconcileMoneyFlow } from '../../../../lib/money-flow-reconcile'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,14 +28,14 @@ function hasCronSecret(req: NextRequest): boolean {
 }
 
 async function handle(): Promise<NextResponse> {
-  const startedAt = Date.now()
   try {
     const result = await reconcileMoneyFlow()
     console.log('[reconcile-money-flow] done:', JSON.stringify({ ...result, flips: result.flips.length }))
+    await noteJobSuccess('reconcile-money-flow')
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('reconcile-money-flow: FAILED', { error, elapsedMs: Date.now() - startedAt })
+    await noteJobFailure('reconcile-money-flow', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

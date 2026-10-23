@@ -24,7 +24,8 @@
 import Stripe from 'stripe'
 import { sql } from '../db'
 import { recordOrderEvent, handleNativePaymentIntentSucceeded } from './native-payment-succeeded'
-import { alertOnce } from '../ops-alert'
+import { resolveAlert } from '../ops-alert'
+import { alertPaymentMismatch } from './money-alerts'
 
 export const DEFAULT_RECONCILIATION_LOOKBACK_HOURS = 26 // > the hourly cadence, so a missed run can't create a gap
 
@@ -228,7 +229,6 @@ export async function reconcileNativePayments(
 
   for (const m of mismatches) {
     await recordOrderEvent(m.orderReference, 'PAYMENT_RECONCILIATION_MISMATCH', m, 'PAYMENT_RECONCILIATION_SWEEP')
-    const dollars = m.amount != null ? (m.amount / 100).toFixed(2) : 'unknown'
     // Still loud even when auto-reconciled — this is the "we just fixed a paid
     // order that was silently stuck" case, not a routine event; a human should
     // know it happened, same as every other "someone should look at this"
@@ -239,11 +239,16 @@ export async function reconcileNativePayments(
     // alertOnce, keyed on the PaymentIntent and direction. This sweep runs hourly over a 26-hour
     // lookback, so an unresolved mismatch is re-detected on ~26 consecutive runs — with alertOps
     // that was 26 identical messages for one problem. The condition is the mismatch, not the check.
-    await alertOnce(
-      `payment-reconciliation:${m.direction}:${m.paymentIntentId}`,
-      `PAYMENT RECONCILIATION MISMATCH — ${label} (${m.direction}): PaymentIntent ${m.paymentIntentId} ($${dollars}), ` +
-      `order ${m.orderNumber ?? 'UNKNOWN'} (${m.orderReference ?? 'no reference'}), status=${m.orderStatus ?? 'n/a'}. ${m.detail}`,
-    )
+    const key = `payment-reconciliation:${m.direction}:${m.paymentIntentId}`
+    const shows = /shows "([^"]+)"/.exec(m.detail)?.[1]
+    const what = m.direction === 'local_paid_not_succeeded'
+      ? `Disco recorded this payment as succeeded, but Stripe now shows it as "${shows ?? 'not succeeded'}".`
+      : m.orderReference
+        ? `Stripe shows the payment succeeded, but the order is still ${m.orderStatus ?? 'unconfirmed'} in Disco.`
+        : `Stripe shows payment ${m.paymentIntentId} succeeded, but Disco has no order for it.`
+    await alertPaymentMismatch(key, m.orderReference, { amount: (m.amount ?? 0) / 100, what, detail: `${label}: ${m.detail}` })
+    // Fixed in the same run: say so in the thread straight away.
+    if (m.autoReconciled) await resolveAlert(key, 'Resolved: Disco confirmed the order automatically.')
   }
 
   return { checkedStripeSucceeded: dir1.checked, checkedLocalPaid: dir2.checked, mismatches }

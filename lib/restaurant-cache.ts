@@ -1,7 +1,7 @@
 import { sql, runMigrations } from './db'
 import { resolvePlace } from './geo/us-state-from-address'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { alertOps } from './ops-alert'
+import { alertOnce, resolveAlert, openAlertKeys } from './ops-alert'
 import { formatDisplayAddress } from './address-display'
 
 // Builds/refreshes disco_restaurant_cache from FM. This is the ONLY place that
@@ -279,10 +279,18 @@ export async function refreshRestaurantCache(): Promise<{
     const byRef = new Map(rows.map(r => [r.reference, r.name]))
     const named = absent.map(a => `${byRef.get(a.ref) ?? '?'} (${a.ref})`)
     console.error(`[refresh-map-cache] QUALIFIED ${refs.length} BUT ONLY ${present} ARE PRESENT — ${missing} missing:`, named)
-    await alertOps('refresh-map-cache: qualifying restaurants missing from the cache', {
-      qualified: refs.length, present, missing, sample: named,
-      rejected: failures.length, rejectedSample: failures.slice(0, 10),
+    const names = absent.map(a => byRef.get(a.ref) ?? a.ref)
+    await alertOnce('map-missing', {
+      severity: 'warn',
+      headline: `${missing} restaurant${missing === 1 ? '' : 's'} missing from the marketplace map`,
+      lines: [`They qualify to be listed but aren't in the map cache, so diners can't find them: ${names.slice(0, 10).join(', ')}${missing > 10 ? `, and ${missing - 10} more` : ''}.`],
+      action: "run Refresh Map Cache in Admin; if they're still missing, check the cron log for why they were rejected.",
+      context: { qualified: refs.length, present, missing, sample: named, rejected: failures.length, rejectedSample: failures.slice(0, 10) },
     })
+  } else if (missing === 0 && (await openAlertKeys('map-missing')).length) {
+    const was = ((await sql`SELECT headline FROM disco_alert_dedup WHERE alert_key = 'map-missing'`.catch(() => [])) as Array<{ headline: string | null }>)[0]?.headline
+    const n = Number(/^(\d+)/.exec(was ?? '')?.[1])
+    await resolveAlert('map-missing', `Resolved: ${n > 1 ? `all ${n} are` : n === 1 ? "it's" : "they're all"} on the map.`)
   }
 
   return {

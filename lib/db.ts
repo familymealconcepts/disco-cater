@@ -777,6 +777,15 @@ export async function runAlertDedupMigrations(): Promise<void> {
       note TEXT
     )`,
     `CREATE INDEX IF NOT EXISTS idx_disco_alert_dedup_first ON disco_alert_dedup(first_alerted_at DESC)`,
+    // 2026-10-23: a key can now CLEAR. slack_ts is the alert's own message, so
+    // its "resolved" lands in its thread; resolved_at closes the key so a
+    // returning condition posts fresh; fail_count backs the
+    // N-failures-in-a-row threshold for scheduled jobs.
+    `ALTER TABLE disco_alert_dedup ADD COLUMN IF NOT EXISTS slack_ts TEXT`,
+    `ALTER TABLE disco_alert_dedup ADD COLUMN IF NOT EXISTS headline TEXT`,
+    `ALTER TABLE disco_alert_dedup ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`,
+    `ALTER TABLE disco_alert_dedup ADD COLUMN IF NOT EXISTS fail_count INTEGER`,
+    `CREATE INDEX IF NOT EXISTS idx_disco_alert_dedup_open ON disco_alert_dedup(alert_key) WHERE resolved_at IS NULL`,
   ]
   for (const s of statements) await sql.query(s)
   alertDedupMigrated = true

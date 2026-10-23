@@ -1,5 +1,7 @@
 import { sql } from './db'
-import { alertOps } from './ops-alert'
+import { alertOnce, openAlertKeys, resolveAlert } from './ops-alert'
+import { emailSide, maskDinerEmail, bounceReason, orderLink, formatDay, type OpsAlert } from './ops-alert-format'
+import { orderFacts, orderLine } from './ops-alert-facts'
 
 /**
  * ORDER EMAILS THAT MAILGUN COULD NOT DELIVER (Peter, 22 Oct 2026).
@@ -161,13 +163,79 @@ export async function checkEmailFailures(lookbackHours = 72): Promise<{ scanned:
       ON CONFLICT (event_id) DO NOTHING
       RETURNING event_id`) as unknown[]
     if (!inserted.length) continue
-    await alertOps(`Order email NOT delivered — order #${f.orderNumber}${f.restaurantName ? ` (${f.restaurantName})` : ''} to ${f.recipient}. Not resent; someone needs to contact them.`, {
-      reason: f.reason, subject: f.subject, sendingIp: f.sendingIp, failedAt: f.eventTime, orderFound: !!f.orderReference,
-    })
+    const alert = await emailFailureAlert(f)
+    await alertOnce(`email:${(f.orderReference ?? `n${f.orderNumber}`).toLowerCase()}:${String(alert.context?.side ?? 'unknown')}`, alert)
     await sql`UPDATE disco_email_failures SET alerted_at = NOW() WHERE event_id = ${f.eventId}`
     recorded.push(f)
   }
+  await resolvePastEmailAlerts()
   return { scanned: events.length, orderEmails, recorded }
+}
+
+// ── The #ops-alerts message (approved word for word, Kevin 2026-10-23) ────────
+// One thread per order AND side: a second bounce of the same copy is silent
+// (#900000571 posted twice before this). Which side bounced is decided by
+// emailSide() in lib/ops-alert-format.ts — subject first, recipient second.
+// A diner's address is shown as …@domain only; a restaurant's in full.
+
+export async function emailFailureAlert(f: EmailFailure): Promise<OpsAlert> {
+  const facts = await orderFacts(f.orderReference)
+  const side = emailSide({
+    subject: f.subject, recipient: f.recipient, orderNumber: f.orderNumber,
+    customerEmail: facts?.customerEmail, restaurantEmails: facts?.restaurantEmails,
+  })
+  const shown = side === 'restaurant' ? f.recipient : maskDinerEmail(f.recipient)
+  const sent = `Sent to ${shown}. ${bounceReason(f.reason, f.recipient)} Not resent.`
+  const who = orderLine(facts, side === 'restaurant'
+    ? { amount: facts?.total, whenLabel: 'order for' }
+    : { amount: null, whenLabel: 'order for', when: formatDay(facts?.orderDate) })
+    || (f.restaurantName ?? '')
+  const link = f.orderReference ? orderLink(f.orderReference, f.orderNumber) : undefined
+  const context = { eventId: f.eventId, side, reason: f.reason, subject: f.subject, failedAt: f.eventTime }
+  if (side === 'diner') {
+    return {
+      severity: 'email', headline: `Diner didn't get their order receipt — #${f.orderNumber}`,
+      lines: [who, sent],
+      action: 'contact the diner to confirm the order, then resend the receipt to the right address from Admin › Manage Customers.',
+      link, context,
+    }
+  }
+  if (side === 'restaurant') {
+    return {
+      severity: 'email', headline: `Restaurant didn't get the new-order email — #${f.orderNumber}`,
+      lines: [who, sent],
+      action: 'call the restaurant to make sure they have the order.',
+      link, context,
+    }
+  }
+  return {
+    severity: 'email', headline: `Order email bounced — #${f.orderNumber}`,
+    lines: [who, sent, "Couldn't tell whether this was the diner's or the restaurant's copy."],
+    action: 'call the restaurant to make sure they have the order, and check the diner has their receipt.',
+    link, context,
+  }
+}
+
+/**
+ * Close the thread the day after the order date ends, in the restaurant's zone
+ * (Kevin, 2026-10-23): by then there is nothing left to do for that order.
+ */
+async function resolvePastEmailAlerts(): Promise<void> {
+  const keys = await openAlertKeys('email:')
+  if (!keys.length) return
+  const refs = Array.from(new Set(keys.map(k => k.split(':')[1]).filter(r => /^[0-9a-f-]{36}$/.test(r))))
+  if (!refs.length) return
+  const past = (await sql`
+    SELECT o.reference::text AS reference
+      FROM disco_orders o
+      LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+     WHERE o.reference::text = ANY(${refs})
+       AND ((o.order_date + 1)::timestamp AT TIME ZONE COALESCE(NULLIF(rc.timezone, ''), 'America/New_York')) <= NOW()
+  `.catch(() => [])) as Array<{ reference: string }>
+  const done = new Set(past.map(r => r.reference.toLowerCase()))
+  for (const k of keys) {
+    if (done.has(k.split(':')[1])) await resolveAlert(k, 'The order date has passed, so this is closed.')
+  }
 }
 
 export type OrderEmailFailure = { recipient: string; reason: string; eventTime: string; subject: string | null }

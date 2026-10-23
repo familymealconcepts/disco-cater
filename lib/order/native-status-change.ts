@@ -27,7 +27,9 @@ import Stripe from 'stripe'
 import { runDiscoOrderMigrations, sql } from '../db'
 import { sendOrderCancellationEmail } from './cancellation-email'
 import { voidUnpaidOrderInvoice } from './invoice-void'
-import { alertOps } from '../ops-alert'
+import { alertOps, alertOnce, resolveAlert } from '../ops-alert'
+import { orderLink, money, shortError } from '../ops-alert-format'
+import { orderFacts, orderLine } from '../ops-alert-facts'
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 export const ALLOWED_ORDER_STATUSES = new Set([
@@ -74,10 +76,18 @@ export async function voidInvoiceBeforeCancel(ref: string, status: string): Prom
     // alert at all. The cancel itself is unchanged; ops is told.
     const facts = await fulfillmentFacts(ref)
     if (facts?.past) {
-      await alertOps(`Unpaid invoice voided on a past order — $${facts.total.toFixed(2)} uncollected`, {
-        orderNumber: facts.orderNumber, restaurant: facts.restaurant, customer: facts.customer,
-        fulfillment: `${facts.orderType} ${facts.when}`, amount: facts.total, invoiceId: voided.invoiceId,
-      }).catch(() => {})
+      const f = await orderFacts(ref)
+      await alertOps({
+        severity: 'warn',
+        headline: `${money(facts.total)} never collected — order #${facts.orderNumber}`,
+        lines: [
+          orderLine(f, { amount: null, whenLabel: facts.orderType === 'delivery' ? 'delivered' : 'picked up' }) || facts.restaurant,
+          'The order was cancelled after its delivery time with its invoice still unpaid, so the invoice was voided.',
+        ],
+        action: 'if the food went out, bill the customer another way.',
+        link: orderLink(f?.reference ?? ref, facts.orderNumber),
+        context: { ref, invoiceId: voided.invoiceId, amount: facts.total },
+      }).catch(() => null)
     }
   }
   return { ok: true }
@@ -190,6 +200,10 @@ export async function applyNativeStatusChange(
         VALUES (${rows[0].reference}::uuid, ${rows[0].id}, 'delivery_cancel', ${deliveryId}, ${okFlag},
                 ${detail.slice(0, 500)}, ${okFlag ? 'success' : 'failed'})
       `.catch(e => console.error('[native-status] expedite cancel log failed (non-fatal):', e instanceof Error ? e.message : e))
+      if (okFlag) {
+        // Closes the thread a previous failed cancel opened, if there was one.
+        await resolveAlert(`courier-cancel:${String(rows[0].reference).toLowerCase()}`, 'Resolved: Expedite confirmed the cancellation.').catch(() => false)
+      }
       if (!okFlag) {
         // A courier can only still turn up for a delivery that hasn't happened.
         // Disco never receives Expedite's delivery status, so the delivery
@@ -204,9 +218,19 @@ export async function applyNativeStatusChange(
                     ${JSON.stringify({ expediteDeliveryId: deliveryId, reply: detail.slice(0, 300), deliveryWas: facts.when })}::jsonb, ${source})
           `.catch(e => console.error('[native-status] expedite after-delivery note failed (non-fatal):', e instanceof Error ? e.message : e))
         } else {
-          await alertOps('order cancelled but the Expedite courier was NOT stood down', {
-            orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200),
-          }).catch(() => {})
+          const f = await orderFacts(rows[0].reference)
+          const n = f?.orderNumber ?? facts?.orderNumber ?? null
+          await alertOnce(`courier-cancel:${String(rows[0].reference).toLowerCase()}`, {
+            severity: 'urgent',
+            headline: `Courier still booked on a cancelled order — ${n ? `#${n}` : rows[0].reference}`,
+            lines: [
+              orderLine(f, { amount: null }),
+              `The order was cancelled but Expedite rejected the cancellation (${shortError(detail, 80).replace(/^expedite (\d{3})$/i, 'error $1')}), so a driver may still turn up and Disco may still be charged the fee.`,
+            ],
+            action: 'cancel the delivery with Expedite directly.',
+            link: orderLink(rows[0].reference, n),
+            context: { orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200) },
+          }).catch(() => false)
         }
       }
     }

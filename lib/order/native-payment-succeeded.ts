@@ -14,7 +14,7 @@ import { dispatchOrderConfirmations, dispatchInventoryUnavailableNotification } 
 import { applyOrderInventoryDecrements } from './native-inventory'
 import { refundNativeOrder } from './native-refund'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
-import { alertOps } from '../ops-alert'
+import { alertSoldOutRefundFailed } from './money-alerts'
 import { waitUntil } from '@vercel/functions'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -112,7 +112,7 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
       waitUntil(dispatchInventoryUnavailableNotification(order.id, inventoryFailedItem))
     } catch (refundErr) {
       console.error(`[${source}] inventory-exhausted refund FAILED:`, refundErr instanceof Error ? refundErr.message : refundErr)
-      await alertOps(`URGENT: customer charged but "${inventoryFailedItem}" sold out (Max Inventory Per Day) and the automatic refund FAILED for order ${order.reference} (PI ${pi.id}) — manual refund needed.`)
+      await alertSoldOutRefundFailed(order.reference, inventoryFailedItem, pi.id)
     }
     return
   }

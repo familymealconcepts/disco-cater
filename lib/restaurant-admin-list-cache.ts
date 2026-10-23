@@ -1,6 +1,6 @@
 import { sql, runRestaurantAdminListCacheMigrations } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { alertOps } from './ops-alert'
+import { noteJobFailure, noteJobSuccess } from './ops-alert'
 
 // Builds disco_restaurant_admin_list_cache from FM's full restaurant
 // admin-list, so manage-restaurants/ordering reads Neon instead of calling FM
@@ -109,7 +109,7 @@ export async function refreshRestaurantAdminListCache(): Promise<AdminListSyncRe
     if (!first) {
       const error = 'FM page 0 failed even after retry — cannot determine totalElements'
       await recordAttempt({ ok: false, error })
-      await alertOps('refresh-restaurant-admin-list: FAILED — ' + error, { durationMs: Date.now() - startedAt })
+      await noteJobFailure('refresh-restaurant-admin-list', error)
       return { ok: false, totalElements: 0, fetched: 0, failedPages: 1, durationMs: Date.now() - startedAt, error }
     }
 
@@ -129,9 +129,7 @@ export async function refreshRestaurantAdminListCache(): Promise<AdminListSyncRe
     if (totalElements > 0 && all.length < totalElements) {
       const error = `reconciliation failed: fetched ${all.length} of ${totalElements} restaurants (${failedPages} page(s) failed even after retry)`
       await recordAttempt({ ok: false, error })
-      await alertOps('refresh-restaurant-admin-list: FAILED — ' + error, {
-        durationMs: Date.now() - startedAt, totalElements, fetched: all.length, failedPages,
-      })
+      await noteJobFailure('refresh-restaurant-admin-list', error)
       return { ok: false, totalElements, fetched: all.length, failedPages, durationMs: Date.now() - startedAt, error }
     }
 
@@ -169,11 +167,12 @@ export async function refreshRestaurantAdminListCache(): Promise<AdminListSyncRe
     ])
 
     await recordAttempt({ ok: true, total: totalElements || all.length })
+    await noteJobSuccess('refresh-restaurant-admin-list')
     return { ok: true, totalElements: totalElements || all.length, fetched: all.length, failedPages, durationMs: Date.now() - startedAt }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     await recordAttempt({ ok: false, error }).catch(() => {})
-    await alertOps('refresh-restaurant-admin-list: FAILED — ' + error, { durationMs: Date.now() - startedAt })
+    await noteJobFailure('refresh-restaurant-admin-list', error)
     return { ok: false, totalElements: 0, fetched: 0, failedPages: 0, durationMs: Date.now() - startedAt, error }
   }
 }

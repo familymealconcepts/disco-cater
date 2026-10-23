@@ -16,7 +16,7 @@ import { createHmac } from 'crypto'
 import { readCommissaryPickup, type CommissaryPickup } from './commissary'
 import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
-import { alertOps } from './ops-alert'
+import { openCourierAlert, expediteTurnedDownLine } from './order/courier-alert'
 import { fulfillmentDateTime } from './order/fulfillment-time'
 
 export const BASE_URL = 'https://api.dlivrd.app/batch/deliveries'
@@ -563,9 +563,8 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
         // otherwise — refuse to dispatch and surface it loudly, this is exactly
         // the disagreement that caused both real incidents.
         await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
-        await alertOps('expedite: refused to dispatch — order.delivery_type says THIRD_PARTY but its own menu says otherwise', {
-          orderId, reference, menuReference, menuMethod,
-        })
+        console.error('[expedite] refused: delivery_type THIRD_PARTY but menu says', menuMethod, { orderId, reference, menuReference })
+        await openCourierAlert(reference, "The order says third-party delivery but its menu says otherwise, so Disco didn't book a courier.")
         return
       }
     }
@@ -573,7 +572,7 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
     const payload = await buildPayloadFromNeon(reference)
     if (!payload) {
       await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
-      await alertOps('expedite: could not build native delivery payload — courier not dispatched', { orderId, reference })
+      await openCourierAlert(reference, "Disco couldn't build the delivery request for this order, so no courier was asked for.")
       return
     }
     const result = await createDelivery(payload)
@@ -595,7 +594,10 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
       // Reset the claim so a later retry can re-dispatch, and make it loud — a paid
       // order with no courier is a fulfillment failure.
       await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
-      await alertOps('expedite: native delivery dispatch FAILED (paid order, no courier)', { orderId, reference, error: result.error })
+      // One thread per order (lib/order/courier-alert.ts): the first failure posts,
+      // every retry after it stays silent until the thread escalates or closes.
+      console.error('[expedite] native delivery dispatch failed', { orderId, reference, error: result.error })
+      await openCourierAlert(reference, await expediteTurnedDownLine(reference, result.error))
     }
   } catch (e) {
     console.error('[expedite] dispatchExpediteForOrder error:', e instanceof Error ? e.message : e)

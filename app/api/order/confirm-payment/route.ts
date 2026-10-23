@@ -7,7 +7,7 @@ import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { sql } from '../../../../lib/db'
 import { createDelivery, buildPayloadFromNeon } from '../../../../lib/expedite'
 import { fmFetch } from '../../../../lib/fm-fetch'
-import { alertOps } from '../../../../lib/ops-alert'
+import { alertPaidOrderMissing } from '../../../../lib/order/missing-order-alert'
 import { loadFmOrderDetails, parseFmOrder } from '../../../../lib/order-edit'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 
@@ -175,8 +175,10 @@ async function dispatchAfterConfirm(orderReference: string, placedOrder?: Placed
     // fallback data — so Disco has no order row, no confirmation, no Expedite. Make
     // it LOUD (the sync-fm-orders backstop should still pull the order later, and
     // its DISCO-order backfill will then fire the confirmation).
-    await alertOps('order/confirm-payment: paid order not recorded on Disco — no confirmation dispatched (awaiting sync backfill)', {
-      orderReference,
+    console.error('[order/confirm-payment] paid order not recorded on Disco — awaiting sync backfill:', orderReference)
+    await alertPaidOrderMissing(orderReference, {
+      orderNumber: placedOrder?.orderNumber != null ? String(placedOrder.orderNumber) : null,
+      restaurantReference: placedOrder?.restaurantRef ?? null,
     })
     return
   }

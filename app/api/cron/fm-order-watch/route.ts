@@ -54,7 +54,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
-import { mirrorAlert } from '../../../../lib/mirror-alert'
+import { recordMirrorAlert } from '../../../../lib/mirror-alert'
+import { alertGroup, syncAlertSet, resolveAlert, noteJobFailure, noteJobSuccess, bumpStreaks, clearStreaks } from '../../../../lib/ops-alert'
+import { shortError } from '../../../../lib/ops-alert-format'
+import { restaurantName } from '../../../../lib/ops-alert-facts'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
@@ -427,28 +430,44 @@ async function handle(req: NextRequest): Promise<NextResponse> {
           OR EXTRACT(EPOCH FROM (NOW() - w.last_checked_at)) / 3600 >= ${STALE_ALERT_HOURS}
       ORDER BY 3 DESC NULLS FIRST
       LIMIT 50
-    `.catch(() => [])) as { ref: string; name: string | null; hours: string | null }[]
+    `) as { ref: string; name: string | null; hours: string | null }[]
+    // No .catch(() => []) above: an empty result would close every open
+    // "not being watched" thread. A failed read throws to the job-failure alert.
 
     // Never on the very first run, when every row is legitimately unseen.
     const firstRun = baseline.length === 0
-    if (stale.length && !firstRun) {
-      await mirrorAlert(
-        'watch-stale',
-        `FM order watch: ${stale.length} converted restaurant(s) not checked in ${STALE_ALERT_HOURS}+ hours`,
-        {
-          restaurants: stale.slice(0, 25).map(s => `${s.name || s.ref} (${s.hours == null ? 'never checked' : Number(s.hours).toFixed(1) + 'h ago'})`),
-          truncated: stale.length > 25 ? stale.length - 25 : 0,
-        },
-      )
+    if (!firstRun) {
+      const fresh = await alertGroup(stale.map(x => ({ ...x, key: `fm-watch-stale:${x.ref.toLowerCase()}` })), items => ({
+        severity: 'warn',
+        headline: `FamilyMeal order watch hasn't checked ${items.length} restaurant${items.length === 1 ? '' : 's'}`,
+        lines: [`Not checked in ${STALE_ALERT_HOURS}+ hours: ${items.slice(0, 10).map(x => `${x.name || x.ref} (${x.hours == null ? 'never' : `${Number(x.hours).toFixed(1)}h`})`).join(', ')}${items.length > 10 ? `, and ${items.length - 10} more` : ''}. Their new orders may not reach Disco.`],
+        action: 'nothing if they clear on the next run; otherwise check the fm-order-watch cron in Vercel.',
+        context: { refs: items.map(x => x.ref) },
+      }))
+      if (fresh.length) await recordMirrorAlert('watch-stale', `${fresh.length} restaurant(s) unwatched`, { refs: fresh.map(x => x.ref) })
+      const names = new Map(stale.map(x => [x.ref.toLowerCase(), x.name]))
+      await syncAlertSet('fm-watch-stale:', stale.map(x => `fm-watch-stale:${x.ref.toLowerCase()}`), key =>
+        `${names.get(key.slice('fm-watch-stale:'.length)) ?? 'This restaurant'} is being checked again.`)
     }
 
-    if (failures.length) {
-      await mirrorAlert(
-        'watch-fetch-failed',
-        `FM order watch: ${failures.length} restaurant(s) failed their order fetch`,
-        { failures: failures.slice(0, 20).map(f => `${f.ref}: ${f.error}`) },
-      )
+    // A failed order fetch: per restaurant, after 2 runs in a row.
+    const streaks = await bumpStreaks('fm-watch:', failures.map(f => f.ref))
+    const due = failures.filter(f => (streaks.get(f.ref) ?? 0) >= 2)
+    if (due.length) {
+      const named = await Promise.all(due.map(async f => ({ ...f, key: `fm-watch-fail:${f.ref.toLowerCase()}`, name: (await restaurantName(f.ref)) ?? f.ref, runs: streaks.get(f.ref) ?? 2 })))
+      const fresh = await alertGroup(named, items => ({
+        severity: 'warn',
+        headline: `FamilyMeal order watch failing for ${items.length} restaurant${items.length === 1 ? '' : 's'}`,
+        lines: [`Fetch failed ${Math.min(...items.map(x => x.runs))} runs in a row: ${items.slice(0, 10).map(x => `${x.name} (${shortError(x.error, 60)})`).join(', ')}. Their new orders may not reach Disco.`],
+        action: 'nothing if it clears next run; otherwise check the restaurant in FamilyMeal.',
+        context: { failures: items.map(x => `${x.ref}: ${x.error}`) },
+      }))
+      if (fresh.length) await recordMirrorAlert('watch-fetch-failed', `${fresh.length} restaurant(s) failing`, { refs: fresh.map(x => x.ref) })
     }
+    for (const ref of await clearStreaks('fm-watch:', fetched.map(f => f.ref))) {
+      await resolveAlert(`fm-watch-fail:${ref.toLowerCase()}`, `${(await restaurantName(ref)) ?? ref} is being fetched again.`)
+    }
+    await noteJobSuccess('fm-order-watch')
 
     const inserted = fetched.reduce((a, f) => a + f.inserted, 0)
     const duration_ms = Date.now() - startedAt
@@ -461,7 +480,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/fm-order-watch] failed:', error)
-    await mirrorAlert('run-failed', `fm-order-watch FAILED (converted restaurants are unwatched): ${error}`, { error })
+    await noteJobFailure('fm-order-watch', error)
+    await recordMirrorAlert('run-failed', `fm-order-watch FAILED: ${error}`, { error })
     return NextResponse.json({ error: 'watch failed', duration_ms: Date.now() - startedAt }, { status: 500 })
   }
 }

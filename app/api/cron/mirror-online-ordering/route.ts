@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { mirrorOnlineOrderingFromFm } from '../../../../lib/online-ordering-mirror'
-import { alertOps } from '../../../../lib/ops-alert'
+import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,15 +33,15 @@ function hasCronSecret(req: NextRequest): boolean {
 }
 
 async function handle(req: NextRequest): Promise<NextResponse> {
-  const startedAt = Date.now()
   const dryRun = req.nextUrl.searchParams.get('dryRun') === '1'
   try {
     const result = await mirrorOnlineOrderingFromFm({ dryRun })
     console.log('[mirror-online-ordering] done:', JSON.stringify({ ...result, flips: result.flips.length, dryRun }))
+    await noteJobSuccess('mirror-online-ordering')
     return NextResponse.json({ success: true, dryRun, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    await alertOps('mirror-online-ordering: FAILED', { error, elapsedMs: Date.now() - startedAt })
+    await noteJobFailure('mirror-online-ordering', error)
     return NextResponse.json({ success: false, error }, { status: 500 })
   }
 }

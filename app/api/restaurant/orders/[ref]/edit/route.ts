@@ -42,7 +42,7 @@ import { assertFiniteMoney } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
-import { alertOps } from '../../../../../../lib/ops-alert'
+import { alertEditVoidFailed, alertEditReissueFailed, alertEditRefundImpossible } from '../../../../../../lib/order/money-alerts'
 import { decideEditPaymentAction } from '../../../../../../lib/order/edit-payment-action'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
@@ -756,9 +756,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         // reduced total is exactly the state this fix exists to remove — the
         // customer could pay the higher, stale amount.
         console.error('[orders/edit] void failed, not reissuing:', voided.error)
-        await alertOps('order-edit void-and-reissue FAILED — stale invoice may still be payable', {
-          orderNumber, orderReference: discoOrder?.reference || ref, error: voided.error,
-        })
+        await alertEditVoidFailed(discoOrder?.reference || ref, discoOrder?.stripe_invoice_id ?? null, voided.error)
         return NextResponse.json({ error: 'Unable to update the invoice for this edit. Please try again.' }, { status: 502 })
       }
 
@@ -800,11 +798,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) {
           console.error('[orders/edit] reissue failed after void:', e instanceof Error ? e.message : e)
           paymentStatus = 'failed'
-          await alertOps('order-edit invoice VOIDED but reissue FAILED — customer has no invoice to pay', {
-            orderNumber, orderReference: discoOrder?.reference || ref,
-            voidedInvoice: voided.action === 'voided' ? voided.invoiceId : null,
-            error: e instanceof Error ? e.message : String(e),
-          })
+          await alertEditReissueFailed(discoOrder?.reference || ref, newTotal, e)
         }
       }
       // An updated-invoice email, never a refund email. Nothing was refunded.
@@ -851,12 +845,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       // refund — genuinely anomalous, and worth waking someone.
       console.warn('[orders/edit] refund requested but no original payment intent / Stripe — recording as failed')
       paymentStatus = 'failed'
-      await alertOps('order-edit REFUND IMPOSSIBLE — no PaymentIntent on a reduced order; customer NOT emailed, money NOT moved', {
-        orderNumber, orderReference: discoOrder?.reference || ref,
-        delta, orderStatus: discoOrder?.order_status ?? null,
-        stripeInvoiceId: discoOrder?.stripe_invoice_id ?? null,
-        stripeInvoiceStatus: discoOrder?.stripe_invoice_status ?? null,
-      })
+      await alertEditRefundImpossible(discoOrder?.reference || ref, Math.abs(delta))
     }
     return await confirmEdit()
   } catch (e) {

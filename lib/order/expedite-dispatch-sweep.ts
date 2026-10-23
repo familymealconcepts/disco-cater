@@ -87,7 +87,10 @@
  * to telephone the restaurant.
  */
 import { sql } from '../db'
-import { alertOps, alertOnce } from '../ops-alert'
+import { openCourierAlert, escalateCourier, courierBookedByRetry, resolveCourierAlerts, lastExpediteRefusal } from './courier-alert'
+import { alertOps } from '../ops-alert'
+import { orderLink, money } from '../ops-alert-format'
+import { orderFacts, orderLine } from '../ops-alert-facts'
 import { buildPayloadFromNeon, dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
 
 /**
@@ -192,6 +195,10 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
     scanned: 0, dispatched: [], failed: [], permanentlyRefused: [], tooLate: [], silentlyStale: [], unbuildable: [], skippedDisabled: false,
   }
 
+  // Close the courier threads whose orders no longer need a courier — booked, cancelled,
+  // refunded. Before the dispatch gate: closing a thread books nothing.
+  await resolveCourierAlerts().catch(e => console.error('[expedite-sweep] resolve pass failed (non-fatal):', e instanceof Error ? e.message : e))
+
   // Same flag the live path is gated on. If native dispatch is off, this must not quietly become
   // a second way for couriers to be booked.
   if (!nativeDispatchEnabled()) {
@@ -244,11 +251,7 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
     const payload = await buildPayloadFromNeon(row.reference)
     if (!payload) {
       summary.unbuildable.push(base)
-      await alertOnce(
-        `expedite-sweep:unbuildable:${row.reference}`,
-        'expedite sweep: could not build a payload for an order with no courier',
-        { orderNumber: row.order_number, reference: row.reference, restaurant: row.restaurant_name },
-      )
+      await openCourierAlert(row.reference, "Disco couldn't build the delivery request for this order, so no courier was asked for.")
       continue
     }
 
@@ -275,20 +278,10 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
       // job is damage control with the customer. Collapsing them would bury the one that is
       // actionable underneath the ones that are not.
       //
-      // Distinct alert keys, so an order that is first seen AT RISK and later seen MISSED raises
-      // both once — the escalation is real information, not a repeat.
-      const phase = decision === 'missed' ? 'missed' : 'at-risk'
-      await alertOnce(
-        `expedite-sweep:${phase}:${row.reference}`,
-        decision === 'missed'
-          ? 'expedite sweep: DELIVERY MISSED — order has no courier and its pickup time has passed'
-          : 'expedite sweep: DELIVERY AT RISK — no courier and pickup is minutes away; a phone call can still save this',
-        {
-          orderNumber: row.order_number, restaurant: row.restaurant_name, total: row.total,
-          pickupAt, minutesToPickup: minutes, marginMinutes: DISPATCH_MARGIN_MINUTES,
-          action: 'call the restaurant and the customer — this will NOT be dispatched automatically',
-        },
-      )
+      // Replies in the order's one courier thread, each step once: AT RISK is the
+      // savable-by-phone moment, MISSED is damage control. Both are also shown in
+      // the channel, because someone must act now.
+      await escalateCourier(row.reference, decision === 'missed' ? 'missed' : 'at-risk', { minutesToPickup: minutes, pickupAt })
       continue
     }
 
@@ -304,14 +297,19 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
     if (booked) {
       summary.dispatched.push(candidate)
       // Loud by design: a sweep dispatch means the live path failed for this order.
-      await alertOps('expedite sweep: dispatched a courier for an order that had none', {
-        orderNumber: row.order_number, restaurant: row.restaurant_name, total: row.total,
-        pickupAt, minutesToPickup: minutes,
-        expediteDeliveryId: after[0]?.expedite_delivery_id,
-        providerDeliveryId: after[0]?.expedite_provider_delivery_id,
-        fee: after[0]?.fee, status: after[0]?.expedite_status,
-        note: 'this order was paid but never got a courier from the live path — check why',
-      })
+      // Normally that failure opened a thread, and this closes it; if none is open,
+      // say it top-level.
+      if (!(await courierBookedByRetry(row.reference, after[0]?.fee ?? null))) {
+        const f = await orderFacts(row.reference)
+        await alertOps({
+          severity: 'warn',
+          headline: `Courier booked by the retry — order #${row.order_number}`,
+          lines: [orderLine(f), `The booking at checkout never happened, so the 15-minute retry booked it${after[0]?.fee ? ` (fee ${money(after[0].fee)})` : ''}.`],
+          action: "find out why the booking at checkout didn't go through.",
+          link: orderLink(row.reference, row.order_number),
+          context: { reference: row.reference, expediteDeliveryId: after[0]?.expedite_delivery_id, status: after[0]?.expedite_status },
+        })
+      }
     } else {
       // dispatchExpediteForOrder already alerted with the specific reason (failed dlivrd call,
       // menu-method disagreement, unbuildable payload) or simply lost the claim to another run.
@@ -327,18 +325,8 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
       `.catch(() => [])) as Array<{ response_body: string | null }>
       const body = String(lastRef[0]?.response_body ?? '')
       if (PERMANENT_REFUSAL.test(body)) {
-        let message = body
-        try { message = String((JSON.parse(body) as { message?: string }).message ?? body) } catch { /* not JSON */ }
         summary.permanentlyRefused.push(candidate)
-        await alertOnce(
-          `expedite-sweep:refused:${row.reference}`,
-          'expedite REFUSED this delivery and will keep refusing it — no courier will be booked automatically',
-          {
-            orderNumber: row.order_number, restaurant: row.restaurant_name, total: row.total,
-            deliveryTime: pickupAt, expediteSaid: message.slice(0, 200),
-            action: 'arrange this delivery another way, and take it up with Expedite — Disco has stopped retrying',
-          },
-        )
+        await escalateCourier(row.reference, 'refused', { refusal: await lastExpediteRefusal(row.reference) })
       }
     }
   }

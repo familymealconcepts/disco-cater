@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { alertOnce } from '../../../../lib/ops-alert'
+import { alertOnce, resolveAlert, noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
+import { SUGGESTIONS } from '../../../../lib/ops-alert-format'
+import { restaurantName } from '../../../../lib/ops-alert-facts'
 import { refreshStripeCapabilities } from '../../../../lib/stripe-capability-refresh'
 
 export const runtime = 'nodejs'
@@ -34,7 +36,12 @@ export async function GET(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const key = process.env.STRIPE_READONLY_KEY || process.env.STRIPE_SECRET_KEY
   if (!key) {
-    await alertOnce('stripe-capability-refresh:no-key', 'refresh-stripe-capabilities: no Stripe key configured — capability snapshot is going stale', {})
+    await alertOnce('config:stripe-capability-key', {
+      severity: 'urgent',
+      headline: 'Stripe status refresh can\'t run: no Stripe key is set',
+      lines: ["New Stripe restrictions won't be picked up until it is."],
+      action: 'set STRIPE_READONLY_KEY in Vercel (Production).',
+    })
     return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 })
   }
   try {
@@ -44,20 +51,32 @@ export async function GET(req: NextRequest) {
     // Only a CHANGE is worth an alert, and only once per restaurant per transition —
     // a standing restriction is already visible on the admin screen and does not
     // need to be re-announced every hour. See lib/ops-alert.ts's rule.
+    await resolveAlert('config:stripe-capability-key', 'Resolved: the key is set and the refresh ran.')
+    // One thread per restaurant, opened when Stripe restricts it and closed when
+    // Stripe lifts it. A standing restriction is on the admin screen already and
+    // is never re-announced.
     for (const f of s.flips) {
+      const key = `stripe-restricted:${String(f.restaurantReference).toLowerCase()}`
       if (f.to === 'restricted') {
-        await alertOnce(
-          `stripe-restricted:${f.restaurantReference}:${f.to}`,
-          'Stripe has RESTRICTED a restaurant’s account — it can no longer take orders and is now hidden from its locations page',
-          { restaurantReference: f.restaurantReference, from: f.from, to: f.to },
-        )
+        const name = (await restaurantName(f.restaurantReference)) ?? 'a restaurant'
+        await alertOnce(key, {
+          severity: 'warn',
+          headline: `Stripe restricted ${name}`,
+          lines: ["It can't take orders and is hidden from its locations page until Stripe lifts the restriction."],
+          action: 'ask the restaurant to finish what Stripe is asking for in their Stripe dashboard.',
+          link: SUGGESTIONS.accountManagement,
+          context: { restaurantReference: f.restaurantReference, from: f.from, to: f.to },
+        })
+      } else if (f.from === 'restricted') {
+        await resolveAlert(key, 'Resolved: Stripe lifted the restriction; it can take orders again.')
       }
     }
+    await noteJobSuccess('refresh-stripe-capabilities')
     return NextResponse.json({ ok: true, ...s })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/refresh-stripe-capabilities] failed:', error)
-    await alertOnce('stripe-capability-refresh:failed', 'refresh-stripe-capabilities FAILED — Stripe capability snapshot is going stale', { error })
+    await noteJobFailure('refresh-stripe-capabilities', error)
     return NextResponse.json({ error: 'refresh failed' }, { status: 500 })
   }
 }

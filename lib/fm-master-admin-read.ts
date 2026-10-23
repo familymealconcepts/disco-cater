@@ -31,6 +31,7 @@
 // wherever the rotation runbook lives; this file cannot enforce it.
 import { sql } from './db'
 import { alertOps } from './ops-alert'
+import { restaurantName } from './ops-alert-facts'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { createLoginGuard, FM_LOGIN_TIMEOUT_MS } from './fm-login-guard'
 
@@ -574,10 +575,16 @@ async function readGroupForOneAdmin(
       }
       if (!restoreConfirmed) {
         overallReason = 'RESTORE FAILED OR UNVERIFIED'
-        await alertOps(
-          `fm-master-admin-read: could not confirm ${email}'s FM selection was restored to their home restaurant (${homeRestaurant}) after a batch read — their account may be left pointed at ${switchedTo[switchedTo.length - 1]}`,
-          { adminEmail: email, homeRestaurant, lastSwitchedTo: switchedTo[switchedTo.length - 1], switchedTo, restaurantsRead },
-        )
+        const last = switchedTo[switchedTo.length - 1]
+        const homeName = (await restaurantName(homeRestaurant)) ?? homeRestaurant
+        const lastName = (await restaurantName(last)) ?? last
+        await alertOps({
+          severity: 'urgent',
+          headline: 'A FamilyMeal admin may be left on the wrong restaurant',
+          lines: [`After a batch read, Disco couldn't confirm ${email} was switched back to ${homeName} in FamilyMeal. They may still be pointed at ${lastName}.`],
+          action: 'check their selected restaurant in FamilyMeal and switch it back.',
+          context: { adminEmail: email, homeRestaurant, lastSwitchedTo: last, switchedTo, restaurantsRead },
+        })
       }
     }
     await auditRead({

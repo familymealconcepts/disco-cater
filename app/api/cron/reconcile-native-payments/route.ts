@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runDiscoOrderMigrations } from '../../../../lib/db'
 import { stripeClient } from '../../../../lib/order/native-payment'
 import { reconcileNativePayments, DEFAULT_RECONCILIATION_LOOKBACK_HOURS } from '../../../../lib/order/native-payment-reconciliation'
+import { resolveRestaurantNotPaid, resolvePaymentMismatches } from '../../../../lib/order/money-alerts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,6 +39,10 @@ export async function GET(req: NextRequest) {
     const lookbackEnv = parseInt(process.env.NATIVE_PAYMENT_RECONCILIATION_LOOKBACK_HOURS || '', 10)
     const lookbackHours = Number.isFinite(lookbackEnv) && lookbackEnv > 0 ? lookbackEnv : DEFAULT_RECONCILIATION_LOOKBACK_HOURS
     const summary = await reconcileNativePayments(stripe, lookbackHours)
+    // Close the #ops-alerts threads whose problem has gone: a restaurant now paid,
+    // a payment Disco has since confirmed. Hourly, alongside the check that opens them.
+    await resolveRestaurantNotPaid().catch(e => console.error('[cron/reconcile-native-payments] unpaid resolve failed (non-fatal):', e instanceof Error ? e.message : e))
+    await resolvePaymentMismatches().catch(e => console.error('[cron/reconcile-native-payments] mismatch resolve failed (non-fatal):', e instanceof Error ? e.message : e))
     console.log(
       `[cron/reconcile-native-payments] checkedStripeSucceeded=${summary.checkedStripeSucceeded} checkedLocalPaid=${summary.checkedLocalPaid} mismatches=${summary.mismatches.length} (lookbackHours=${lookbackHours})`,
     )

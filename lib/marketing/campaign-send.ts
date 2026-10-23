@@ -3,7 +3,8 @@ import { sendEmail } from '../email/send'
 import { layout } from '../email/layout'
 import { inSendWindow, msUntilWindowOpen, describeWindow } from './send-window'
 import { CampaignHealth } from './campaign-health'
-import { alertOps } from '../ops-alert'
+import { alertOnce, resolveAlert, noteJobFailure, noteJobSuccess } from '../ops-alert'
+import { haltReasonInWords, shortError } from '../ops-alert-format'
 import { withTransientRetry, PRE_DELIVERY, RETRY_ATTEMPTS } from './transient-retry'
 import { NmDoNotContactGuard } from './nm-do-not-contact'
 
@@ -207,6 +208,14 @@ export async function isCampaignHalted(campaign = REBRAND_CAMPAIGN): Promise<boo
 }
 
 /** Stop the campaign. Idempotent. */
+/** "3 minutes" / "40 seconds", for the recovered reply. */
+export function minutesWords(ms: number): string {
+  const sec = Math.round(ms / 1000)
+  if (sec < 90) return `${sec} second${sec === 1 ? '' : 's'}`
+  const m = Math.round(sec / 60)
+  return `${m} minute${m === 1 ? '' : 's'}`
+}
+
 export async function haltCampaign(by: string, note?: string, campaign = REBRAND_CAMPAIGN): Promise<void> {
   await sql`
     INSERT INTO marketing_campaign_control (campaign, halted_at, halted_by, note, updated_at)
@@ -224,6 +233,7 @@ export async function resumeCampaign(campaign = REBRAND_CAMPAIGN): Promise<void>
     ON CONFLICT (campaign) DO UPDATE
       SET halted_at = NULL, halted_by = NULL, note = NULL, updated_at = NOW()
   `
+  await resolveAlert(`campaign-halt:${campaign}`, 'Resolved: the campaign was resumed.')
 }
 
 // Claim an address. Returns false when it was already claimed — i.e. a previous
@@ -368,8 +378,13 @@ export async function runCampaign(
   // one resumes without a person clearing it.
   async function autoHalt(email: string, reason: string): Promise<SendOutcome> {
     await haltCampaign('auto-halt', reason, campaign)
-    await alertOps(`CAMPAIGN AUTO-HALT (${campaign}): ${reason}` +
-      (health ? ` | ${JSON.stringify(health.snapshot())}` : ''))
+    await alertOnce(`campaign-halt:${campaign}`, {
+      severity: 'urgent',
+      headline: `Campaign paused automatically — ${campaign}`,
+      lines: [haltReasonInWords(reason)],
+      action: "check the list and the sending domain's health, then resume it in Admin › Marketing.",
+      context: { campaign, reason, ...(health ? { snapshot: health.snapshot() } : {}) },
+    })
     const out: SendOutcome = { email, status: 'auto-halted', reason }
     results.push(out); opts?.onProgress?.(out)
     return out
@@ -414,12 +429,11 @@ export async function runCampaign(
         // are still evaluated below on every single recipient regardless.
         try {
           await health.poll(opts.mailgunKey)
+          await noteJobSuccess('campaign-health-poll')
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           console.warn(`[campaign] health poll failed, keeping the previous snapshot: ${msg.slice(0, 120)}`)
-          await alertOps('campaign health poll failed — the run continued on the previous snapshot', {
-            error: msg.slice(0, 200), sentThisRun,
-          })
+          await noteJobFailure('campaign-health-poll', msg)
         }
       }
       const verdict = health.evaluate()
@@ -497,9 +511,11 @@ export async function runCampaign(
       for (let attempt = 1; attempt < RETRY_ATTEMPTS && !res.success; attempt++) {
         if (attempt === RETRY_ALERT_AFTER_SEND && !alerted) {
           alerted = true
-          await alertOps('campaign Mailgun unreachable on send — still retrying, the run has NOT stopped', {
-            email: r.email, error: (res.error ?? '').slice(0, 200),
-            elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+          await alertOnce(`campaign-unreachable:Mailgun`, {
+            severity: 'warn',
+            headline: `Campaign can't reach Mailgun — ${campaign}`,
+            lines: ['Sending is paused while Disco retries for up to 10 minutes. Nothing to do yet.'],
+            context: { error: shortError(res.error ?? ''), elapsedSec: Math.round((Date.now() - startedAt) / 1000) },
           })
         }
         const backoff = Math.min(1000 * 2 ** (attempt - 1), 30_000) + Math.floor(Math.random() * 1000)
@@ -519,7 +535,7 @@ export async function runCampaign(
         if (!res.success && !PRE_DELIVERY.test(res.error ?? '')) break
       }
       if (res.success && alerted) {
-        await alertOps(`campaign Mailgun connectivity RECOVERED on send after ${Math.round((Date.now() - startedAt) / 1000)}s — the run continued`)
+        await resolveAlert('campaign-unreachable:Mailgun', `Mailgun is back after ${minutesWords(Date.now() - startedAt)}; the campaign carried on.`)
       }
     }
 

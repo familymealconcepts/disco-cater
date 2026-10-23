@@ -1,7 +1,7 @@
 # Production drift check: is the live site running the latest commit on main?
 # Runs on GitHub, outside Vercel, so it still works when Vercel is the problem.
-# Alerts #ops-alerts (Disco Alerts) when production is behind for over 15 min,
-# at most once an hour, and once when back in sync. Never deploys.
+# Alerts #ops-alerts once when production is behind for over 15 min, and once
+# when back in sync (in the alert's thread when the bot token is set). Never deploys.
 # Logic: .github/scripts/prod-drift-check.mjs
 name: Production drift check
 
@@ -47,6 +47,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SLACK_WEBHOOK: ${{ secrets.OPS_ALERTS_SLACK_WEBHOOK }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_OPS_ALERTS_BOT_TOKEN }}
           PROD_URL: https://www.discocater.com
           PRETEND_LIVE_SHA: ${{ github.event.inputs.pretend_live_sha }}
         run: node .github/scripts/prod-drift-check.mjs

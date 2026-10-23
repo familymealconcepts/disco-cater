@@ -297,11 +297,13 @@ const RUN_STATE: { sent: number; endedCleanly: boolean; haltReason: string | nul
 async function alertUnplannedExit(why: string, detail?: unknown): Promise<void> {
   if (RUN_STATE.endedCleanly) return
   try {
-    await alertOps('diner campaign STOPPED unexpectedly — it is no longer sending', {
-      why,
-      sentThisRun: RUN_STATE.sent,
-      detail: detail instanceof Error ? detail.message.slice(0, 300) : String(detail ?? '').slice(0, 300),
-      note: 'Not a halt rule and not the end of the list. Relaunch to resume; already-sent recipients are skipped.',
+    const said = detail instanceof Error ? detail.message : String(detail ?? '')
+    await alertOps({
+      severity: 'urgent',
+      headline: 'Diner campaign stopped unexpectedly',
+      lines: [`It sent ${RUN_STATE.sent} email${RUN_STATE.sent === 1 ? '' : 's'} this run, then stopped: ${why}${said ? ` (${said.slice(0, 120)})` : ''}. That isn't a halt rule or the end of the list.`],
+      action: 'relaunch it; recipients already sent to are skipped.',
+      context: { why, sentThisRun: RUN_STATE.sent, detail: said.slice(0, 300) },
     })
   } catch { /* alerting must never be the thing that throws here */ }
 }

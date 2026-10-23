@@ -1,6 +1,7 @@
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { alertOps } from './ops-alert'
+import { alertGroup, syncAlertSet } from './ops-alert'
+import { SUGGESTIONS } from './ops-alert-format'
 
 // Reconciles disco_restaurant_overrides.money_flow against FM's live moneyFlow.
 // money_flow is written exactly once, as a side effect of the admin ordering
@@ -121,7 +122,10 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
     LEFT JOIN disco_restaurant_admin_list_cache l ON l.restaurant_reference = o.restaurant_reference
     WHERE o.money_flow IS NULL AND c.is_disco_native = true
     ORDER BY c.name
-  `.catch(() => [])) as { restaurant_reference: string; name: string | null; fm_value: string | null }[]
+  `) as { restaurant_reference: string; name: string | null; fm_value: string | null }[]
+  // No .catch(() => []) on the query above: an empty list would close every
+  // "no money flow set" thread below. A failed read throws, and the cron's
+  // job-failure alert says the check is down instead.
 
   let matched = 0
   let errored = 0
@@ -172,13 +176,30 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
     const lines = flips.map(f =>
       `• ${f.name || f.restaurantReference} (${f.restaurantReference}): ${f.before ?? 'NULL'} → ${f.after}${f.filled ? ' (fill — row had no value)' : ''}${f.dangerous ? ' ⚠ DIRECT→FAMILY_MEAL' : ''}`,
     ).join('\n')
-    await alertOps(
-      `money-flow-reconcile: wrote ${flips.length} money_flow value(s) out of ${rows.length} checked` +
-      `${filledCount ? ` — ${filledCount} were FILLS of previously-NULL FM-backed rows` : ''}` +
-      `${dangerousCount ? ` (${dangerousCount} were the dangerous DIRECT→FAMILY_MEAL direction)` : ''}` +
-      `${nativeNulls.length ? `. Disco-native restaurants are excluded entirely (Disco owns money_flow after conversion); ${nativeNulls.length} of them hold no value at all and may want one set by hand` : ''}:\n${lines}`,
-    )
+    // The daily "wrote N values" summary is a REPORT, not an alert (Kevin,
+    // 2026-10-23): the run already corrected them, so nobody has anything to do.
+    // It stays in the log.
+    console.log(`[money-flow-reconcile] wrote ${flips.length} of ${rows.length} (${filledCount} fills, ${dangerousCount} DIRECT→FAMILY_MEAL):\n${lines}`)
   }
+
+  // ── The actionable part: a converted restaurant with no money flow ─────────
+  // Disco owns the value after conversion and nothing fills it automatically,
+  // so each one is a standing alert until someone sets it.
+  await alertGroup(nativeNulls.map(r => ({ ...r, key: `money-flow:${r.restaurant_reference.toLowerCase()}` })), fresh => ({
+    severity: 'warn',
+    headline: fresh.length === 1
+      ? `${fresh[0].name || fresh[0].restaurant_reference} has no money flow set`
+      : `${fresh.length} converted restaurants have no money flow set`,
+    lines: [
+      ...(fresh.length > 1 ? [`${fresh.slice(0, 10).map(r => r.name || r.restaurant_reference).join(', ')}${fresh.length > 10 ? `, and ${fresh.length - 10} more` : ''}.`] : []),
+      `${fresh.length === 1 ? "It's" : "They're"} converted, so Disco owns this setting and nothing will fill it automatically. Restaurant-funded promos can't be validated without it.`,
+    ],
+    action: `set Money Flow on ${fresh.length === 1 ? 'its' : 'each one\'s'} Ordering page.`,
+    link: SUGGESTIONS.accountManagement,
+    context: { refs: fresh.map(r => r.restaurant_reference) },
+  }))
+  await syncAlertSet('money-flow:', nativeNulls.map(r => `money-flow:${r.restaurant_reference.toLowerCase()}`),
+    () => 'Resolved: money flow is set.')
 
   return {
     total: rows.length, matched, flipped: flips.length,
