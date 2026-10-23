@@ -9,7 +9,7 @@ import { assertRestaurantOrderable } from '../../../../lib/restaurant-orderable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
-import { formatDisplayAddress, dedupeAddressString } from '../../../../lib/address-display'
+import { restaurantDisplayAddress } from '../../../../lib/address-display'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -82,10 +82,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     name: r.name, slug: r.slug,
     // Through the shared formatter — see lib/address-display.ts for the
     // duplication this prevents.
-    address: formatDisplayAddress({
-      addressLine1: (r as any).address_line1, addressLine2: (r as any).address_line2,
-      city: (r as any).city, state: (r as any).state, zipcode: (r as any).zipcode,
-    }) || dedupeAddressString(r.address) || r.address,
+    address: restaurantDisplayAddress(r as Parameters<typeof restaurantDisplayAddress>[0]) || r.address,
     location: r.location,
     cuisine: r.cuisine, description: r.description,
     imageUrl: r.image_url, iconUrl: r.icon_url, isPremium: r.is_premium,

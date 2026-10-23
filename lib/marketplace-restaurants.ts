@@ -1,5 +1,5 @@
 import { sql, runMigrations, withDiscoTables } from './db'
-import { formatDisplayAddress, dedupeAddressString } from './address-display'
+import { dedupeAddressString, restaurantDisplayAddress } from './address-display'
 
 export interface MarketplaceRestaurantRow {
   reference: string
@@ -188,10 +188,7 @@ export async function getMarketplaceRestaurants(): Promise<MarketplaceRestaurant
     // means a row that has not re-synced yet still renders once rather than
     // twice. Falls back to the stored string for the 23 rows whose
     // address_line1 does not carry the street (see dedupeAddressString).
-    address: formatDisplayAddress({
-      addressLine1: r.address_line1, addressLine2: r.address_line2,
-      city: r.city, state: r.state, zipcode: r.zipcode,
-    }) || dedupeAddressString(r.address) || r.address,
+    address: restaurantDisplayAddress(r) || r.address,
     isDiscoNative: r.is_disco_native,
     isPremium: r.is_premium,
     orderUrl: r.order_url,

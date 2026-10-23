@@ -23,7 +23,7 @@ import { loadOrderItemsWithAddOns } from './order-items'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
-import { formatDisplayAddress, dedupeAddressString } from './address-display'
+import { restaurantDisplayAddress } from './address-display'
 import { notifyNmOrderEvent } from './nm-order-event'
 
 // Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
@@ -470,10 +470,7 @@ export async function dispatchOrderConfirmations(
       cacheLocation = rc[0]?.location || ''
       // Through the shared formatter — an emailed confirmation repeating the
       // city reads as a mistake in the order, not in the data.
-      cacheAddress = (rc[0] ? formatDisplayAddress({
-        addressLine1: rc[0].address_line1, addressLine2: rc[0].address_line2,
-        city: rc[0].city, state: rc[0].state, zipcode: rc[0].zipcode,
-      }) : '') || dedupeAddressString(rc[0]?.address) || rc[0]?.address || ''
+      cacheAddress = (rc[0] ? restaurantDisplayAddress(rc[0]) : '') || rc[0]?.address || ''
       cachePhone = rc[0]?.phone || ''
       cacheTimezone = rc[0]?.timezone || ''
       cacheIsNative = rc[0]?.is_disco_native === true

@@ -126,3 +126,23 @@ export function dedupeAddressString(value: string | null | undefined): string {
   }
   return kept.join(', ')
 }
+
+/**
+ * The address to SHOW for a cached restaurant row — the one rule every surface
+ * uses (link pages, marketplace/search, restaurant page, emails, the PDF
+ * fallback). Peter, 23 Oct 2026.
+ *
+ * Structured parts when the row has a street line 1; otherwise the saved
+ * one-line `address`. formatDisplayAddress alone answered "Westfield, NJ" for a
+ * row whose street lives only in `address` ("719 Central Avenue, Westfield, NJ,
+ * 07090") because a city alone is a non-empty result, so the `|| address`
+ * fallbacks at the call sites never ran — 40 live restaurants showed no street.
+ */
+export function restaurantDisplayAddress(r: {
+  address?: string | null; address_line1?: string | null; address_line2?: string | null
+  city?: string | null; state?: string | null; zipcode?: string | null; location?: string | null
+}): string {
+  const parts = { addressLine1: r.address_line1, addressLine2: r.address_line2, city: r.city, state: r.state, zipcode: r.zipcode }
+  if ((r.address_line1 || '').trim()) return formatDisplayAddress(parts)
+  return dedupeAddressString(r.address) || formatDisplayAddress(parts) || (r.location || '').trim()
+}
