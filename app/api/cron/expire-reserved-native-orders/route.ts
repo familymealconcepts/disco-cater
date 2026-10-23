@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runDiscoOrderMigrations } from '../../../../lib/db'
 import { stripeClient } from '../../../../lib/order/native-payment'
 import { expireStaleNativeReservedOrders, DEFAULT_RESERVED_EXPIRY_MINUTES } from '../../../../lib/order/native-reserved-expiry'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,7 +22,7 @@ function hasCronSecret(req: NextRequest): boolean {
   return auth === `Bearer ${secret}` || auth === secret
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const stripe = stripeClient(process.env.STRIPE_SECRET_KEY)
@@ -44,3 +45,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Sweep failed' }, { status: 500 })
   }
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('expire-reserved-native-orders', runGet)
