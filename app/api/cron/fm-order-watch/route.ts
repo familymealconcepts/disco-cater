@@ -426,7 +426,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       JOIN disco_orders o ON o.restaurant_reference::text = c.restaurant_reference::text
       LEFT JOIN disco_fm_sync_watch w ON w.restaurant_reference::text = c.restaurant_reference::text
       WHERE c.is_disco_native = true AND o.source_of_order = 'FAMILYMEAL' AND o.is_deleted = false
-      GROUP BY 1, 2, 3
+      GROUP BY 1, 2, 3, w.last_checked_at
       HAVING w.last_checked_at IS NULL
           OR EXTRACT(EPOCH FROM (NOW() - w.last_checked_at)) / 3600 >= ${STALE_ALERT_HOURS}
       ORDER BY 3 DESC NULLS FIRST
