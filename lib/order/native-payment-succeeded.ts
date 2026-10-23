@@ -103,7 +103,7 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
       // refundNativeOrder (not a plain stripe.refunds.create) so the
       // restaurant's connected-account transfer share is correctly reversed
       // too — same helper every other native refund path uses.
-      await refundNativeOrder(stripe, order.reference, refundAmount)
+      await refundNativeOrder(stripe, order.reference, refundAmount, undefined, { via: 'sold_out_auto_refund' })
       // 'REFUND', not 'REFUNDED' — matches FM's real OrderStatus enum spelling
       // (confirmed by reading FM's source directly) and the majority of real
       // rows; 'REFUNDED' was the minority spelling this writer used to produce.

@@ -822,7 +822,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         // auto-compute a proportional reversal — verified empirically that the
         // auto-proportional split under-reverses once Stripe's flat $0.30 fee is
         // in the mix (it assumes the transfer scales linearly with the total).
-        const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.abs(nativeTransferDelta))
+        const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.abs(nativeTransferDelta), { via: 'order_edit' })
         stripeRefundId = r.refundId; paymentStatus = 'refunded'
       } catch (e) {
         console.error('[orders/edit] native refund failed:', e instanceof Error ? e.message : e)
