@@ -86,9 +86,10 @@ export default function RootLayout({
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            if (${OPT_OUT_EXPR}) {
-              gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
-            }
+            // Always set, before config: ads denied for GPC or the /privacy-choices switch, granted
+            // otherwise; analytics always granted. See lib/privacy-choices.ts.
+            var discoAdConsent = ${OPT_OUT_EXPR} ? 'denied' : 'granted';
+            gtag('consent', 'default', { ad_storage: discoAdConsent, ad_user_data: discoAdConsent, ad_personalization: discoAdConsent, analytics_storage: 'granted' });
             gtag('config', 'G-KQV7RLHXTH');
           `}
         </Script>
