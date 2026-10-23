@@ -34,7 +34,14 @@ export async function GET() {
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
     `) as { name: string | null; phone: string | null; address: string | null; address_line1: string | null; address_line2: string | null; city: string | null; state: string | null; zipcode: string | null; image_url: string | null; icon_url: string | null; timezone: string | null }[]
     const c = cache[0] || {}
+    // Brand, website and store hours (read-only here; see lib/store-hours.ts).
+    const ov = (await sql`
+      SELECT brand, website, store_hours FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
+    `.catch(() => [])) as { brand: string | null; website: string | null; store_hours: unknown }[]
     return NextResponse.json({
+      brand: ov[0]?.brand || '',
+      website: ov[0]?.website || '',
+      storeHours: ov[0]?.store_hours ?? null,
       restaurant_reference: ref,
       restaurantName: c.name || '',
       phone: c.phone || '',

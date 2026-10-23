@@ -51,6 +51,9 @@ export type AdminAuditAction =
   // page. Written INSIDE the delete statement (app/api/auth/delete-account) so
   // the trail and the delete commit together; actor_email is the deleted diner.
   | 'customer_account_deleted'
+  // A location created or updated from a group onboarding sheet by a
+  // one-off script (scripts/chubby-onboarding-2026-10.ts, 23 Oct 2026).
+  | 'location_created' | 'location_updated'
 
 let auditTableEnsured = false
 export async function ensureAuditTable(): Promise<void> {

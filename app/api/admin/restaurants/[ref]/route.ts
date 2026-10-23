@@ -104,7 +104,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         LIMIT 1
       `) as Array<Record<string, unknown>>
       const cache = (await sql`SELECT name, slug, address, address_line1, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
-      const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct, brand, website, store_hours FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
       return NextResponse.json({
         businessName: c.name || '',
@@ -120,6 +120,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         },
         leadGenOne: o.lead_gen_one_pct ?? 15,
         leadGenTwo: o.lead_gen_two_pct ?? 5,
+        // Read-only profile facts (lib/store-hours.ts).
+        brand: o.brand || '', website: o.website || '', storeHours: o.store_hours ?? null,
       })
     } catch (e) {
       console.error('[admin/restaurants GET] native load failed:', e instanceof Error ? e.message : e)

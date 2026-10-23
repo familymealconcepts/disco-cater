@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../../lib/ordering-validation'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
+import { formatStoreHours, type StoreHours } from '../../../../../../lib/store-hours'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -200,6 +201,8 @@ export default function ProfilePage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
 
   // Disco-native profile card (Neon-backed; pre-populated from onboarding).
+  // Brand / website / store hours — shown read-only under Restaurant Info.
+  const [discoExtras, setDiscoExtras] = useState<{ brand: string; website: string; storeHours: StoreHours | null }>({ brand: '', website: '', storeHours: null })
   const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', addressLine2: '', logoUrl: '', iconUrl: '' })
   const [discoSaving, setDiscoSaving] = useState(false)
   const [discoSuccess, setDiscoSuccess] = useState('')
@@ -318,6 +321,7 @@ export default function ProfilePage() {
         setPickupInstructions(rest.pickupInstructions || '')
       }
       if (disco) {
+        setDiscoExtras({ brand: disco.brand || '', website: disco.website || '', storeHours: disco.storeHours ?? null })
         setDiscoProfile({
           restaurantName: disco.restaurantName || '',
           phone: disco.phone || '',
@@ -655,6 +659,21 @@ export default function ProfilePage() {
           <FormField label="Address line 2 (optional)" htmlFor="restaurant-address-line2">
             {inp(discoProfile.addressLine2, v => setDiscoProfile({ ...discoProfile, addressLine2: v }), { placeholder: 'Suite, unit, floor', name: 'restaurant-address-line2', autoComplete: 'off' })}
           </FormField>
+          {(discoExtras.brand || discoExtras.website || formatStoreHours(discoExtras.storeHours).length > 0) && (
+            <div style={{ marginTop: 4, padding: '12px 14px', background: '#F7F8FC', borderRadius: 10, fontSize: 13, color: '#444', lineHeight: 1.6 }}>
+              {discoExtras.brand && <div><strong>Brand:</strong> {discoExtras.brand}</div>}
+              {discoExtras.website && <div style={{ overflowWrap: 'anywhere' }}><strong>Website:</strong> {discoExtras.website}</div>}
+              {formatStoreHours(discoExtras.storeHours).length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <strong>Store hours</strong>
+                  {formatStoreHours(discoExtras.storeHours).map(h => (
+                    <div key={h.day} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><span style={{ minWidth: 92 }}>{h.day}</span><span>{h.text}</span></div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 6, fontSize: 12, color: '#888' }}>To change these, contact concierge@discocater.com.</div>
+            </div>
+          )}
         </Card>
 
         {/* Card 5: DoorDash (conditional) */}
