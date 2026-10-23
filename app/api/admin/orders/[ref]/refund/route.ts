@@ -97,7 +97,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   let stripeRefundId: string
   try {
-    const r = await refundNativeOrder(stripe, nativeRow.discoReference, amount)
+    const r = await refundNativeOrder(stripe, nativeRow.discoReference, amount, undefined, { via: 'admin_refund' })
     stripeRefundId = r.refundId
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

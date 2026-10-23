@@ -121,7 +121,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     const stripe = stripeClient(process.env.STRIPE_SECRET_KEY)
     if (!stripe) return NextResponse.json({ error: 'Refunds are temporarily unavailable.' }, { status: 503 })
     try {
-      const r = await refundNativeOrder(stripe, discoReference, amount)
+      const r = await refundNativeOrder(stripe, discoReference, amount, undefined, { via: 'restaurant_refund' })
       stripeRefundId = r.refundId
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
