@@ -17,7 +17,7 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { sql, runMigrations } from '../lib/db'
 import { saveRestaurantAddress } from '../lib/restaurant-address'
-import { parseDayHours, STORE_DAYS, type StoreHours } from '../lib/store-hours'
+import { parseDayHours, STORE_DAYS, type StoreHours } from './chubby-menus-2026-10'
 import { applyListChange, currentList } from '../lib/system-admin-authority'
 import { ensureLocationGroups } from '../lib/location-groups'
 import { logAdminAction } from '../lib/admin-audit'
@@ -120,7 +120,6 @@ async function locations() {
   for (const p of plan) {
     const r = rows.find(x => x.key === p.key)!
     const tz = TZ[r.state] || null
-    const { hours } = hoursOf(r)
     if (p.action === 'create') {
       const slug = (r.store.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 50) || 'location') + '-' + p.ref.slice(0, 6)
       await sql`
@@ -134,11 +133,10 @@ async function locations() {
     }
     // visible = false is a literal — the one value the marketplace-switch guard allows outside lib/marketplace-switch.ts.
     await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, online_ordering_enabled, nash_allowed, brand, website, store_hours, updated_at)
-      VALUES (${p.ref}, false, false, true, ${r.brand || null}, ${r.website || null}, ${JSON.stringify(hours)}::jsonb, NOW())
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, online_ordering_enabled, nash_allowed, updated_at)
+      VALUES (${p.ref}, false, false, true, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET
-        visible = false, online_ordering_enabled = false, nash_allowed = true,
-        brand = EXCLUDED.brand, website = EXCLUDED.website, store_hours = EXCLUDED.store_hours, updated_at = NOW()`
+        visible = false, online_ordering_enabled = false, nash_allowed = true, updated_at = NOW()`
     const saved = await saveRestaurantAddress(p.ref, { line1: r.address, line2: r.address2 || null, city: r.city, state: r.state, zipcode: r.zip })
     await sql`
       INSERT INTO disco_location_groups (restaurant_reference, fm_group_id, source)

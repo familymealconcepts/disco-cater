@@ -1,7 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
-import { formatStoreHours, type StoreHours } from '../../../../../lib/store-hours'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -27,9 +26,6 @@ interface FmRestaurant {
   fulfillmentOptions?: string[]
   timezone?: string
   leadGenOne?: number
-  brand?: string
-  website?: string
-  storeHours?: StoreHours | null
   leadGenTwo?: number
   image?: { reference?: string }
 }
@@ -600,20 +596,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <div><label style={label}>Phone</label><input style={input} type="tel" name="admin-phone" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
                 </div>
               </div>
-
-              {/* Brand / website / store hours — read-only (lib/store-hours.ts). */}
-              {existing && (existing.brand || existing.website || formatStoreHours(existing.storeHours).length > 0) && (
-                <div style={section}>
-                  <div style={sTitle}>Store details</div>
-                  <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6 }}>
-                    {existing.brand && <div><strong>Brand:</strong> {existing.brand}</div>}
-                    {existing.website && <div style={{ overflowWrap: 'anywhere' }}><strong>Website:</strong> {existing.website}</div>}
-                    {formatStoreHours(existing.storeHours).map(h => (
-                      <div key={h.day} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><span style={{ minWidth: 92 }}>{h.day}</span><span>{h.text}</span></div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Address */}
               <div style={section}>

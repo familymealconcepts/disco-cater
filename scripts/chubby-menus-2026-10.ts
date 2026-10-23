@@ -18,7 +18,39 @@ import { createHash } from 'crypto'
 import { join, extname } from 'path'
 import { put } from '@vercel/blob'
 import { sql, runDiscoMenuMigrations } from '../lib/db'
-import { STORE_DAYS, type StoreHours } from '../lib/store-hours'
+
+// Store hours from the sheet — used ONLY to derive each menu's ordering window.
+// (Disco stores no store hours of its own: the brand/website/store_hours
+// columns briefly added for this onboarding were removed on Peter's
+// instruction, 23 Oct 2026.)
+export const STORE_DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const
+export type StoreHours = Partial<Record<typeof STORE_DAYS[number], Array<{ open: string; close: string }>>>
+function to24h(t: string): string | null {
+  const m = /^\s*(\d{1,2}):(\d{2})\s*([AP])\.?M\.?\s*$/i.exec(t || '')
+  if (!m) return null
+  let h = Number(m[1]) % 12
+  if (m[3].toUpperCase() === 'P') h += 12
+  return `${String(h).padStart(2, '0')}:${m[2]}`
+}
+/** "12:00 PM - 2:00 PM; 5:00 PM - 9:15 PM" → windows; null if unreadable; blank/Closed → []. */
+export function parseDayHours(text: string | null | undefined): Array<{ open: string; close: string }> | null {
+  const s = String(text || '').trim()
+  if (!s || /^closed$/i.test(s)) return []
+  const out: Array<{ open: string; close: string }> = []
+  for (const part of s.split(/[;,]/).map(x => x.trim()).filter(Boolean)) {
+    const [a, b] = part.split(/\s*[-–—]\s*/)
+    const open = to24h(a || ''), close = to24h(b || '')
+    if (!open || !close) return null
+    out.push({ open, close })
+  }
+  return out
+}
+function hoursFromSheet(row: Record<string, string>): StoreHours {
+  const raw: Record<string, string> = { SUNDAY: row.sun, MONDAY: row.mon, TUESDAY: row.tue, WEDNESDAY: row.wed, THURSDAY: row.thu, FRIDAY: row.fri, SATURDAY: row.sat }
+  const h: StoreHours = {}
+  for (const d of STORE_DAYS) { const w = parseDayHours(raw[d]); if (w) h[d] = w }
+  return h
+}
 
 const DIR = '/private/tmp/claude-501/-Users-peterventi-Desktop-VS-Code/32d3e220-b54a-4eef-b0a3-fc6cbc411db4/scratchpad/chubby'
 const MENU_NAME = 'Catering Menu'
@@ -129,19 +161,19 @@ export async function menus(apply: boolean, argv: string[]) {
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null
   const locs = JSON.parse(readFileSync(join(DIR, 'locations.json'), 'utf8')) as Array<{ key: string; store: string }>
   const report: Record<string, unknown> = {}
-  for (const loc of locs) {
+  for (const loc of locs as Array<{ key: string; store: string }>) {
     if (only && loc.key !== only) continue
     if (NO_MENU.has(loc.key)) { report[loc.key] = { skipped: 'no menu for Atlanta (Peter)' }; continue }
     if (!existsSync(join(DIR, 'menus', `${loc.key}.csv`))) { report[loc.key] = { skipped: 'no catering menu link in the sheet' }; continue }
     const [r] = (await sql`
-      SELECT c.restaurant_reference ref, o.store_hours FROM disco_restaurant_cache c JOIN disco_restaurant_overrides o USING (restaurant_reference)
-       WHERE c.name = ${loc.store} AND o.brand IS NOT NULL ORDER BY c.cached_at DESC LIMIT 2`) as Array<{ ref: string; store_hours: StoreHours | null }>
+      SELECT c.restaurant_reference ref FROM disco_restaurant_cache c
+       WHERE c.name = ${loc.store} AND c.is_disco_native = true ORDER BY c.cached_at DESC LIMIT 2`) as Array<{ ref: string }>
     if (!r) throw new Error('location not found: ' + loc.store)
     const items = loadItems(loc.key)
     const photos = photosFor(loc.key)
     const used = new Set<string>()
     const plan = items.map(it => { const m = matchPhoto(it.name, photos); if (m) used.add(m.photo.file); return { ...it, photo: m } })
-    const { cfg, notes } = scheduleFrom(r.store_hours)
+    const { cfg, notes } = scheduleFrom(hoursFromSheet(loc as unknown as Record<string, string>))
     const noPrice = plan.filter(p => p.price == null).map(p => p.name)
     const choose = plan.filter(p => /\bchoose\b/i.test(p.description)).map(p => p.name)
     report[loc.key] = {
@@ -211,13 +243,13 @@ export async function options(apply: boolean, argv: string[]) {
   const plan = JSON.parse(readFileSync(join(DIR, 'option-plan.json'), 'utf8')) as Record<string, PlanGroup[]>
   const locs = JSON.parse(readFileSync(join(DIR, 'locations.json'), 'utf8')) as Array<{ key: string; store: string }>
   const report: Record<string, unknown> = {}
-  for (const loc of locs) {
+  for (const loc of locs as Array<{ key: string; store: string }>) {
     if (only && loc.key !== only) continue
     const groups = plan[loc.key]
     if (!groups?.length) continue
     const [r] = (await sql`
-      SELECT c.restaurant_reference ref FROM disco_restaurant_cache c JOIN disco_restaurant_overrides o USING (restaurant_reference)
-       WHERE c.name = ${loc.store} AND o.brand IS NOT NULL LIMIT 1`) as Array<{ ref: string }>
+      SELECT c.restaurant_reference ref FROM disco_restaurant_cache c
+       WHERE c.name = ${loc.store} AND c.is_disco_native = true LIMIT 1`) as Array<{ ref: string }>
     const items = (await sql`
       SELECT i.reference, i.name, (SELECT count(*) FROM disco_item_groups ig WHERE ig.item_reference = i.reference)::int AS groups
         FROM disco_menu_items i JOIN disco_menu_categories c ON c.reference = i.category_reference

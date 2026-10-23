@@ -30,6 +30,21 @@ The worked examples, and the five specific corrections that preceded this rule, 
 "NEVER COMPARE A CONVERTED RESTAURANT AGAINST FM" further down. This section is the rule;
 that one is the evidence.
 
+## NEVER CHANGE DISCO'S CODE, DATA MODEL OR DESIGN UNLESS PETER EXPLICITLY ASKS
+
+Standing rule from Peter (23 Oct 2026): **do not change Disco's code, data model
+or design unless Peter explicitly asks for that change.** A task to load, migrate
+or set up data is NOT permission to extend the platform to hold it.
+
+**If a task's data doesn't fit the platform, stop and report it** — say what
+doesn't fit and why — instead of adding columns, fields, screens or behaviour to
+make it fit.
+
+Why this exists: during the Chubby Group onboarding, `brand`, `website` and
+`store_hours` columns (plus portal and Super Admin displays) were added because
+the sheet had data Disco had nowhere to store. Peter had not asked for them, and
+they were removed — code, columns and data.
+
 ## NEVER WRITE TO FAMILYMEAL. READ ONLY.
 
 FM is a live platform with thousands of restaurants taking real orders. **A write there

@@ -342,16 +342,6 @@ export async function runMigrations(): Promise<void> {
     // columns (verified — there is no SELECT * on it anywhere), so nothing that
     // exists today can see this column, including every ordering path.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS contact_email TEXT`,
-    // A location's own profile facts with no other home (Peter, 23 Oct 2026,
-    // Chubby Group onboarding): its brand within a group, its website, and its
-    // STORE hours. store_hours is { "SUNDAY": [{ "open": "12:00", "close":
-    // "14:00" }, { "open": "17:00", "close": "21:15" }], ... } in the
-    // restaurant's own timezone; several windows a day are allowed, and a close
-    // earlier than its open runs past midnight. Display/record only — ordering
-    // windows stay on each menu's schedule. Additive and nullable.
-    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS brand TEXT`,
-    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS website TEXT`,
-    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS store_hours JSONB`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.
