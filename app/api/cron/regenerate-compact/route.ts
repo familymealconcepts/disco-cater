@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateCompact, commitCompactToGitHub } from '../../../../lib/generateCompact'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,7 +49,7 @@ async function regenerate() {
 }
 
 // Vercel Cron + CLI — Bearer CRON_SECRET only.
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     return NextResponse.json(await regenerate())
@@ -67,3 +68,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: e?.message || 'Regeneration failed' }, { status: 500 })
   }
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('regenerate-compact', runGet)

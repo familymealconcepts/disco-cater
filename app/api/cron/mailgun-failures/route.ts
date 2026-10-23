@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { checkEmailFailures } from '../../../../lib/email-failures'
 import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,7 @@ async function handle(hours: number): Promise<NextResponse> {
   }
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle(72)
 }
@@ -49,3 +50,6 @@ export async function POST(req: NextRequest) {
   const h = Number(req.nextUrl.searchParams.get('hours'))
   return handle(Number.isFinite(h) && h > 0 ? Math.min(h, 96) : 72)
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('mailgun-failures', runGet)

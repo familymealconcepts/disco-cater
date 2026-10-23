@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { reconcileStripeLinks } from '../../../../lib/stripe-link-reconcile'
 import { noteJobFailure, noteJobSuccess } from '../../../../lib/ops-alert'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -59,7 +60,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle(req)
 }
@@ -69,3 +70,6 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle(req)
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('reconcile-stripe-links', runGet)

@@ -48,6 +48,7 @@ import { shortError } from '../../../../lib/ops-alert-format'
 import { restaurantName } from '../../../../lib/ops-alert-facts'
 import { mirrorAlert, recordMirrorAlert } from '../../../../lib/mirror-alert'
 import { resolveMissingOrderAlerts } from '../../../../lib/order/missing-order-alert'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -268,5 +269,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-export async function GET(req: NextRequest) { return handle(req) }
+async function runGet(req: NextRequest) { return handle(req) }
 export async function POST(req: NextRequest) { return handle(req) }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('sync-fm-orders', runGet)

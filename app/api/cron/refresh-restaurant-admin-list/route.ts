@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { refreshRestaurantAdminListCache } from '../../../../lib/restaurant-admin-list-cache'
+import { withCronRun } from '../../../../lib/cron-runs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,7 +35,7 @@ async function handle(): Promise<NextResponse> {
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
 }
 
-export async function GET(req: NextRequest) {
+async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }
@@ -44,3 +45,6 @@ export async function POST(req: NextRequest) {
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return handle()
 }
+
+// Every run is recorded in disco_cron_runs for NM OS Platform Health (lib/cron-runs.ts).
+export const GET = withCronRun('refresh-restaurant-admin-list', runGet)
