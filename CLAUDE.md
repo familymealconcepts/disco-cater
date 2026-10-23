@@ -33,7 +33,7 @@ that one is the evidence.
 ## NEVER CHANGE DISCO'S CODE, DATA MODEL OR DESIGN UNLESS PETER EXPLICITLY ASKS
 
 Standing rule from Peter (23 Oct 2026): **do not change Disco's code, data model
-or design unless Peter explicitly asks for that change.** A task to load, migrate
+or design unless Peter or Kevin explicitly asks for that change.** A task to load, migrate
 or set up data is NOT permission to extend the platform to hold it.
 
 **If a task's data doesn't fit the platform, stop and report it** — say what
