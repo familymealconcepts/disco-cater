@@ -1,0 +1,116 @@
+{
+  "_about": [
+    "Email domain typos and their corrections, shared by noise-machine and disco-cater (Kevin, 2026-10-23).",
+    "noise-machine: scripts/tests/emailTypoDomains.shared.json. Its TYPO_EMAIL_DOMAINS and the .com-ending part of SOCIAL_DOMAIN_PATTERN (src/lib/dinerType.ts) must equal `exact` and `endings` here; scripts/tests/emailTypoDomains.test.ts fails CI when they differ.",
+    "disco-cater: lib/email-typo-domains.json, read by lib/email-typo.ts (the 'Did you mean ...?' hint at checkout and in Order Settings); scripts/tests/email-typo.test.ts runs every vector.",
+    "Edit one copy, edit the other in the same change, and check they match: shasum -a 256 on both. Neither CI can see the other repo.",
+    "Rules: trim; the domain is everything after the LAST @, lowercased; the local part is kept exactly as typed. An `exact` domain is replaced whole; otherwise a last label in `endings` is replaced. No dot, no @ or no local part: no suggestion.",
+    "Warn only: a listed domain can be real, so nothing here may block a checkout or a save."
+  ],
+  "exact": {
+    "gmai.com": "gmail.com",
+    "gmial.com": "gmail.com",
+    "gamil.com": "gmail.com",
+    "gnail.com": "gmail.com",
+    "gmaill.com": "gmail.com",
+    "gmal.com": "gmail.com",
+    "hmail.com": "gmail.com",
+    "yaho.com": "yahoo.com",
+    "yahooo.com": "yahoo.com",
+    "yhoo.com": "yahoo.com",
+    "hotmial.com": "hotmail.com",
+    "hotmai.com": "hotmail.com",
+    "hotmal.com": "hotmail.com",
+    "outlok.com": "outlook.com",
+    "iclod.com": "icloud.com",
+    "icoud.com": "icloud.com",
+    "aol.co": "aol.com"
+  },
+  "endings": {
+    "con": "com",
+    "cmo": "com",
+    "comm": "com",
+    "fom": "com",
+    "vom": "com",
+    "xom": "com",
+    "ocm": "com",
+    "cpm": "com"
+  },
+  "vectors": [
+    {
+      "email": "pat@gmail.con",
+      "suggest": "pat@gmail.com",
+      "why": "broken .com ending"
+    },
+    {
+      "email": "pat@gmai.com",
+      "suggest": "pat@gmail.com",
+      "why": "exact typo"
+    },
+    {
+      "email": "pat@hmail.com",
+      "suggest": "pat@gmail.com",
+      "why": "exact typo (h is next to g)"
+    },
+    {
+      "email": "pat@aol.co",
+      "suggest": "pat@aol.com",
+      "why": "exact typo; .co alone is a real ending, only aol.co is listed"
+    },
+    {
+      "email": "pat@example.co",
+      "suggest": null,
+      "why": ".co is a real ending companies use"
+    },
+    {
+      "email": "pat@acme-catering.xom",
+      "suggest": "pat@acme-catering.com",
+      "why": "endings also fix company domains"
+    },
+    {
+      "email": "pat@yahoo.comm",
+      "suggest": "pat@yahoo.com",
+      "why": "broken ending"
+    },
+    {
+      "email": "Pat.Smith@GMAI.COM",
+      "suggest": "Pat.Smith@gmail.com",
+      "why": "the local part keeps its case; the domain is matched lowercased"
+    },
+    {
+      "email": "  pat@gmail.con  ",
+      "suggest": "pat@gmail.com",
+      "why": "surrounding spaces are trimmed"
+    },
+    {
+      "email": "pat@gmail.com",
+      "suggest": null,
+      "why": "already correct"
+    },
+    {
+      "email": "pat@mail.example.con",
+      "suggest": "pat@mail.example.com",
+      "why": "only the last label is the ending"
+    },
+    {
+      "email": "pat@con",
+      "suggest": null,
+      "why": "no dot: not a domain with an ending"
+    },
+    {
+      "email": "not-an-email",
+      "suggest": null,
+      "why": "no @"
+    },
+    {
+      "email": "@gmail.con",
+      "suggest": null,
+      "why": "no local part"
+    },
+    {
+      "email": "",
+      "suggest": null,
+      "why": "empty"
+    }
+  ]
+}
