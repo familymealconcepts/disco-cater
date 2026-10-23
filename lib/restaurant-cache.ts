@@ -182,7 +182,13 @@ export async function refreshRestaurantCache(): Promise<{
         VALUES (${c.reference}, ${c.name}, ${c.slug}, ${c.lat}, ${c.lng}, ${c.location}, ${c.address},
            ${c.addressLine1}, ${c.addressLine2}, ${c.city}, ${c.state}, ${c.zipcode}, ${c.timezone}, NOW())
         ON CONFLICT (restaurant_reference) DO UPDATE SET
-          name = EXCLUDED.name,
+          -- ── A DISCO-OWNED ROW IS NEVER WRITTEN BY THIS MIRROR (Peter, 23 Oct 2026) ──
+          -- After conversion the platforms live separately and Disco is the
+          -- source of truth. Every column below keeps a Disco-native row's own
+          -- value; FM-backed rows are mirrored exactly as before. The bridges
+          -- Peter kept (online ordering toggle, hold payments, order
+          -- information) live in other jobs, not here.
+          name = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.name ELSE EXCLUDED.name END,
           -- NEVER TAKE A SLUG ANOTHER RESTAURANT ALREADY HOLDS.
           -- FamilyMeal contains genuine duplicate restaurant records (Blasteran
           -- twice, Yosemite Ranch seven times, 502 Baking Company three times,
@@ -197,6 +203,9 @@ export async function refreshRestaurantCache(): Promise<{
           -- database alone was not a fix: this job runs at 04:00 and would have
           -- put it straight back.
           slug = CASE
+            -- A native row's web address is its own: renamed in Disco, it was
+            -- put back to FamilyMeal's every night, breaking the new link.
+            WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.slug
             WHEN EXCLUDED.slug IS NOT NULL AND EXISTS (
               SELECT 1 FROM disco_restaurant_cache dup
                WHERE LOWER(dup.slug) = LOWER(EXCLUDED.slug)
@@ -220,8 +229,10 @@ export async function refreshRestaurantCache(): Promise<{
           state = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.state ELSE EXCLUDED.state END,
           zipcode = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.zipcode ELSE EXCLUDED.zipcode END,
           -- Keep an existing timezone if FM sends none, so a manually-set tz isn't wiped.
-          timezone = COALESCE(EXCLUDED.timezone, disco_restaurant_cache.timezone),
-          cached_at = NOW()
+          timezone = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.timezone
+                          ELSE COALESCE(EXCLUDED.timezone, disco_restaurant_cache.timezone) END,
+          -- Not bumped for a native row: nothing was written to it.
+          cached_at = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.cached_at ELSE NOW() END
       `),
     )
     // Keep the per-row reason. Promise.all surfaced one arbitrary error and

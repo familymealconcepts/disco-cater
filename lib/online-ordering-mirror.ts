@@ -151,6 +151,9 @@ export async function mirrorOnlineOrderingFromFm(
         SELECT UNNEST(${refs}::text[]) AS ref, UNNEST(${values}::boolean[]) AS val
       ) AS v
       WHERE o.restaurant_reference = v.ref
+        -- Re-checked at write time: a restaurant converted while this run was
+        -- in flight is Disco's from that moment (Peter, 23 Oct 2026).
+        AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = o.restaurant_reference AND c.is_disco_native)
     `
   }
 

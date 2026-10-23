@@ -54,12 +54,19 @@ async function currentRef(): Promise<string> {
 // Mirror FM's tax rates into Neon so the customer checkout can recompute a
 // restaurant-funded promo's discounted tax to the cent (FM exposes rates only to
 // the restaurant's own admin token — see lib/db.ts). Best-effort; never blocks.
-async function mirrorTaxRates(taxRates: unknown): Promise<void> {
+async function mirrorTaxRates(taxRates: unknown, opts?: { fromView?: boolean }): Promise<void> {
   if (!taxRates || typeof taxRates !== 'object') return
   const ref = await currentRef()
   if (!ref) return
   try {
     await runMigrations()
+    // A page VIEW never copies FamilyMeal's rate onto a Disco-owned restaurant:
+    // after conversion Disco's rate is the real one (Peter, 23 Oct 2026). A
+    // deliberate save (PUT) is a person's choice and still writes.
+    if (opts?.fromView) {
+      const native = (await sql`SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} AND is_disco_native LIMIT 1`) as unknown[]
+      if (native.length) return
+    }
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, tax_rates, updated_at)
       VALUES (${ref}, ${JSON.stringify(taxRates)}::jsonb, NOW())
@@ -119,7 +126,7 @@ export async function GET() {
     const data = await res.json()
     // Opportunistic mirror: every time a restaurant views its tax settings, keep
     // Neon current so restaurant-funded promos stay cent-exact.
-    void mirrorTaxRates(data)
+    void mirrorTaxRates(data, { fromView: true })
     const ref = await currentRef()
     return NextResponse.json({ ...data, restaurant_reference: ref })
   } catch {

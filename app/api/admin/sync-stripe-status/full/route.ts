@@ -73,7 +73,11 @@ export async function POST(_req: NextRequest) {
       const totalPages = typeof data?.totalPages === 'number' ? data.totalPages : undefined
       if (content.length < PAGE_SIZE || (totalPages !== undefined && page + 1 >= totalPages)) break
     }
-    const refs = [...seen]
+    // Disco-owned restaurants are never probed or written: their Stripe state
+    // is Disco's after conversion (Peter, 23 Oct 2026).
+    const nativeRows = (await sql`SELECT restaurant_reference FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${[...seen]}::text[]) AND is_disco_native`) as { restaurant_reference: string }[]
+    const nativeSet = new Set(nativeRows.map(r => r.restaurant_reference))
+    const refs = [...seen].filter(r => !nativeSet.has(r))
 
     // Disco-connected restaurants are authoritative — never let the FM probe below
     // overwrite their status to false.

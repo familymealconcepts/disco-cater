@@ -145,6 +145,9 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
           await sql`
             UPDATE disco_restaurant_overrides SET money_flow = ${live}, updated_at = NOW()
             WHERE restaurant_reference = ${row.restaurant_reference}
+              -- Re-checked at write time: this run is long, and a restaurant
+              -- converted mid-run is Disco's from that moment.
+              AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = ${row.restaurant_reference} AND c.is_disco_native)
           `
           flips.push({
             restaurantReference: row.restaurant_reference, name: row.name,

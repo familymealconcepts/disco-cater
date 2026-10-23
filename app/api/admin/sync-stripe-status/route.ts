@@ -65,6 +65,11 @@ export async function POST(req: NextRequest) {
       : null
 
     if (explicitRefs) {
+      // A Disco-owned restaurant's Stripe flag is Disco's; FamilyMeal's answer
+      // is never written onto it (Peter, 23 Oct 2026).
+      const nativeRows = (await sql`SELECT restaurant_reference FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${explicitRefs}::text[]) AND is_disco_native`) as { restaurant_reference: string }[]
+      const nativeSet = new Set(nativeRows.map(r => r.restaurant_reference))
+      explicitRefs.splice(0, explicitRefs.length, ...explicitRefs.filter(r => !nativeSet.has(r)))
       const statuses: Record<string, boolean> = {}
       // Restaurants connected via Disco onboarding are authoritative — FM's
       // HEAD /api/stripe/{ref} doesn't reflect the disco-side Connect account, so
@@ -104,24 +109,29 @@ export async function POST(req: NextRequest) {
     // Stable count + page (ORDER BY keeps the offset windows consistent run-to-run).
     const totalRows = (staleOnly
       ? (await sql`
-          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides
+          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides o
           WHERE visible = true AND (stripe_checked_at IS NULL OR stripe_checked_at < NOW() - INTERVAL '24 hours')
+            AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = o.restaurant_reference AND c.is_disco_native)
         `)
       : (await sql`
-          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides WHERE visible = true
+          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides o WHERE visible = true AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = o.restaurant_reference AND c.is_disco_native)
         `)) as { n: number }[]
     const total = totalRows[0]?.n ?? 0
 
     const refs = (staleOnly
       ? (await sql`
-          SELECT restaurant_reference FROM disco_restaurant_overrides
+          -- Disco-owned restaurants are never probed against FamilyMeal: after
+          -- conversion Disco is the source of truth (Peter, 23 Oct 2026).
+          SELECT restaurant_reference FROM disco_restaurant_overrides o
           WHERE visible = true AND (stripe_checked_at IS NULL OR stripe_checked_at < NOW() - INTERVAL '24 hours')
+            AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = o.restaurant_reference AND c.is_disco_native)
           ORDER BY restaurant_reference
           LIMIT ${batchSize}
         `)
       : (await sql`
-          SELECT restaurant_reference FROM disco_restaurant_overrides
+          SELECT restaurant_reference FROM disco_restaurant_overrides o
           WHERE visible = true
+            AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = o.restaurant_reference AND c.is_disco_native)
           ORDER BY restaurant_reference
           LIMIT ${batchSize} OFFSET ${offset}
         `)) as { restaurant_reference: string }[]

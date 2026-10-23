@@ -232,9 +232,17 @@ async function runSync() {
   // Coordinates (latitude/longitude) are present directly on the list response's
   // address object, so no detail fetch is needed. Inactive/blocked rows are
   // neither processed nor protected → STEP 4 may deactivate them.
+  // DISCO-OWNED RESTAURANTS ARE NEVER MIRRORED (Peter, 23 Oct 2026): after
+  // conversion Disco is their source of truth, so FamilyMeal's name, address
+  // and pin are not written onto their Sanity record, and STEP 4 never
+  // deactivates it. FM-backed restaurants are mirrored exactly as before.
+  const nativeRows = (await sql`SELECT restaurant_reference FROM disco_restaurant_cache WHERE is_disco_native`) as { restaurant_reference: string }[]
+  const nativeRefs = new Set(nativeRows.map(r => r.restaurant_reference))
+  let skippedNative = 0
   const withAddress: FmRestaurant[] = []
   for (const r of all) {
     if (!r.reference) continue
+    if (nativeRefs.has(r.reference)) { skippedNative++; continue }
     const active = isActive(r)
     // "not blocked" — treat absent `blocked` as not blocked (FM marketplace
     // visibility), only excluding rows explicitly blocked === true.
@@ -365,6 +373,7 @@ async function runSync() {
 
     for (const d of docs) {
       if (d.fmReference && qualifyingRefs.has(d.fmReference)) continue // active:true already set in STEP 3
+      if (d.fmReference && nativeRefs.has(d.fmReference)) continue // Disco-owned: never touched by this mirror
       if (d.active === false) continue // already inactive — no-op
       try {
         await sanity.patch(d._id).set({ active: false }).commit()
@@ -392,6 +401,7 @@ async function runSync() {
     offset: startOffset,
     next_offset: nextOffset,
     qualifying_total: withAddress.length,
+    skipped_disco_owned: skippedNative,
     skipped_no_address: skippedNoAddress,
     skipped_no_coords: skippedNoCoords,
     capped_at_500: cappedAt500,
