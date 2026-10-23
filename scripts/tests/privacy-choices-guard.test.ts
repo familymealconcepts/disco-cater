@@ -1,7 +1,10 @@
 // Guards for the advertising opt-out (lib/privacy-choices.ts): Global Privacy Control or the
 // /privacy-choices switch stops the Meta Pixel, the LinkedIn Insight Tag, RB2B and Apollo's
-// website tracker, and denies Google's ad consent before GA4 is configured. And the separate
-// optional-cookies choice (the banner): Clarity, RB2B and Apollo wait for Accept; GPC is Decline.
+// website tracker, and denies Google's ad consent before GA4 is configured. Google consent mode
+// is always on: the default is set before config for every visitor (ads granted unless opted out),
+// and the switch sends a matching update when it changes, granted on switch-off unless GPC is on.
+// And the separate optional-cookies choice (the banner): Clarity, RB2B and Apollo wait for Accept;
+// GPC is Decline.
 // Run: npx tsx scripts/tests/privacy-choices-guard.test.ts
 //
 //   1. The rule itself, both forms (the module's functions and the inline-script expression),
@@ -9,7 +12,7 @@
 //   2. Source guards: every governed loader checks the rule. Each is control-tested against a
 //      doctored copy of the real file text, so none of them passes vacuously.
 import { readFileSync } from 'node:fs'
-import { OPT_OUT_EXPR, PRIVACY_OPT_OUT_KEY, CONSENT_KEY, adTrackingOptedOut, consentChoice, optionalCookiesAllowed } from '../../lib/privacy-choices'
+import { OPT_OUT_EXPR, PRIVACY_OPT_OUT_KEY, CONSENT_KEY, adTrackingOptedOut, consentChoice, optionalCookiesAllowed, setSwitchOptedOut } from '../../lib/privacy-choices'
 
 let passed = 0
 const failures: string[] = []
@@ -25,7 +28,11 @@ function withEnv<T>(env: Env, fn: () => T): T {
   const prevLs = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   Object.defineProperty(globalThis, 'navigator', { value: env.gpc === undefined ? {} : { globalPrivacyControl: env.gpc }, configurable: true })
   Object.defineProperty(globalThis, 'localStorage', {
-    value: { getItem: (k: string) => { if (env.storageThrows) throw new Error('blocked'); return k === PRIVACY_OPT_OUT_KEY ? (env.stored ?? null) : k === CONSENT_KEY ? (env.consent ?? null) : null } },
+    value: {
+      getItem: (k: string) => { if (env.storageThrows) throw new Error('blocked'); return k === PRIVACY_OPT_OUT_KEY ? (env.stored ?? null) : k === CONSENT_KEY ? (env.consent ?? null) : null },
+      setItem: (k: string, v: string) => { if (env.storageThrows) throw new Error('blocked'); if (k === PRIVACY_OPT_OUT_KEY) env.stored = v; else if (k === CONSENT_KEY) env.consent = v },
+      removeItem: (k: string) => { if (env.storageThrows) throw new Error('blocked'); if (k === PRIVACY_OPT_OUT_KEY) env.stored = null; else if (k === CONSENT_KEY) env.consent = null },
+    },
     configurable: true,
   })
   try { return fn() } finally {
@@ -77,13 +84,35 @@ function scriptBody(src: string, id: string): string {
   return src.slice(start, src.indexOf('</Script>', start))
 }
 const tagGated = (src: string, id: string) => scriptBody(src, id).includes('!${OPT_OUT_EXPR}')
-const consentBeforeConfig = (src: string) => {
+// Runs the GA4 inline script for real (OPT_OUT_EXPR interpolated, as the layout does) against a
+// stubbed browser, and returns the gtag calls it made, in order.
+type Call = unknown[]
+function runGaScript(src: string, env: Env): Call[] {
   const body = scriptBody(src, 'google-analytics')
-  const gate = body.indexOf('if (${OPT_OUT_EXPR})')
-  const consent = body.indexOf("gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' })")
-  const config = body.indexOf("gtag('config'")
-  return gate >= 0 && consent > gate && config > consent
+  const code = body.slice(body.indexOf('{`') + 2, body.lastIndexOf('`}')).split('${OPT_OUT_EXPR}').join(OPT_OUT_EXPR)
+  const win: { dataLayer?: IArguments[] } = {}
+  withEnv(env, () => new Function('window', 'dataLayer', `var dataLayer = window.dataLayer; ${code.replace('window.dataLayer = window.dataLayer || [];', 'window.dataLayer = window.dataLayer || []; dataLayer = window.dataLayer;')}`)(win, undefined))
+  return (win.dataLayer ?? []).map(a => Array.from(a))
 }
+const AD_KEYS = ['ad_storage', 'ad_user_data', 'ad_personalization'] as const
+function consentDefault(calls: Call[]) {
+  const i = calls.findIndex(c => c[0] === 'consent' && c[1] === 'default')
+  const cfg = calls.findIndex(c => c[0] === 'config')
+  return { i, cfg, v: (calls[i]?.[2] ?? {}) as Record<string, string> }
+}
+// The default is always set, before config, with ads = want and analytics granted.
+function defaultIs(src: string, env: Env, want: 'denied' | 'granted'): boolean {
+  let calls: Call[]
+  try { calls = runGaScript(src, env) } catch { return false }
+  const { i, cfg, v } = consentDefault(calls)
+  return i >= 0 && cfg > i && AD_KEYS.every(k => v[k] === want) && v.analytics_storage === 'granted'
+}
+const DEFAULT_CASES: [string, Env, 'denied' | 'granted'][] = [
+  ['neither', {}, 'granted'],
+  ['GPC on', { gpc: true }, 'denied'],
+  ['switch on', { stored: '1' }, 'denied'],
+  ['storage blocked, no GPC', { storageThrows: true }, 'granted'],
+]
 const vendorsGated = (src: string) => {
   const gate = src.indexOf('if (adTrackingOptedOut()) return')
   const rb = src.indexOf("loadRb2b('")
@@ -95,11 +124,49 @@ for (const id of ['meta-pixel', 'linkedin-insight']) {
   check(`${id} checks the opt-out`, () => ok(tagGated(layout, id), 'ungated'))
   check(`  control: removing it from ${id} is caught`, () => ok(!tagGated(layout.replace(new RegExp(`(<Script id="${id}"[\\s\\S]*?) && !\\$\\{OPT_OUT_EXPR\\}`), '$1'), id), 'not caught'))
 }
-check('Google ad consent is denied before GA4 is configured', () => ok(consentBeforeConfig(layout), 'missing or after config'))
-check('  control: moving the consent call after config is caught', () => {
+for (const [name, env, want] of DEFAULT_CASES) {
+  check(`Google consent default before config: ${name} -> ads ${want}, analytics granted`, () => ok(defaultIs(layout, env, want), 'wrong, missing or after config'))
+}
+check('  control: moving the consent default after config is caught', () => {
   const body = scriptBody(layout, 'google-analytics')
-  const moved = body.replace(/(\s*if \(\$\{OPT_OUT_EXPR\}\) \{[\s\S]*?\}\n)([\s\S]*?gtag\('config'[^\n]*\n)/, '$2$1')
-  ok(moved !== body && !consentBeforeConfig(layout.replace(body, moved)), 'not caught')
+  const moved = body.replace(/(\n\s*gtag\('consent', 'default'[^\n]*)([\s\S]*?\n\s*gtag\('config'[^\n]*)/, '$2$1')
+  ok(moved !== body && !defaultIs(layout.replace(body, moved), {}, 'granted'), 'not caught')
+})
+check('  control: the old opted-out-only default is caught (no default for everyone else)', () => {
+  const body = scriptBody(layout, 'google-analytics')
+  const old = body.replace(/\n\s*var discoAdConsent[^\n]*\n\s*gtag\('consent', 'default'[^\n]*/,
+    "\n            if (${OPT_OUT_EXPR}) {\n              gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });\n            }")
+  ok(old !== body && !defaultIs(layout.replace(body, old), {}, 'granted'), 'not caught')
+})
+
+// The switch: on sends denied; off sends granted unless GPC is on.
+function switchUpdates(env: Env, on: boolean, fn: (on: boolean) => void = setSwitchOptedOut): Call[] {
+  const calls: Call[] = []
+  const g = globalThis as Record<string, unknown>
+  const prev = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  g.window = { gtag: (...a: unknown[]) => { calls.push(a) }, dispatchEvent: () => true }
+  try { withEnv(env, () => fn(on)) } finally { if (prev) Object.defineProperty(globalThis, 'window', prev); else delete g.window }
+  return calls.filter(c => c[0] === 'consent' && c[1] === 'update')
+}
+const updateIs = (calls: Call[], want: string) => calls.length === 1 && AD_KEYS.every(k => (calls[0][2] as Record<string, string>)[k] === want)
+check('switch on -> consent update ads denied', () => ok(updateIs(switchUpdates({}, true), 'denied'), 'wrong'))
+check('switch on under GPC -> consent update ads denied', () => ok(updateIs(switchUpdates({ gpc: true }, true), 'denied'), 'wrong'))
+check('switch off -> consent update ads granted', () => ok(updateIs(switchUpdates({ stored: '1' }, false), 'granted'), 'wrong'))
+check('switch off under GPC -> no update (GPC still opts out)', () => ok(switchUpdates({ gpc: true, stored: '1' }, false).length === 0, 'sent an update'))
+check('  control: the old switch (no update on switch-off) is caught', () => {
+  const oldFn = (on: boolean) => {
+    const gtag = (window as unknown as { gtag?: (...a: unknown[]) => void }).gtag
+    if (on) gtag?.('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' })
+  }
+  ok(!updateIs(switchUpdates({ stored: '1' }, false, oldFn), 'granted'), 'not caught')
+})
+check('  control: a switch-off that ignores GPC is caught', () => {
+  const noGpc = (on: boolean) => {
+    const gtag = (window as unknown as { gtag?: (...a: unknown[]) => void }).gtag
+    const v = on ? 'denied' : 'granted'
+    gtag?.('consent', 'update', { ad_storage: v, ad_user_data: v, ad_personalization: v })
+  }
+  ok(switchUpdates({ gpc: true, stored: '1' }, false, noGpc).length !== 0, 'not caught')
 })
 check('the analytics config itself is not gated (GA4 stays)', () => ok(!/if \([^)]*\)\s*\{\s*gtag\('config'/.test(scriptBody(layout, 'google-analytics')), 'config is conditional'))
 check('RB2B and Apollo load only after the opt-out check', () => ok(vendorsGated(component), 'ungated'))

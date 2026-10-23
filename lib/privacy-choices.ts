@@ -9,6 +9,10 @@
 //   - RB2B and Apollo's website tracker do not load (app/components/VisitorIdentification.tsx)
 //   - Google consent defaults ad_storage, ad_user_data and ad_personalization to
 //     'denied' before GA4 is configured (app/layout.tsx)
+// Otherwise the same default is set to 'granted', so Google consent mode is always on and every
+// GA4 event records its consent state. analytics_storage is always 'granted'. Turning the switch
+// on sends a 'denied' update on the current page; turning it off sends 'granted', unless GPC is
+// on, because GPC still opts the visitor out.
 // GA4 analytics and Microsoft Clarity are NOT governed by this, by decision (Kevin, 2026-10-23).
 //
 // A SECOND, separate choice: optional cookies, asked by the banner (app/components/ConsentBanner.tsx)
@@ -41,15 +45,16 @@ export function adTrackingOptedOut(): boolean {
   return gpcEnabled() || switchOptedOut()
 }
 
-/** Saves the switch. Turning it on also denies Google's ad consent on the current page. */
+/** Saves the switch, and updates Google's ad consent on the current page: denied when on, granted when off (not under GPC). */
 export function setSwitchOptedOut(on: boolean): void {
   try {
     if (on) localStorage.setItem(PRIVACY_OPT_OUT_KEY, '1')
     else localStorage.removeItem(PRIVACY_OPT_OUT_KEY)
   } catch { /* storage blocked: the choice cannot be remembered */ }
-  if (on) {
+  if (on || !gpcEnabled()) {
+    const v = on ? 'denied' : 'granted'
     const gtag = (window as unknown as { gtag?: (...a: unknown[]) => void }).gtag
-    try { gtag?.('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' }) } catch { /* never break the page */ }
+    try { gtag?.('consent', 'update', { ad_storage: v, ad_user_data: v, ad_personalization: v }) } catch { /* never break the page */ }
   }
   notify()
 }
