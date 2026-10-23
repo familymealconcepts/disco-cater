@@ -60,7 +60,9 @@ const TZ: Record<string, string> = { NY: 'America/New_York', GA: 'America/New_Yo
 const clean = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ')
 const zip5 = (v: string) => clean(v).replace(/\.0$/, '')
 function phoneFmt(v: string): string | null {
-  const d = clean(v).replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+  // The sheet's export stores many phones as NUMBERS ("6.263179348E9").
+  const sci = /^\d+(\.\d+)?e\d+$/i.test(clean(v)) ? String(Math.round(Number(clean(v)))) : null
+  const d = (sci ?? clean(v)).replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : (clean(v) || null)
 }
 
