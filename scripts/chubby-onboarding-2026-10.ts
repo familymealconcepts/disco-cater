@@ -164,7 +164,8 @@ async function main() {
   const cmd = process.argv[2]
   if (cmd === 'locations') await locations()
   else if (cmd === 'menus') await (await import('./chubby-menus-2026-10')).menus(APPLY, process.argv)
-  else throw new Error('usage: locations|menus [--apply]')
+  else if (cmd === 'options') await (await import('./chubby-menus-2026-10')).options(APPLY, process.argv)
+  else throw new Error('usage: locations|menus|options [--apply]')
   process.exit(0)
 }
 main().catch(e => { console.error(e.stack || e.message); process.exit(1) })

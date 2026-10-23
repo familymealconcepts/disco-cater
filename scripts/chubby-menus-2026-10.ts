@@ -195,3 +195,73 @@ export async function menus(apply: boolean, argv: string[]) {
     console.log(`${k}: ${x.skipped ?? `${x.items} items, ${x.images} with image, ${(x.itemsWithoutImage as string[]).length} without, ${(x.unusedImages as string[]).length} unused images, noPrice ${(x.noPrice as string[]).length}, needsOptions ${(x.needsOptions as string[]).length}`}`)
   }
 }
+
+// ── OPTION GROUPS (Peter, 23 Oct 2026) ───────────────────────────────────────
+// Each Catering Menu sheet's second tab, "Option Group", lists every item's
+// choices: one row per choice with the item's Product ID, the group name, its
+// add-on price, Required, Minimum/Maximum Selection, whether the same choice may
+// repeat, and an instruction. option-plan.json is that tab, parsed and checked
+// (rows of one group agree on required/min/max; Product IDs map to items via the
+// Item tab). Each group becomes a modifier group on the item already built —
+// nothing else on the menu changes.
+type PlanGroup = { item: string; group: string; required: boolean; min: number; max: number; repeats: boolean; instruction: string; options: Array<{ name: string; price: number }> }
+
+export async function options(apply: boolean, argv: string[]) {
+  const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null
+  const plan = JSON.parse(readFileSync(join(DIR, 'option-plan.json'), 'utf8')) as Record<string, PlanGroup[]>
+  const locs = JSON.parse(readFileSync(join(DIR, 'locations.json'), 'utf8')) as Array<{ key: string; store: string }>
+  const report: Record<string, unknown> = {}
+  for (const loc of locs) {
+    if (only && loc.key !== only) continue
+    const groups = plan[loc.key]
+    if (!groups?.length) continue
+    const [r] = (await sql`
+      SELECT c.restaurant_reference ref FROM disco_restaurant_cache c JOIN disco_restaurant_overrides o USING (restaurant_reference)
+       WHERE c.name = ${loc.store} AND o.brand IS NOT NULL LIMIT 1`) as Array<{ ref: string }>
+    const items = (await sql`
+      SELECT i.reference, i.name, (SELECT count(*) FROM disco_item_groups ig WHERE ig.item_reference = i.reference)::int AS groups
+        FROM disco_menu_items i JOIN disco_menu_categories c ON c.reference = i.category_reference
+        JOIN disco_menus m ON m.reference = c.menu_reference
+       WHERE m.restaurant_reference = ${r.ref}::uuid AND m.name = ${MENU_NAME}`) as Array<{ reference: string; name: string; groups: number }>
+    const byName = new Map(items.map(i => [i.name, i]))
+    const added: string[] = []; const problems: string[] = []
+    const posByItem = new Map<string, number>()
+    for (const g of groups) {
+      const it = byName.get(g.item)
+      if (!it) { problems.push(`no built item named "${g.item}"`); continue }
+      if (it.groups > 0 && !posByItem.has(it.reference)) { problems.push(`"${g.item}" already has option groups — skipped`); continue }
+      // A choice listed twice in one group is kept once (the sheet repeats it).
+      const seen = new Set<string>(); const opts = g.options.filter(o => !seen.has(o.name + '|' + o.price) && seen.add(o.name + '|' + o.price))
+      if (opts.length < g.options.length) problems.push(`${g.item} / ${g.group}: duplicate choice listed in the sheet, kept once`)
+      const label = `${g.item} — ${g.group}: ${g.required ? 'required' : 'optional'}, ${g.min === g.max ? `exactly ${g.min}` : `${g.min}–${g.max}`}${g.repeats ? ', repeats allowed' : ''}; ${opts.length} choices${opts.some(o => o.price) ? ` (${opts.filter(o => o.price).length} add a price)` : ''}`
+      added.push(label)
+      if (!apply) { posByItem.set(it.reference, (posByItem.get(it.reference) || 0) + 1); continue }
+      const pos = posByItem.get(it.reference) || 0
+      posByItem.set(it.reference, pos + 1)
+      const [grp] = (await sql`
+        INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, sub_external_name, min_selected, max_selected, visible, position)
+        VALUES (${r.ref}::uuid, ${`${g.item} - ${g.group}`}, ${g.group}, ${g.instruction || (g.required ? 'Required' : 'Optional')},
+                ${g.required ? Math.max(1, g.min) : g.min}, ${Math.max(g.max, g.required ? Math.max(1, g.min) : 1)}, true, ${pos})
+        RETURNING reference`) as Array<{ reference: string }>
+      for (const [i, o] of opts.entries()) {
+        const [mod] = (await sql`
+          INSERT INTO disco_modifiers (restaurant_reference, name, price, visible, position)
+          VALUES (${r.ref}::uuid, ${o.name}, ${o.price}, true, ${i}) RETURNING reference`) as Array<{ reference: string }>
+        await sql`INSERT INTO disco_modifier_group_members (group_reference, modifier_reference, position) VALUES (${grp.reference}::uuid, ${mod.reference}::uuid, ${i})`
+      }
+      await sql`INSERT INTO disco_item_groups (item_reference, group_reference, enabled, position) VALUES (${it.reference}::uuid, ${grp.reference}::uuid, true, ${pos})`
+    }
+    // Items whose own wording says "Choose …" but the tab gives no choices.
+    const withGroups = new Set(groups.map(g => g.item))
+    const desc = (await sql`
+      SELECT i.name, i.description FROM disco_menu_items i JOIN disco_menu_categories c ON c.reference = i.category_reference
+        JOIN disco_menus m ON m.reference = c.menu_reference WHERE m.restaurant_reference = ${r.ref}::uuid AND m.name = ${MENU_NAME}`) as Array<{ name: string; description: string | null }>
+    const stillNoChoices = desc.filter(d => /\bchoose\b/i.test(d.description || '') && !withGroups.has(d.name)).map(d => d.name)
+    report[loc.key] = { store: loc.store, added, problems, stillNoChoices }
+  }
+  writeFileSync(join(DIR, apply ? 'options-report.json' : 'options-dryrun.json'), JSON.stringify(report, null, 1))
+  for (const [k, v] of Object.entries(report)) {
+    const x = v as { added: string[]; problems: string[]; stillNoChoices: string[] }
+    console.log(`${k}: ${x.added.length} groups${x.problems.length ? ' | ' + x.problems.join('; ') : ''}${x.stillNoChoices.length ? ' | says "choose" but no choices in the tab: ' + x.stillNoChoices.join(', ') : ''}`)
+  }
+}
