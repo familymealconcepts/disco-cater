@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:guards": "node scripts/tests/marketplace-switch-guard.test.mjs && npx tsx scripts/tests/campaign-dnc-guard.test.ts && npx tsx scripts/tests/visitor-identification-gate.test.ts && npx tsx scripts/tests/checkout-conversion.test.ts && npx tsx scripts/tests/privacy-choices-guard.test.ts && npx tsx scripts/tests/privacy-opt-out-events.test.ts && npx tsx scripts/tests/ops-alert-format.test.ts && npx tsx scripts/tests/cron-runs.test.ts",
+    "test:guards": "node scripts/tests/marketplace-switch-guard.test.mjs && npx tsx scripts/tests/campaign-dnc-guard.test.ts && npx tsx scripts/tests/visitor-identification-gate.test.ts && npx tsx scripts/tests/checkout-conversion.test.ts && npx tsx scripts/tests/privacy-choices-guard.test.ts && npx tsx scripts/tests/privacy-opt-out-events.test.ts && npx tsx scripts/tests/ops-alert-format.test.ts && npx tsx scripts/tests/cron-runs.test.ts && npx tsx scripts/tests/email-typo.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:preview": "BASE_URL=https://disco-cater-git-main-peter-discocaters-projects.vercel.app playwright test",

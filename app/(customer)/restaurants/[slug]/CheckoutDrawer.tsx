@@ -13,6 +13,7 @@ import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage, postCheckoutContact } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
+import { suggestEmailCorrection } from '../../../../lib/email-typo'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -263,6 +264,10 @@ export default function CheckoutDrawer({
   const [contactFirst, setContactFirst] = useState('')
   const [contactLast, setContactLast] = useState('')
   const [contactEmail, setContactEmail] = useState('')
+  // "Did you mean ...?" for a known domain typo (lib/email-typo.ts, Kevin 2026-10-23). Shown once the
+  // field has been left, so it does not flicker while typing. WARN ONLY: it never blocks placing the order.
+  const [emailTouched, setEmailTouched] = useState(false)
+  const emailSuggestion = useMemo(() => suggestEmailCorrection(contactEmail), [contactEmail])
   const [contactPhone, setContactPhone] = useState('')
   // Optional company name — Disco-only (never sent to FM). Pre-filled from the
   // customer's saved profile when logged in; editable here.
@@ -1468,8 +1473,15 @@ export default function CheckoutDrawer({
               <input name="checkout-last-name" autoComplete="family-name" value={contactLast} onChange={e => setContactLast(e.target.value)} placeholder="Last name" aria-label="Last name"
                 style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
             </div>
-            <input name="checkout-email" autoComplete="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
+            <input name="checkout-email" autoComplete="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} onBlur={() => setEmailTouched(true)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+            {/* Approved word for word (Kevin, 2026-10-23): "Did you mean {corrected address}?", the
+                address tappable. One tap replaces the field; ignoring it changes nothing. */}
+            {emailTouched && emailSuggestion && (
+              <div role="status" style={{ fontSize: 12, color: '#727272', fontFamily: F, marginTop: -4, marginBottom: 10 }}>
+                Did you mean <button type="button" onClick={() => setContactEmail(emailSuggestion)} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: BLUE, textDecoration: 'underline', cursor: 'pointer' }}>{emailSuggestion}</button>?
+              </div>
+            )}
             {/* contactPhone holds digits only; the field shows them formatted and
                 auto-strips any non-digit the user types/pastes. FM gets digits.
                 name+autoComplete="tel" (previously absent, like every other field
