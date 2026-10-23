@@ -20,17 +20,39 @@ import * as money from '../lib/order/money-alerts'
 import { alertPaidOrderMissing } from '../lib/order/missing-order-alert'
 import { emailFailureAlert } from '../lib/email-failures'
 
-if (process.env.OPS_ALERT_VERIFY !== 'branch' || !process.env.SLACK_OPS_ALERTS_BOT_TOKEN) {
-  console.error('Refusing: needs OPS_ALERT_VERIFY=branch, a branch DATABASE_URL and the bot token.'); process.exit(2)
+// CAPTURE MODE (REPLAY_CAPTURE=<file.json>): nothing is sent anywhere. With no bot
+// token the code takes its webhook path, exactly as production will until the token
+// exists; a stub webhook records every message's exact text, in order, to the file.
+// That is how the pre-merge preview page was produced.
+const CAPTURE = process.env.REPLAY_CAPTURE
+const captured: Array<{ text: string; thread: boolean }> = []
+if (CAPTURE) {
+  if (process.env.OPS_ALERT_VERIFY !== 'branch') { console.error('Refusing: needs OPS_ALERT_VERIFY=branch.'); process.exit(2) }
+  delete process.env.SLACK_OPS_ALERTS_BOT_TOKEN
+  process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL = 'https://hooks.slack.capture/stub'
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url)
+    if (u.startsWith('https://hooks.slack.capture/') || u.includes('slack.com/api/')) {
+      const b = JSON.parse(String(init?.body ?? '{}'))
+      captured.push({ text: b.text, thread: !!b.thread_ts })
+      return new Response(JSON.stringify({ ok: true }))
+    }
+    return realFetch(url, init)
+  }) as typeof fetch
+} else {
+  if (process.env.OPS_ALERT_VERIFY !== 'branch' || !process.env.SLACK_OPS_ALERTS_BOT_TOKEN) {
+    console.error('Refusing: needs OPS_ALERT_VERIFY=branch, a branch DATABASE_URL and the bot token.'); process.exit(2)
+  }
+  if (!process.env.SLACK_OPS_ALERTS_CHANNEL_ID || process.env.SLACK_OPS_ALERTS_CHANNEL_ID === 'C0C21FDU8KT') {
+    console.error('Refusing: SLACK_OPS_ALERTS_CHANNEL_ID must be the TEST channel, never #ops-alerts.'); process.exit(2)
+  }
+  // Never fall through to the production webhook.
+  delete process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL
 }
-if (!process.env.SLACK_OPS_ALERTS_CHANNEL_ID || process.env.SLACK_OPS_ALERTS_CHANNEL_ID === 'C0C21FDU8KT') {
-  console.error('Refusing: SLACK_OPS_ALERTS_CHANNEL_ID must be the TEST channel, never #ops-alerts.'); process.exit(2)
-}
-// Never fall through to the production webhook.
-delete process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL
 
 const ref = async (n: number) => ((await sql`SELECT reference::text AS r FROM disco_orders WHERE order_number = ${n} LIMIT 1`) as Array<{ r: string }>)[0]?.r
-const pause = () => new Promise(r => setTimeout(r, 1200)) // stay under Slack's 1 msg/s per channel
+const pause = () => (CAPTURE ? Promise.resolve() : new Promise(r => setTimeout(r, 1200))) // Slack: 1 msg/s per channel
 
 async function main() {
   // Start clean on the branch so every key opens fresh.
@@ -221,9 +243,15 @@ async function main() {
     '• `d4c01cd` Link pages: a Super Admin on a FamilyMeal sign-in can edit and delete any link page\n' +
     'Nothing was deployed automatically. Usually GitHub did not hand the push to Vercel: redeploy main from Vercel, or push an empty commit.')
   await pause()
-  await raw(':white_check_mark: Production is back in sync (`1ac205c`).', driftTs)
+  // Without the token the Action has no thread, so it posts its long top-level form.
+  if (CAPTURE) await raw(':white_check_mark: *Production is back in sync with main.* The live site (https://www.discocater.com) is running `1ac205c`, the latest commit on main. Behind for about 41 min.')
+  else await raw(':white_check_mark: Production is back in sync (`1ac205c`).', driftTs)
 
   await sql`DELETE FROM disco_alert_dedup WHERE resolved_at IS NULL OR resolved_at IS NOT NULL`
-  console.log('Replay done.')
+  if (CAPTURE) {
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(CAPTURE, JSON.stringify(captured, null, 2))
+    console.log(`Captured ${captured.length} messages to ${CAPTURE}`)
+  } else console.log('Replay done.')
 }
 main().catch(e => { console.error('Replay failed:', e instanceof Error ? e.message : e); process.exit(1) })
