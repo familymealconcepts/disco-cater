@@ -10,13 +10,15 @@
 // checkout or a save. It only offers a corrected address to tap.
 import shared from './email-typo-domains.json'
 
-const EXACT = shared.exact as Record<string, string>
+const EXACT = shared.exact as Record<string, string | null>
 const ENDINGS = shared.endings as Record<string, string>
 
 /**
  * The corrected address, or null when there is nothing to suggest. Trims; the domain is everything
  * after the LAST @, matched lowercased; the local part is kept exactly as typed. A listed domain is
  * replaced whole; otherwise a last label in the endings list (.con, .cmo, ...) becomes .com.
+ * A listed domain whose correction is null (hmail.com: gmail or hotmail?) gets NO suggestion, by
+ * Kevin's rule that the hint only speaks when the correction is unambiguous (2026-10-23).
  */
 export function suggestEmailCorrection(email: string | null | undefined): string | null {
   const v = (email ?? '').trim()
@@ -26,8 +28,10 @@ export function suggestEmailCorrection(email: string | null | undefined): string
   const domain = v.slice(at + 1).toLowerCase()
   const dot = domain.lastIndexOf('.')
   if (dot <= 0) return null
-  const exact = EXACT[domain]
-  if (exact) return `${local}@${exact}`
+  if (domain in EXACT) {
+    const exact = EXACT[domain]
+    return exact ? `${local}@${exact}` : null
+  }
   const ending = ENDINGS[domain.slice(dot + 1)]
   if (ending) return `${local}@${domain.slice(0, dot + 1)}${ending}`
   return null

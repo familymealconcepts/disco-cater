@@ -4,7 +4,7 @@
     "noise-machine: scripts/tests/emailTypoDomains.shared.json. Its TYPO_EMAIL_DOMAINS and the .com-ending part of SOCIAL_DOMAIN_PATTERN (src/lib/dinerType.ts) must equal `exact` and `endings` here; scripts/tests/emailTypoDomains.test.ts fails CI when they differ.",
     "disco-cater: lib/email-typo-domains.json, read by lib/email-typo.ts (the 'Did you mean ...?' hint at checkout and in Order Settings); scripts/tests/email-typo.test.ts runs every vector.",
     "Edit one copy, edit the other in the same change, and check they match: shasum -a 256 on both. Neither CI can see the other repo.",
-    "Rules: trim; the domain is everything after the LAST @, lowercased; the local part is kept exactly as typed. An `exact` domain is replaced whole; otherwise a last label in `endings` is replaced. No dot, no @ or no local part: no suggestion.",
+    "Rules: trim; the domain is everything after the LAST @, lowercased; the local part is kept exactly as typed. An `exact` domain is replaced whole by its correction, or gets NO suggestion when its correction is null (a known typo whose intended domain is ambiguous; NM OS still counts it as a typo). Otherwise a last label in `endings` is replaced. No dot, no @ or no local part: no suggestion.",
     "Warn only: a listed domain can be real, so nothing here may block a checkout or a save."
   ],
   "exact": {
@@ -14,7 +14,7 @@
     "gnail.com": "gmail.com",
     "gmaill.com": "gmail.com",
     "gmal.com": "gmail.com",
-    "hmail.com": "gmail.com",
+    "hmail.com": null,
     "yaho.com": "yahoo.com",
     "yahooo.com": "yahoo.com",
     "yhoo.com": "yahoo.com",
@@ -49,8 +49,8 @@
     },
     {
       "email": "pat@hmail.com",
-      "suggest": "pat@gmail.com",
-      "why": "exact typo (h is next to g)"
+      "suggest": null,
+      "why": "a known typo with no correction: gmail or hotmail is ambiguous, so no hint (Kevin, 2026-10-23)"
     },
     {
       "email": "pat@aol.co",

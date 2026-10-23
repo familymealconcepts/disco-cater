@@ -19,9 +19,10 @@ console.log('\n=== the shared vectors ===')
 for (const v of shared.vectors as { email: string; suggest: string | null; why: string }[]) {
   check(`${JSON.stringify(v.email)} -> ${JSON.stringify(v.suggest)} (${v.why})`, () => eq(suggestEmailCorrection(v.email), v.suggest, v.email))
 }
-check('every listed typo suggests its correction', () => {
-  for (const [typo, fix] of Object.entries(shared.exact as Record<string, string>)) eq(suggestEmailCorrection(`pat@${typo}`), `pat@${fix}`, typo)
+check('every listed typo suggests its correction, and one with no correction suggests nothing', () => {
+  for (const [typo, fix] of Object.entries(shared.exact as Record<string, string | null>)) eq(suggestEmailCorrection(`pat@${typo}`), fix ? `pat@${fix}` : null, typo)
 })
+check('hmail.com gets no hint (ambiguous: gmail or hotmail; Kevin, 2026-10-23)', () => eq(suggestEmailCorrection('pat@hmail.com'), null, 'hmail'))
 check('emailDomainOf gives the domain for the "Use ..." button', () => eq(emailDomainOf('pat@gmail.com'), 'gmail.com', 'domain'))
 
 console.log('\n=== the approved wording, warn only ===')
