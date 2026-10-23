@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function PrivacyChoicesPage() {
   return (
     <LegalShell title="Your Privacy Choices" updated="">
-      <p className="intro">Use this switch to opt out of advertising and visitor identification on Disco Cater.</p>
+      <p className="intro">Use these switches to opt out of advertising and visitor identification on Disco Cater.</p>
 
       <PrivacyChoicesSwitch />
 
