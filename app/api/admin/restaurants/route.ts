@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { sql } from '../../../../lib/db'
+import { saveRestaurantAddress } from '../../../../lib/restaurant-address'
 import { hashPassword } from '../../../../lib/disco-restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -52,6 +53,8 @@ async function createDiscoNativeRestaurant(r: Record<string, unknown>): Promise<
     VALUES (${ref}, ${name}, ${slug}, ${s(addr.phoneNumber)}, ${s(addr.addressLine1)}, ${s(addr.addressLine2)}, ${s(addr.city)}, ${s(addr.state)}, ${s(addr.zipcode)}, true, false, NOW())
     ON CONFLICT (restaurant_reference) DO NOTHING
   `
+  // Every address column + the pin through the shared writer (lib/restaurant-address.ts).
+  await saveRestaurantAddress(ref, { line1: s(addr.addressLine1), line2: s(addr.addressLine2), city: s(addr.city), state: s(addr.state), zipcode: s(addr.zipcode) })
   return NextResponse.json({ ok: true, reference: ref, discoNative: true })
 }
 

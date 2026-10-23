@@ -189,10 +189,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     await sql`
       INSERT INTO disco_restaurant_cache (
         restaurant_reference, name, slug, cuisine, description, image_url, lat, lng, location,
-        address, address_line2, city, state, zipcode, phone, timezone, icon_url, is_disco_native, is_live
+        address, address_line1, address_line2, city, state, zipcode, phone, timezone, icon_url, is_disco_native, is_live
       ) VALUES (
         ${newRef}, ${((s.name as string) || 'Location') + ' (Copy)'}, ${newSlug}, ${s.cuisine}, ${s.description}, ${s.image_url}, ${s.lat}, ${s.lng}, ${s.location},
-        ${s.address}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, true
+        ${s.address}, ${s.address_line1}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, true
       )`
     // ── THE COPY IS OWNED BY WHOEVER MADE IT, AND BY WHOEVER OWNS THE SOURCE ──
     // Access is expressed ONLY through disco_restaurant_location_access, the same

@@ -54,6 +54,7 @@ interface DiscoProfile {
   restaurantName: string
   phone: string
   address: string
+  addressLine2: string // optional suite / unit / floor → disco_restaurant_cache.address_line2
   logoUrl: string   // Marketplace Image → disco_restaurant_cache.image_url
   iconUrl: string   // Logo → disco_restaurant_cache.icon_url
 }
@@ -199,7 +200,7 @@ export default function ProfilePage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
 
   // Disco-native profile card (Neon-backed; pre-populated from onboarding).
-  const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', logoUrl: '', iconUrl: '' })
+  const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', addressLine2: '', logoUrl: '', iconUrl: '' })
   const [discoSaving, setDiscoSaving] = useState(false)
   const [discoSuccess, setDiscoSuccess] = useState('')
   const [discoError, setDiscoError] = useState('')
@@ -321,6 +322,7 @@ export default function ProfilePage() {
           restaurantName: disco.restaurantName || '',
           phone: disco.phone || '',
           address: disco.address || '',
+          addressLine2: disco.addressLine2 || '',
           logoUrl: disco.logoUrl || '',
           iconUrl: disco.iconUrl || '',
         })
@@ -443,8 +445,11 @@ export default function ProfilePage() {
         setDiscoError(d?.error || 'Failed to save. Please try again.')
         if (res.status === 400 || res.status === 403 || res.status === 409) loadProfileData()
       } else {
-        setDiscoSuccess('Restaurant info updated.')
-        setTimeout(() => setDiscoSuccess(''), 3000)
+        const d = await res.json().catch(() => null)
+        setDiscoSuccess(d && d.located === false
+          ? 'Restaurant info updated — but we couldn’t place this address on the map. Please check it.'
+          : 'Restaurant info updated.')
+        setTimeout(() => setDiscoSuccess(''), d && d.located === false ? 8000 : 3000)
       }
     } catch {
       setDiscoError('Network error. Please try again.')
@@ -643,6 +648,12 @@ export default function ProfilePage() {
               other address field on this form for it to conflict with. */}
           <FormField label="Address" htmlFor="restaurant-address">
             {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP', name: 'restaurant-address', autoComplete: 'street-address' })}
+          </FormField>
+          {/* Optional. Shown wherever the address appears — customer pages,
+              link pages, order emails, PDFs and courier pickups. autoComplete
+              off so a browser doesn't split the combined box above. */}
+          <FormField label="Address line 2 (optional)" htmlFor="restaurant-address-line2">
+            {inp(discoProfile.addressLine2, v => setDiscoProfile({ ...discoProfile, addressLine2: v }), { placeholder: 'Suite, unit, floor', name: 'restaurant-address-line2', autoComplete: 'off' })}
           </FormField>
         </Card>
 

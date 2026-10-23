@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../../lib/db'
+import { saveRestaurantAddress, streetForEditor } from '../../../../../lib/restaurant-address'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -22,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
     const rows = (await sql`
-      SELECT restaurant_reference AS reference, name, address, address_line2, city, state, zipcode, phone, lat, lng, timezone, cuisine,
+      SELECT restaurant_reference AS reference, name, address, address_line1, address_line2, city, state, zipcode, phone, lat, lng, timezone, cuisine,
              icon_url, image_url, is_disco_native
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
     `) as Record<string, unknown>[]
@@ -36,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       restaurantCategories: r.cuisine ? [r.cuisine] : [],
       fulfillmentOptions: ['PICKUP'],
       address: {
-        addressLine1: r.address || '', addressLine2: r.address_line2 || '',
+        addressLine1: streetForEditor(r), addressLine2: r.address_line2 || '',
         city: r.city || '', state: r.state || '', zipcode: r.zipcode || '',
         phoneNumber: r.phone || '',
         latitude: r.lat != null ? Number(r.lat) : undefined,
@@ -95,20 +96,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       await sql`
         UPDATE disco_restaurant_cache SET
           name = COALESCE(NULLIF(${(payload.businessName as string) ?? null}, ''), name),
-          address = ${(a.addressLine1 as string) ?? null},
-          address_line2 = ${(a.addressLine2 as string) ?? null},
-          city = ${(a.city as string) ?? null},
-          state = ${(a.state as string) ?? null},
-          zipcode = ${(a.zipcode as string) ?? null},
           phone = ${(a.phoneNumber as string) ?? null},
-          lat = ${(a.latitude as number) ?? null},
-          lng = ${(a.longitude as number) ?? null},
           timezone = COALESCE(NULLIF(${(payload.timezone as string) ?? null}, ''), timezone),
           cuisine = COALESCE(${cats[0] ?? null}, cuisine),
           cached_at = NOW()
         WHERE restaurant_reference = ${ref}
       `
-      return NextResponse.json({ ok: true })
+      // Address + pin through the one shared writer, so this editor and
+      // Restaurant Info can never leave the columns disagreeing.
+      const saved = await saveRestaurantAddress(ref, {
+        line1: (a.addressLine1 as string) ?? null, line2: (a.addressLine2 as string) ?? null,
+        city: (a.city as string) ?? null, state: (a.state as string) ?? null, zipcode: (a.zipcode as string) ?? null,
+      }, { lat: a.latitude as number | undefined, lng: a.longitude as number | undefined })
+      return NextResponse.json({ ok: true, located: saved.located })
     } catch (e) {
       console.error('[locations/[ref]] disco update failed:', e instanceof Error ? e.message : e)
       return NextResponse.json({ error: 'Unable to update' }, { status: 500 })

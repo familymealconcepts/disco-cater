@@ -204,15 +204,21 @@ export async function refreshRestaurantCache(): Promise<{
             THEN disco_restaurant_cache.slug
             ELSE EXCLUDED.slug
           END,
-          lat = EXCLUDED.lat,
-          lng = EXCLUDED.lng,
-          location = EXCLUDED.location,
-          address = EXCLUDED.address,
-          address_line1 = EXCLUDED.address_line1,
-          address_line2 = EXCLUDED.address_line2,
-          city = EXCLUDED.city,
-          state = EXCLUDED.state,
-          zipcode = EXCLUDED.zipcode,
+          -- A DISCO-NATIVE ROW'S ADDRESS AND PIN ARE DISCO'S (Peter, 23 Oct 2026).
+          -- They are written from Restaurant Info by lib/restaurant-address.ts.
+          -- This mirror used to overwrite them nightly with FamilyMeal's copy, so
+          -- Almost Home – Monmouth Beach Gianni's saved "36 Beach Rd" and was put
+          -- back to "282 E Main St, Oceanport" at 04:00. FM-backed rows are
+          -- unchanged: FamilyMeal is still their source.
+          lat = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.lat ELSE EXCLUDED.lat END,
+          lng = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.lng ELSE EXCLUDED.lng END,
+          location = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.location ELSE EXCLUDED.location END,
+          address = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.address ELSE EXCLUDED.address END,
+          address_line1 = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.address_line1 ELSE EXCLUDED.address_line1 END,
+          address_line2 = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.address_line2 ELSE EXCLUDED.address_line2 END,
+          city = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.city ELSE EXCLUDED.city END,
+          state = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.state ELSE EXCLUDED.state END,
+          zipcode = CASE WHEN disco_restaurant_cache.is_disco_native THEN disco_restaurant_cache.zipcode ELSE EXCLUDED.zipcode END,
           -- Keep an existing timezone if FM sends none, so a manually-set tz isn't wiped.
           timezone = COALESCE(EXCLUDED.timezone, disco_restaurant_cache.timezone),
           cached_at = NOW()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 import { sql } from '../../../../../lib/db'
+import { saveRestaurantAddress, streetForEditor } from '../../../../../lib/restaurant-address'
 import { archiveDiscoNativeRestaurant } from '../../../../../lib/disco-restaurant-archive'
 import { requireArchiveAccess } from '../../../../../lib/admin-archive-access'
 import { logAdminAction } from '../../../../../lib/admin-audit'
@@ -102,7 +103,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         ORDER BY id ASC
         LIMIT 1
       `) as Array<Record<string, unknown>>
-      const cache = (await sql`SELECT name, slug, address, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const cache = (await sql`SELECT name, slug, address, address_line1, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
       return NextResponse.json({
@@ -114,7 +115,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         // now both read from the cache instead of the retired account column.
         admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || '', phoneNumber: c.phone || '' },
         address: {
-          addressLine1: c.address || '', addressLine2: c.address_line2 || '',
+          addressLine1: streetForEditor(c), addressLine2: c.address_line2 || '',
           city: c.city || '', state: c.state || '', zipcode: c.zipcode || '', phoneNumber: c.phone || '',
         },
         leadGenOne: o.lead_gen_one_pct ?? 15,
@@ -297,6 +298,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
           phone = EXCLUDED.phone, address = EXCLUDED.address, address_line2 = EXCLUDED.address_line2,
           city = EXCLUDED.city, state = EXCLUDED.state, zipcode = EXCLUDED.zipcode, cached_at = NOW()
       `
+      // Then every address column + the pin through the shared writer.
+      await saveRestaurantAddress(ref, { line1: s(addr.addressLine1), line2: s(addr.addressLine2), city: s(addr.city), state: s(addr.state), zipcode: s(addr.zipcode) })
       await sql`
         INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct)
         VALUES (${ref}, ${leadOne ?? 15}, ${leadTwo ?? 5})

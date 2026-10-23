@@ -4,6 +4,8 @@ import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/
 import { getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { cookies } from 'next/headers'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
+import { partsFromOneLine, saveRestaurantAddress } from '../../../../lib/restaurant-address'
+import { formatDisplayAddress } from '../../../../lib/address-display'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,22 +14,6 @@ export const dynamic = 'force-dynamic'
 // disco_restaurant_accounts + disco_restaurant_cache during onboarding. The
 // portal reads/edits it here. We NEVER sync these back to FM.
 
-async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
-  const key = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY
-  if (!key || !address) return null
-  try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`)
-    const data = await res.json().catch(() => null)
-    const loc = data?.results?.[0]?.geometry?.location
-    if (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
-      return { lat: Number(loc.lat), lng: Number(loc.lng) }
-    }
-  } catch { /* best-effort */ }
-  return null
-}
-
-// Resolve the restaurant_reference for the current request: Disco-native session
-// carries it directly; FM-token users have it decoded from the JWT.
 async function resolveRef(): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return null
@@ -44,15 +30,18 @@ export async function GET() {
   try {
     await runMigrations()
     const cache = (await sql`
-      SELECT name, phone, address, image_url, icon_url, timezone
+      SELECT name, phone, address, address_line1, address_line2, city, state, zipcode, image_url, icon_url, timezone
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null; icon_url: string | null; timezone: string | null }[]
+    `) as { name: string | null; phone: string | null; address: string | null; address_line1: string | null; address_line2: string | null; city: string | null; state: string | null; zipcode: string | null; image_url: string | null; icon_url: string | null; timezone: string | null }[]
     const c = cache[0] || {}
     return NextResponse.json({
       restaurant_reference: ref,
       restaurantName: c.name || '',
       phone: c.phone || '',
-      address: c.address || '',
+      // The Address box shows street, city, state ZIP; line 2 has its own box.
+      // A row saved before line 1 existed falls back to its one-line value.
+      address: (c.address_line1 ? formatDisplayAddress({ addressLine1: c.address_line1, city: c.city, state: c.state, zipcode: c.zipcode }) : '') || c.address || '',
+      addressLine2: c.address_line2 || '',
       logoUrl: c.image_url || '', // Marketplace Image
       iconUrl: c.icon_url || '',  // Logo
       // IANA zone the menu form labels its hard-cutoff time with. '' = not set.
@@ -111,6 +100,7 @@ export async function PUT(req: NextRequest) {
     const restaurantName = String(body?.restaurantName || '').trim()
     const phone = String(body?.phone || '').trim()
     const address = String(body?.address || '').trim()
+    const addressLine2 = String(body?.addressLine2 || '').trim()
     // Images are optional — only touched when explicitly provided.
     // logoUrl = Marketplace Image (image_url); iconUrl = Logo (icon_url).
     const logoUrl = body?.logoUrl != null ? String(body.logoUrl).trim() : undefined
@@ -120,17 +110,15 @@ export async function PUT(req: NextRequest) {
 
     // disco_restaurant_cache (drives the marketplace listing). Re-geocode when the
     // address is present so the map pin stays accurate.
-    const coords = address ? await geocode(address) : null
     await sql`
       UPDATE disco_restaurant_cache SET
         name = COALESCE(NULLIF(${restaurantName}, ''), name),
         phone = ${phone || null},
-        address = ${address || null},
-        lat = COALESCE(${coords?.lat ?? null}, lat),
-        lng = COALESCE(${coords?.lng ?? null}, lng),
         cached_at = NOW()
       WHERE restaurant_reference = ${ref}
     `
+    // Every address column + the map pin, from this one box (lib/restaurant-address.ts).
+    const saved = await saveRestaurantAddress(ref, await partsFromOneLine(address, addressLine2))
     // Marketplace Image (image_url) — only when explicitly provided.
     if (logoUrl !== undefined) {
       await sql`
@@ -146,7 +134,7 @@ export async function PUT(req: NextRequest) {
       `
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, address: saved.address, located: saved.located })
   } catch (err) {
     console.error('[restaurant/disco-profile] PUT failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to update profile' }, { status: 500 })

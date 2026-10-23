@@ -7,6 +7,7 @@ import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 import { placeNewLocation, syncAfterGrant } from '../../../../lib/location-groups'
+import { saveRestaurantAddress, streetForEditor } from '../../../../lib/restaurant-address'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -37,7 +38,7 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   await runMigrations()
   const rows = (await sql`
     SELECT c.restaurant_reference AS reference, c.name AS "businessName",
-           c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
+           c.address, c.address_line1, c.address_line2, c.city, c.state, c.zipcode, c.phone,
            -- ── NOT cached_at. ────────────────────────────────────────────
            -- cached_at is the last time the SYNC refreshed this row, so the
            -- "Registered" column moved every time the cache ran and showed
@@ -68,7 +69,7 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   const content = rows.map(r => ({
     reference: r.reference,
     businessName: r.businessName,
-    address: { addressLine1: r.address || '', addressLine2: r.address_line2 || '', city: r.city || '', state: r.state || '', zipcode: r.zipcode || '', phoneNumber: r.phone || '' },
+    address: { addressLine1: streetForEditor(r), addressLine2: r.address_line2 || '', city: r.city || '', state: r.state || '', zipcode: r.zipcode || '', phoneNumber: r.phone || '' },
     createdDate: r.createdDate,
     blocked: r.blocked,
     archived: false,
@@ -192,6 +193,8 @@ export async function POST(req: NextRequest) {
               ${s(body.city)}, ${s(body.state)}, ${s(body.zipcode)}, ${tzRows[0]?.timezone ?? null},
               true, false, NOW())
     `
+    // Then every address column + the pin through the shared writer.
+    await saveRestaurantAddress(ref, { line1: s(body.addressLine1), line2: s(body.addressLine2), city: s(body.city), state: s(body.state), zipcode: s(body.zipcode) })
     // visible = false is a literal, the one value the marketplace-switch guard
     // permits outside lib/marketplace-switch.ts.
     await sql`
