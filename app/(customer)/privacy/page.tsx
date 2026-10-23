@@ -95,28 +95,31 @@ export default function PrivacyPage() {
       <p>
         <strong>Visitor identification.</strong> We use RB2B and Apollo.io&rsquo;s website tracker, services
         that may match a visit to our site to a person&rsquo;s business identity, such as name, job title,
-        company, professional email address and LinkedIn profile, using their own data. We use this to reach
+        company, professional email address and LinkedIn profile, using their own data. They run only after
+        you accept optional cookies in the banner on our site. We use this to reach
         restaurants and businesses that may be interested in Disco Cater.
       </p>
       <p>
         <strong>Analytics and session recording.</strong> We use Google Analytics to understand how our site
         is used, and Microsoft Clarity, which records how visitors interact with our pages, such as clicks,
-        scrolling and mouse movement, so we can find and fix problems. Clarity is set to mask the text on our
-        pages and anything you type, so it does not capture what you enter.
+        scrolling and mouse movement, so we can find and fix problems. Clarity runs only after you accept
+        optional cookies in the banner on our site. It is set to mask the text on our pages and anything you
+        type, so it does not capture what you enter.
       </p>
 
       {/* VI */}
       <h2 id="your-privacy-choices">VI. Your Privacy Choices</h2>
-      <p>You can opt out of advertising and visitor identification on our site in two ways:</p>
+      <p>You can opt out of advertising and visitor identification on our site in three ways:</p>
       <ul>
+        <li><strong>Cookie banner.</strong> Choose Decline in the banner on your first visit, or change your choice later on the <a href="/privacy-choices">Your Privacy Choices</a> page. Declining keeps Microsoft Clarity, RB2B and Apollo.io&rsquo;s website tracker off.</li>
         <li><strong>Your Privacy Choices page.</strong> Turn on the switch at <a href="/privacy-choices">discocater.com/privacy-choices</a>. Your choice is saved in that browser, so set it again if you clear your browser data or use another browser or device.</li>
-        <li><strong>Global Privacy Control.</strong> If your browser or an extension sends a Global Privacy Control (GPC) signal, we treat it as the same opt-out.</li>
+        <li><strong>Global Privacy Control.</strong> If your browser or an extension sends a Global Privacy Control (GPC) signal, we treat it as the same opt-out, and as declining optional cookies.</li>
       </ul>
       <p>
         When you opt out, we do not load the Meta Pixel, the LinkedIn Insight Tag or RB2B and Apollo.io&rsquo;s
-        website tracker, and we tell Google not to use your visit for advertising. Google Analytics and
-        Microsoft Clarity keep running to help us understand how our site is used; they are not used to show
-        you ads.
+        website tracker, and we tell Google not to use your visit for advertising. Google Analytics keeps
+        running to help us understand how our site is used; it is not used to show you ads. Microsoft Clarity
+        runs only if you accept optional cookies.
       </p>
       <p>
         These choices apply to the browser you use. To have your email address removed from the customer
