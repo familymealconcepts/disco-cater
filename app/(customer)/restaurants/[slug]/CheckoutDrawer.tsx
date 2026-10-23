@@ -7,6 +7,7 @@ import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
 import { conversionValue, firstConversionForOrder } from '../../../../lib/checkout-conversion'
+import { adTrackingOptedOut } from '../../../../lib/privacy-choices'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
@@ -1066,6 +1067,11 @@ export default function CheckoutDrawer({
             // The page this checkout ran on. The server decides 1P (/order/) vs
             // 3P (marketplace) from it and stores it on the order.
             checkoutPath: typeof window !== 'undefined' ? window.location.pathname : null,
+            // The advertising opt-out (GPC or the /privacy-choices switch), so the server can record
+            // it against the order email (lib/privacy-opt-out-events.ts). GPC also arrives as the
+            // Sec-GPC header; the switch exists only in this browser. Not for Direct Entry, where
+            // the browser is the restaurant's, not the diner's.
+            ...(!isDirectEntry ? { privacyOptOut: adTrackingOptedOut() } : {}),
             // FM requires a digits-only phone ("Phone number has wrong format"
             // otherwise) — "732-239-7055" → "7322397055".
             customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: sanitizePhone(contactPhone) },

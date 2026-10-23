@@ -17,6 +17,7 @@ import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout
 import { parseTaxExempt } from '../../../../lib/order/tax-exempt'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 import { getCustomerSession } from '../../../../lib/customer-auth'
+import { checkoutOptOutSource, optOutEmails, recordPrivacyOptOutEvents } from '../../../../lib/privacy-opt-out-events'
 import { alertPaidOrderMissing } from '../../../../lib/order/missing-order-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
 import { stampCheckoutContactOrderPlaced } from '../../../../lib/checkout-contacts'
@@ -318,7 +319,11 @@ export async function POST(req: NextRequest) {
     // drawer's own flag as it was.
     const checkoutPath = checkoutPagePath(req.headers.get('referer'), body?.checkoutPath)
     const pageSource = sourceForCheckoutPage(checkoutPath)
+    // A browser ad opt-out (GPC header, or the switch the drawer reports), recorded against the
+    // order email after placement (lib/privacy-opt-out-events.ts). Disco-only: never forwarded to FM.
+    const optOutSource = checkoutOptOutSource(req.headers.get('sec-gpc'), body?.privacyOptOut)
     if (body && typeof body === 'object') {
+      delete (body as Record<string, unknown>).privacyOptOut
       delete (body as Record<string, unknown>).checkoutPath
       if (pageSource) {
         const cdIn = ((body as Record<string, unknown>).checkoutDetails ?? {}) as Record<string, unknown>
@@ -461,6 +466,11 @@ export async function POST(req: NextRequest) {
           .then(() => recordCheckoutPath(sql, result.orderReference, checkoutPath))
           .catch((e) => console.error('[order/place] acquisition capture failed (non-fatal):', e instanceof Error ? e.message : e)),
       )
+      if (optOutSource) {
+        waitUntil(recordPrivacyOptOutEvents({
+          emails: optOutEmails(session.email, body?.customer?.email), kind: 'opt_out', source: optOutSource, orderRef: result.orderReference,
+        }))
+      }
 
       return NextResponse.json({
         native: true,
@@ -634,6 +644,16 @@ export async function POST(req: NextRequest) {
         .then(() => recordOrderAcquisition(sql, orderRef, acq))
         .then(() => recordCheckoutPath(sql, orderRef, checkoutPath))
         .catch((e) => console.error('[order/place] mirror/acquisition failed (non-fatal):', e instanceof Error ? e.message : e)))
+
+      // The order email, and the signed-in diner's too when they differ (someone ordering for a
+      // colleague is the one whose browser opted out).
+      if (optOutSource) {
+        const cust = ((placeBody as Record<string, unknown>).customer ?? {}) as Record<string, unknown>
+        const signedIn = await getCustomerSession(req).catch(() => null)
+        waitUntil(recordPrivacyOptOutEvents({
+          emails: optOutEmails(cust.email, signedIn?.email), kind: 'opt_out', source: optOutSource, orderRef: String(orderRef),
+        }))
+      }
 
       // Funnel capture: ORDER_PLACED, linked via order_reference (orderRef is
       // the FM order reference — same value mirrorOrderToNeon persists onto

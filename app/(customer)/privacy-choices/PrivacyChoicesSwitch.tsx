@@ -22,6 +22,16 @@ const optOutSnapshot = () => (gpcEnabled() ? 'gpc' : switchOptedOut() ? 'on' : '
 const consentSnapshot = () => (gpcEnabled() ? 'gpc' : consentChoice() === 'accepted' ? 'on' : 'off')
 const serverSnapshot = () => null
 
+// Saves the switch in this browser, then tells the server, which records it against a signed-in
+// diner's email so NM OS keeps them out of ad audiences (app/api/customer/privacy-choices). Signed
+// out, the server records nothing. Best-effort: the browser choice stands either way.
+function setOptOut(on: boolean) {
+  setSwitchOptedOut(on)
+  fetch('/api/customer/privacy-choices', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ optOut: on }),
+  }).catch(() => { /* never break the page */ })
+}
+
 type State = 'gpc' | 'on' | 'off' | null
 
 function Switch({ state, checked, label, onChange }: { state: State; checked: boolean; label: string; onChange: (on: boolean) => void }) {
@@ -45,7 +55,7 @@ export default function PrivacyChoicesSwitch() {
   const state = useSyncExternalStore(subscribe, optOutSnapshot, serverSnapshot)
   return (
     <div style={{ margin: '8px 0 22px' }}>
-      <Switch state={state} checked={state === 'gpc' || state === 'on'} label="Opt out of advertising and visitor identification" onChange={setSwitchOptedOut} />
+      <Switch state={state} checked={state === 'gpc' || state === 'on'} label="Opt out of advertising and visitor identification" onChange={setOptOut} />
       {state === 'gpc' && (
         <p className="warn" style={{ marginTop: 14 }}>
           Your browser is sending a Global Privacy Control signal, so this is already on.
