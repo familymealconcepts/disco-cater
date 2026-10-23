@@ -30,7 +30,7 @@ The worked examples, and the five specific corrections that preceded this rule, 
 "NEVER COMPARE A CONVERTED RESTAURANT AGAINST FM" further down. This section is the rule;
 that one is the evidence.
 
-## NEVER CHANGE DISCO'S CODE, DATA MODEL OR DESIGN UNLESS PETER EXPLICITLY ASKS
+## NEVER CHANGE DISCO'S CODE, DATA MODEL OR DESIGN UNLESS PETER OR KEVIN EXPLICITLY ASKS
 
 Standing rule from Peter (23 Oct 2026): **do not change Disco's code, data model
 or design unless Peter or Kevin explicitly asks for that change.** A task to load, migrate
