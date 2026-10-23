@@ -64,8 +64,52 @@ export async function voidInvoiceBeforeCancel(ref: string, status: string): Prom
       error: `This order was not cancelled: its invoice could not be voided, so the customer could still pay it. ${voided.error}`,
     }
   }
-  if (voided.action === 'voided') console.log('[native-status] voided invoice before cancel:', ref, voided.invoiceId)
+  if (voided.action === 'voided') {
+    console.log('[native-status] voided invoice before cancel:', ref, voided.invoiceId)
+    // ── AN UNPAID BILL WITHDRAWN AFTER THE FOOD WENT OUT (Peter, 23 Oct 2026) ─
+    // Voiding an unpaid invoice is right for an order that will not happen. On
+    // an order whose delivery/pickup time has already passed it silently writes
+    // off money for food that was most likely made and handed over: four Apollo
+    // Bagels Williamsburg orders, $599.67, voided this way on 23 Oct with no
+    // alert at all. The cancel itself is unchanged; ops is told.
+    const facts = await fulfillmentFacts(ref)
+    if (facts?.past) {
+      await alertOps(`Unpaid invoice voided on a past order — $${facts.total.toFixed(2)} uncollected`, {
+        orderNumber: facts.orderNumber, restaurant: facts.restaurant, customer: facts.customer,
+        fulfillment: `${facts.orderType} ${facts.when}`, amount: facts.total, invoiceId: voided.invoiceId,
+      }).catch(() => {})
+    }
+  }
   return { ok: true }
+}
+
+/**
+ * The order's facts for the cancel-time alerts, and whether its delivery/pickup
+ * time has already passed — in the RESTAURANT's timezone (a 7:15 AM delivery in
+ * New York is past at 7:15 AM Eastern, not at 7:15 AM on a UTC server).
+ * Disco never receives Expedite's delivery status, so the date is the signal.
+ */
+export async function fulfillmentFacts(ref: string): Promise<{
+  past: boolean; orderNumber: string; restaurant: string; customer: string; orderType: string; when: string; total: number
+} | null> {
+  try {
+    const rows = (await sql`
+      SELECT o.order_number::text AS order_number, COALESCE(o.restaurant_name, rc.name, '') AS restaurant,
+             TRIM(CONCAT_WS(' ', o.customer_first_name, o.customer_last_name, NULLIF('(' || COALESCE(o.company_name, '') || ')', '()'), '<' || o.customer_email || '>')) AS customer,
+             o.order_type, to_char(o.order_date, 'Dy DD Mon YYYY') || ' ' || COALESCE(to_char(o.order_time, 'HH12:MI AM'), '') AS when_label,
+             COALESCE(o.total, 0)::float AS total,
+             ((o.order_date + COALESCE(o.order_time, '23:59'::time)) AT TIME ZONE COALESCE(NULLIF(rc.timezone, ''), 'America/New_York')) < NOW() AS past
+        FROM disco_orders o LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+       WHERE (o.reference = ${ref}::uuid OR o.fm_order_reference = ${ref}::uuid) AND o.order_date IS NOT NULL
+       LIMIT 1
+    `) as Array<{ order_number: string; restaurant: string; customer: string; order_type: string; when_label: string; total: number; past: boolean }>
+    const r = rows[0]
+    if (!r) return null
+    return { past: !!r.past, orderNumber: r.order_number, restaurant: r.restaurant, customer: r.customer, orderType: String(r.order_type || '').toLowerCase(), when: r.when_label, total: Number(r.total) || 0 }
+  } catch (e) {
+    console.error('[native-status] fulfillment facts lookup failed (non-fatal):', e instanceof Error ? e.message : e)
+    return null
+  }
 }
 
 export type StatusChangeResult =
@@ -147,9 +191,23 @@ export async function applyNativeStatusChange(
                 ${detail.slice(0, 500)}, ${okFlag ? 'success' : 'failed'})
       `.catch(e => console.error('[native-status] expedite cancel log failed (non-fatal):', e instanceof Error ? e.message : e))
       if (!okFlag) {
-        await alertOps('order cancelled but the Expedite courier was NOT stood down', {
-          orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200),
-        }).catch(() => {})
+        // A courier can only still turn up for a delivery that hasn't happened.
+        // Disco never receives Expedite's delivery status, so the delivery
+        // date decides: past → Expedite's refusal is recorded on the order and
+        // nobody is paged (23 Oct: three Apollo Bagels deliveries from 28 Sep–
+        // 12 Oct paged ops for "NOT stood down"); upcoming → the alert stands.
+        const facts = await fulfillmentFacts(rows[0].reference)
+        if (facts?.past) {
+          await sql`
+            INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+            VALUES (${rows[0].reference}::uuid, 'EXPEDITE_CANCEL_AFTER_DELIVERY',
+                    ${JSON.stringify({ expediteDeliveryId: deliveryId, reply: detail.slice(0, 300), deliveryWas: facts.when })}::jsonb, ${source})
+          `.catch(e => console.error('[native-status] expedite after-delivery note failed (non-fatal):', e instanceof Error ? e.message : e))
+        } else {
+          await alertOps('order cancelled but the Expedite courier was NOT stood down', {
+            orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200),
+          }).catch(() => {})
+        }
       }
     }
 

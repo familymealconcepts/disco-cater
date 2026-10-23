@@ -633,7 +633,8 @@ export async function cancelDelivery(external_delivery_id: string): Promise<{ su
     const { ok, status, body } = await post('delivery_cancelled', payload)
     if (!ok) {
       console.error(`[expedite] cancelDelivery failed ${status}: ${body.slice(0, 300)}`)
-      return { success: false, error: `expedite ${status}` }
+      // Carry Expedite's own reply so it can be recorded on the order.
+      return { success: false, error: `expedite ${status}: ${body.slice(0, 200)}` }
     }
     console.log(`[expedite] cancelDelivery ok for ${external_delivery_id}`)
     return { success: true }
