@@ -10,6 +10,7 @@ import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
 import { restaurantDisplayAddress } from '../../../../lib/address-display'
+import { menuPageTitle, menuPageDescription } from '../../../../lib/restaurant-seo'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -98,12 +99,6 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
 // decide the paused page, so the robots tag and the banner come from ONE read
 // and can never disagree about whether a restaurant is paused.
 const getOrderable = cache((ref: string) => assertRestaurantOrderable(ref))
-
-function truncate(s: string, n: number): string {
-  if (!s) return ''
-  if (s.length <= n) return s
-  return s.slice(0, n - 1).trimEnd() + '…'
-}
 
 interface FmRestaurantLookup {
   reference: string
@@ -375,12 +370,10 @@ export async function buildRestaurantMetadata(
   // FM-resolvable one (no separate derivation needed).
   const fmAddr = await resolveFmAddress(slug)
   const loc = r.location || cityState(fmAddr) || r.address || ''
-  const title = loc
-    ? `${r.name} — Catering in ${loc} | Disco Cater`
-    : `${r.name} — Catering | Disco Cater`
-  const description = r.description
-    ? truncate(String(r.description), 155)
-    : `Order catering from ${r.name}${loc ? ` in ${loc}` : ''} on Disco Cater.`
+  // The rule and its approved wording live in lib/restaurant-seo.ts. "Order online" is promised only
+  // when the restaurant can take an order now; a failed orderable read (null) promises nothing.
+  const title = menuPageTitle(r.name, loc)
+  const description = menuPageDescription(r.name, loc, r.description ? String(r.description) : null, orderable?.reason === 'ok')
   const ogImage = r.imageUrl || r.iconUrl || null
 
   return {
