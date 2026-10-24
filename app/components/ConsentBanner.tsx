@@ -86,7 +86,7 @@ export default function ConsentBanner() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="consent-inner">
         <p className="consent-text">
-          We&rsquo;d like to use cookies to record how you use our pages and to identify the business you&rsquo;re visiting from.{' '}
+          We&rsquo;d like to use cookies to better understand our visitors and how our site is used.{' '}
           <a href="/privacy">Privacy Policy</a>
         </p>
         <div className="consent-actions">
