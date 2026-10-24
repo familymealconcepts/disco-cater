@@ -5,6 +5,8 @@
 // optionalCookiesAllowed() in lib/privacy-choices.ts. Clarity follows the banner ALONE: the
 // advertising opt-out switch does not touch it (Kevin, 2026-10-23).
 //
+// Team browsers (disco_internal=true) never load it, like RB2B and Apollo (Kevin, 2026-10-24).
+//
 // An Accept fires CONSENT_EVENT, so Clarity loads on the page where it happens, with no reload.
 // The loader is Clarity's own snippet, unchanged apart from being called from here instead of an
 // inline <Script> in app/layout.tsx. It loads at most once per page load.
@@ -14,6 +16,11 @@ import { optionalCookiesAllowed, CONSENT_EVENT } from '../../lib/privacy-choices
 
 declare global {
   interface Window { __discoClarityLoaded?: boolean }
+}
+
+// The same test VisitorIdentification and acquisition use; a blocked cookie jar reads as internal.
+function isInternalBrowser(): boolean {
+  try { return document.cookie.includes('disco_internal=true') } catch { return true }
 }
 
 function loadClarity(id: string) {
@@ -34,6 +41,7 @@ function loadClarity(id: string) {
 export default function ClarityLoader() {
   useEffect(() => {
     const load = () => {
+      if (isInternalBrowser()) return
       if (!optionalCookiesAllowed()) return
       try { loadClarity('vv8ibgkwby') } catch { /* a vendor must never break the page */ }
     }

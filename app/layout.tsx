@@ -90,14 +90,16 @@ export default function RootLayout({
             // otherwise; analytics always granted. See lib/privacy-choices.ts.
             var discoAdConsent = ${OPT_OUT_EXPR} ? 'denied' : 'granted';
             gtag('consent', 'default', { ad_storage: discoAdConsent, ad_user_data: discoAdConsent, ad_personalization: discoAdConsent, analytics_storage: 'granted' });
-            gtag('config', 'G-KQV7RLHXTH');
-          `}
-        </Script>
-        <Script id="ga-internal-traffic" strategy="afterInteractive">
-          {`
-            if (document.cookie.includes('disco_internal=true')) {
+            // Team browsers (disco_internal=true, set from NM OS's "Disco Cater team browser" page) are
+            // tagged BEFORE config, so the page_view that config sends is tagged too; GA4's Active
+            // "Internal Traffic Disco Cater" filter excludes traffic_type=internal. It used to be set in
+            // a separate script after config, which left every visit's first page_view untagged.
+            // A cookie jar that cannot be read counts as NOT team here (unlike the loaders): tagging an
+            // unknown visitor internal would delete a real visit from GA4.
+            if ((function(){try{return document.cookie.includes('disco_internal=true')}catch(e){return false}})()) {
               gtag('set', { 'traffic_type': 'internal' });
             }
+            gtag('config', 'G-KQV7RLHXTH');
           `}
         </Script>
 

@@ -15,9 +15,10 @@ import {
   type AcquisitionSource,
 } from '../attribution'
 
-/** Same internal-traffic switch the GA/Clarity/LinkedIn/Meta tags use in app/layout.tsx, and
- *  RB2B/Apollo use in app/components/VisitorIdentification.tsx. Staff browsing must not look
- *  like customer acquisition. */
+/** Same internal-traffic switch the GA4/LinkedIn/Meta tags use in app/layout.tsx, Clarity in
+ *  app/components/ClarityLoader.tsx, and RB2B/Apollo in app/components/VisitorIdentification.tsx.
+ *  Set from NM OS's "Disco Cater team browser" page. Staff browsing must not look like customer
+ *  acquisition. */
 function isInternal(): boolean {
   try { return document.cookie.includes('disco_internal=true') } catch { return true }
 }
