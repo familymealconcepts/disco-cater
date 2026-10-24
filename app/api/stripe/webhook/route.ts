@@ -7,6 +7,7 @@ import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
 import { cancelDelivery } from '../../../../lib/expedite'
+import { recordTransferReversed } from '../../../../lib/order/transfer-reversals'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -610,6 +611,15 @@ export async function POST(request: NextRequest) {
           },
           'STRIPE_WEBHOOK',
         )
+        break
+      }
+
+      // ── transfer.reversed — a payout taken back from a restaurant ──
+      // Recorded against the order so NM OS can close its "payout not reversed"
+      // suggestion itself. FamilyMeal's transfers reach this endpoint too (shared
+      // platform account) and are skipped: lib/order/transfer-reversals.ts.
+      case 'transfer.reversed': {
+        await recordTransferReversed(stripe, event)
         break
       }
 
