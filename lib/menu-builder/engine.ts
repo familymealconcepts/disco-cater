@@ -63,6 +63,8 @@ const TURN_SCHEMA = {
 type TurnOut = { reply: string; action: 'ask' | 'build'; menu: MenuSpec | null; choices: string[]; questions: string[] }
 
 const now = () => new Date().toISOString()
+// The page numbers questions itself; the model often numbers them too ("1. 1. …").
+const unnumber = (qs: string[]) => qs.map(q => q.replace(/^\s*\d+\s*[.)]\s*/, '').trim()).filter(Boolean)
 const todayNY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
 /** The locations, their time zones, and every menu they have or had — the bot's reference for structure. */
@@ -165,7 +167,7 @@ export async function runIngest(ref: string, uploads: Upload[], sheetLinks: stri
       files: scrubDeep(notedFiles),
       transcript: scrubSensitive(out.transcript),
       images,
-      messages: [...s2.messages, { role: 'assistant', text: scrubSensitive(out.reply), questions: scrubDeep(out.questions), choices: photoLines.length ? [`Item photos: ${photoLines.join('; ')}`] : undefined, at: now() }],
+      messages: [...s2.messages, { role: 'assistant', text: scrubSensitive(out.reply), questions: scrubDeep(unnumber(out.questions)), choices: photoLines.length ? [`Item photos: ${photoLines.join('; ')}`] : undefined, at: now() }],
     })
   } catch (e) { await fail(ref, e) }
 }
@@ -218,7 +220,7 @@ export async function runTurn(ref: string, firstTurn = false): Promise<void> {
     await patchSession(ref, {
       ...patch,
       status: 'ready', status_note: null,
-      messages: [...s2.messages, { role: 'assistant', text: scrubSensitive(reply), questions: scrubDeep([...out.questions, ...extraQuestions]), choices: out.action === 'build' ? scrubDeep(out.choices) : undefined, at: now() }],
+      messages: [...s2.messages, { role: 'assistant', text: scrubSensitive(reply), questions: scrubDeep(unnumber([...out.questions, ...extraQuestions])), choices: out.action === 'build' ? scrubDeep(out.choices) : undefined, at: now() }],
     })
   } catch (e) { await fail(ref, e) }
 }
