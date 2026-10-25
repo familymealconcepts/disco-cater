@@ -25,14 +25,12 @@ const NAV: NavItem[] = [
   // One page for System Admins and Admins (Peter, 22 Oct 2026). The old System
   // Admins page stays reachable from its "+ Add System Admin" link for creating.
   { title: 'Restaurant Admins', path: '/admin/manage-restaurant-admins' },
-  {
-    title: 'Restaurants', path: '/admin/manage-restaurants/ordering',
-    children: [
-      { title: 'Ordering', path: '/admin/manage-restaurants/ordering' },
-      { title: 'Menu Import', path: '/admin/manage-restaurants/menu-import' },
-    ],
-  },
+  // One page, no sub-tabs (Peter, 25 Oct 2026). Menu Import is off the menu but
+  // still reachable at /admin/manage-restaurants/menu-import until Peter
+  // confirms Menu Builder replaces it.
+  { title: 'Restaurants', path: '/admin/manage-restaurants/ordering' },
   { title: 'Menus', path: '/admin/manage-menus' },
+  { title: 'Menu Builder', path: '/admin/menu-builder' },
   { title: 'Promo Codes', path: '/admin/promo-codes' },
   { title: 'Testing', path: '/admin/testing' },
 ]

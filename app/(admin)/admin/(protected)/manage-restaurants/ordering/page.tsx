@@ -1150,7 +1150,7 @@ export default function RestaurantsOrderingPage() {
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Restaurants — Ordering</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Restaurants</h1>
           {cacheMeta.cachedAt && (
             <div style={{ fontSize: 11, color: cacheMeta.lastError ? '#B45309' : '#999', marginTop: 2 }}>
               List last synced {new Date(cacheMeta.cachedAt).toLocaleString()}

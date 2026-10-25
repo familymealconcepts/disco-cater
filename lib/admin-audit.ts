@@ -54,6 +54,9 @@ export type AdminAuditAction =
   // A location created or updated from a group onboarding sheet by a
   // one-off script (scripts/chubby-onboarding-2026-10.ts, 23 Oct 2026).
   | 'location_created' | 'location_updated'
+  // Menu Builder (Super Admin, lib/menu-builder): a built menu published to a
+  // location, or a confirmed before → after update applied to one.
+  | 'menu_builder_publish' | 'menu_builder_update'
 
 let auditTableEnsured = false
 export async function ensureAuditTable(): Promise<void> {
