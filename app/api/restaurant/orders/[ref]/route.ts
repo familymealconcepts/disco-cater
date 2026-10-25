@@ -58,6 +58,7 @@ interface DiscoFull {
   delivery_city: string | null
   delivery_state: string | null
   delivery_zip: string | null
+  delivery_instructions: string | null
   tax_exempt_id: string | null
   tax_exempt_state: string | null
   created_at: string | null
@@ -106,7 +107,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
              source_of_order, restaurant_reference, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, refund, note,
-             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id, tax_exempt_state,
+             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, delivery_instructions, tax_exempt_id, tax_exempt_state,
              created_at, placed_at, persons, company_name
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
@@ -251,12 +252,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       base.restaurant = { ...r, ...(businessName ? { businessName } : {}), ...(address ? { address } : {}) }
     }
   }
-  // Delivery address — prefer FM's; fall back to Neon's stored address.
-  if (!base.deliveryAddress && d.delivery_address_line1) {
+  // Delivery address + instructions — Neon first, like every other field here
+  // (FM-copied orders get theirs from lib/fm-delivery-address.ts). FM's live
+  // object is only the fallback for an order whose address isn't copied yet.
+  if (d.delivery_address_line1) {
     base.deliveryAddress = {
       addressLine1: d.delivery_address_line1, addressLine2: d.delivery_address_line2 || undefined,
       city: d.delivery_city || '', state: d.delivery_state || '', zipcode: d.delivery_zip || '',
     }
+  }
+  if (d.delivery_instructions) {
+    base.deliveryAddress = { ...((base.deliveryAddress as Record<string, unknown>) || {}), deliveryInstructions: d.delivery_instructions }
   }
 
   // Line items — Neon is source of truth when present, else keep FM's.

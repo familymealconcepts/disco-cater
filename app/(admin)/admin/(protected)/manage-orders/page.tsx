@@ -5,6 +5,7 @@ import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { formatTime12 } from '../../../../../lib/utils/time'
+import { formatDisplayAddress } from '../../../../../lib/address-display'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTime = formatTime12
@@ -74,6 +75,14 @@ interface Order {
   // Order emails Mailgun could not deliver (permanent failures), recorded by
   // the mailgun-failures cron. Never resent automatically.
   emailFailures?: { recipient: string; reason: string; eventTime: string; subject: string | null }[]
+  // Delivery address + instructions from Disco's copy of the order (native and
+  // FamilyMeal alike), attached by app/api/admin/orders/route.ts.
+  deliveryAddressLine1?: string | null
+  deliveryAddressLine2?: string | null
+  deliveryCity?: string | null
+  deliveryState?: string | null
+  deliveryZip?: string | null
+  deliveryInstructions?: string | null
 }
 
 // FM returns the order reference under `reference`; every consumer here (the Edit
@@ -392,6 +401,11 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {order.email && detailRow('Email', order.email)}
           {detailRow('Order date', `${fmtDate(order.orderDate)} ${fmtTime(order.orderTime)}`)}
           {detailRow('Type', fulfillmentLabel(order.deliveryType, order.orderType))}
+          {order.orderType === 'DELIVERY' && order.deliveryAddressLine1 && detailRow('Delivery address', formatDisplayAddress({
+            addressLine1: order.deliveryAddressLine1, addressLine2: order.deliveryAddressLine2,
+            city: order.deliveryCity, state: order.deliveryState, zipcode: order.deliveryZip,
+          }))}
+          {order.orderType === 'DELIVERY' && order.deliveryInstructions && detailRow('Delivery instructions', order.deliveryInstructions)}
           {detailRow('Status', order.orderStatus || '—')}
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
           {order.emailFailures?.length ? (

@@ -49,6 +49,7 @@ import { restaurantName } from '../../../../lib/ops-alert-facts'
 import { mirrorAlert, recordMirrorAlert } from '../../../../lib/mirror-alert'
 import { resolveMissingOrderAlerts } from '../../../../lib/order/missing-order-alert'
 import { withCronRun } from '../../../../lib/cron-runs'
+import { fillMissingDeliveryAddresses } from '../../../../lib/fm-delivery-address'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -217,6 +218,18 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       console.error('[cron/sync-fm-orders] orphaned draft-mirror cleanup failed (non-fatal):', e instanceof Error ? e.message : e)
     }
 
+    // Delivery addresses for new FM delivery orders copied without one (FM's
+    // list has no address). After the cursor write, so it can never hold the
+    // rotation back; capped, time-boxed to what's left of the window, and a
+    // failed lookup is just retried next hour. lib/fm-delivery-address.ts.
+    let addresses: Awaited<ReturnType<typeof fillMissingDeliveryAddresses>> | null = null
+    try {
+      const left = 270_000 - (Date.now() - startedAt)
+      if (left > 5_000) addresses = await fillMissingDeliveryAddresses({ cap: 15, budgetMs: Math.min(20_000, left - 5_000) })
+    } catch (e) {
+      console.error('[cron/sync-fm-orders] delivery address catch-up failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+
     // A skipped restaurant is no longer fatal (lib/fm-orders-sync.ts guards each
     // one), which is exactly why it has to be announced: a run that silently
     // skips the same restaurant every hour looks identical to a healthy one on
@@ -252,8 +265,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} rowsRead=${rowsRead} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} failures=${failures.length} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, failures, orphansDeleted, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} rowsRead=${rowsRead} restaurants=${restaurants} processed=${processed} budgetStopped=${budgetStopped} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} failures=${failures.length} orphansDeleted=${orphansDeleted} addresses=${addresses ? `${addresses.filled}/${addresses.candidates}` : 'skipped'} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, processed, exhausted, budgetStopped, offset, mismatches, bareRepairs, failures, orphansDeleted, addresses, duration_ms })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[cron/sync-fm-orders] failed:', error)

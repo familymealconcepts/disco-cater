@@ -13,6 +13,7 @@ import { toast } from '../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { fulfillmentDateTime } from '../../../../../lib/order/fulfillment-time'
 import { formatTime12 } from '../../../../../lib/utils/time'
+import { formatDisplayAddress } from '../../../../../lib/address-display'
 import { TimeSelect } from '../_components/TimeSelect'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
@@ -129,7 +130,7 @@ interface Order {
     address?: { addressLine1?: string; phoneNumber?: string; city?: string; state?: string; zipcode?: string }
   }
   deliveryAddress?: {
-    addressLine1?: string; city?: string; state?: string; zipcode?: string; deliveryInstructions?: string
+    addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string; deliveryInstructions?: string
   }
   orderMealPackages?: OrderMealPackage[]
   orderClassics?: OrderMealPackage[]
@@ -951,7 +952,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {order.email && <DetailRow label="Email" value={order.email} />}
             {order.phoneNumber && <DetailRow label="Phone" value={order.phoneNumber} />}
             {order.orderType === 'DELIVERY' && order.deliveryAddress?.addressLine1 && (
-              <DetailRow label="Address" value={[order.deliveryAddress.addressLine1, order.deliveryAddress.city, order.deliveryAddress.state, order.deliveryAddress.zipcode].filter(Boolean).join(', ')} />
+              <DetailRow label="Address" value={formatDisplayAddress(order.deliveryAddress)} />
             )}
             {order.deliveryAddress?.deliveryInstructions && (
               <DetailRow label="Instructions" value={order.deliveryAddress.deliveryInstructions} />

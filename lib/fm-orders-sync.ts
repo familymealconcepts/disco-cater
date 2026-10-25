@@ -21,6 +21,7 @@ import { isKnownFmDuplicateOrderNumber, knownFmDuplicateCount } from './known-fm
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 import { fetchAllFmRestaurants } from './restaurant-cache'
 import { lookupFmStripeFee } from './fm-stripe-fee'
+import { fillDeliveryAddress } from './fm-delivery-address'
 
 // A backfilled order is worth confirming only if its pickup is still upcoming —
 // a full-cycle sync also inserts historical orders, which must NOT trigger emails.
@@ -218,6 +219,10 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
 export async function syncOrderDetail(orderId: number, fmRef: string): Promise<void> {
   const details = await loadFmOrderDetails(fmRef)
   if (!details) return
+  // Delivery address + instructions ride on this same response (FM's list has
+  // neither). Empty fields only; no extra FM call. See lib/fm-delivery-address.ts.
+  await fillDeliveryAddress(orderId, details).catch(e =>
+    console.error('[fm-orders-sync] delivery address fill failed:', orderId, e instanceof Error ? e.message : e))
   const itemsWritten = await syncOrderItemsFromDetails(orderId, details)
   if (!itemsWritten) {
     console.warn(`[fm-orders-sync] order ${orderId} (fm ${fmRef}): FM's response has no items under any known field (meal packages or classics) — skipping the transaction write too, not just items.`)

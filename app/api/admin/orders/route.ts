@@ -5,6 +5,7 @@ import { toClientIso } from '../../../../lib/utils/timestamp'
 import { emailFailuresFor } from '../../../../lib/email-failures'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // Disco-native orders (fm_order_reference IS NULL) exist only in Neon and are
 // absent from FM's admin list. Fetch them mapped into FM's list shape so the admin
@@ -132,6 +133,35 @@ export async function GET(req: NextRequest) {
             || (f.restaurantReference && f.restaurantReference === ref)
             || (f.restaurantName && f.restaurantName.trim().toLowerCase() === name))
           if (mine.length) r.emailFailures = mine.map(({ recipient, reason, eventTime, subject }) => ({ recipient, reason, eventTime, subject }))
+        }
+      }
+    }
+
+    // Delivery address + instructions from Disco's own copy, for native and
+    // FamilyMeal rows alike (FM's list carries neither), so the details panel
+    // can show them. One query per page; best-effort.
+    if (data && Array.isArray(data.content) && data.content.length) {
+      const rows = data.content as Record<string, unknown>[]
+      const refOf = (r: Record<string, unknown>) => String(r.orderReference ?? r.reference ?? '').toLowerCase()
+      const refs = rows.map(refOf).filter(x => UUID_RE.test(x))
+      if (refs.length) {
+        try {
+          const addr = (await sql`
+            SELECT COALESCE(fm_order_reference, reference)::text AS ref,
+                   delivery_address_line1 AS "deliveryAddressLine1", delivery_address_line2 AS "deliveryAddressLine2",
+                   delivery_city AS "deliveryCity", delivery_state AS "deliveryState", delivery_zip AS "deliveryZip",
+                   delivery_instructions AS "deliveryInstructions"
+            FROM disco_orders
+            WHERE (reference = ANY(${refs}::uuid[]) OR fm_order_reference = ANY(${refs}::uuid[]))
+              AND order_type = 'DELIVERY' AND (COALESCE(delivery_address_line1, '') <> '' OR COALESCE(delivery_instructions, '') <> '')
+          `) as Array<Record<string, unknown> & { ref: string }>
+          const byRef = new Map(addr.map(({ ref, ...rest }) => [ref.toLowerCase(), rest]))
+          for (const r of rows) {
+            const a = byRef.get(refOf(r))
+            if (a) Object.assign(r, a)
+          }
+        } catch (e) {
+          console.error('[admin/orders] delivery address lookup failed (non-fatal):', e instanceof Error ? e.message : e)
         }
       }
     }
