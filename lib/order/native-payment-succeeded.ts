@@ -11,7 +11,7 @@
 import Stripe from 'stripe'
 import { sql } from '../db'
 import { dispatchOrderConfirmations, dispatchInventoryUnavailableNotification } from '../order-notifications'
-import { applyOrderInventoryDecrements } from './native-inventory'
+import { checkOrderInventoryAtPayment } from './native-inventory'
 import { refundNativeOrder } from './native-refund'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
 import { alertSoldOutRefundFailed } from './money-alerts'
@@ -71,9 +71,9 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
 
   const order = orders[0]
 
-  // Max Inventory Per Day — the REAL enforcement point. Atomically decrement
-  // every capped item in this order now that money has actually moved.
-  // Uncapped items no-op inside applyOrderInventoryDecrements. If any item's
+  // Max Inventory Per Day — the enforcement point once money has moved: this
+  // order plus every other counted order must fit under each capped item's cap
+  // (lib/order/native-inventory.ts). Uncapped items are ignored. If any item's
   // cap was exhausted by a concurrent order in the split-second before this
   // ran, refund immediately rather than leave the customer charged with an
   // unfulfillable order.
@@ -81,20 +81,30 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
     SELECT order_date::text AS order_date FROM disco_orders WHERE id = ${order.id} LIMIT 1
   `) as { order_date: string }[]
   const orderDate = orderDateRows[0]?.order_date
+  // meal_package_reference is TEXT and disco_menu_items.reference is UUID: this
+  // join was `mi.reference = oi.meal_package_reference`, which Postgres refuses
+  // (uuid = text), and the .catch below turned that into "no items" — so no
+  // order was ever counted against its cap. Compare as text. And log, not
+  // swallow, if it ever fails again.
   const orderItemRows = orderDate ? (await sql`
     SELECT oi.meal_package_reference AS item_ref, oi.quantity, mi.name
     FROM disco_order_items oi
-    JOIN disco_menu_items mi ON mi.reference = oi.meal_package_reference
+    JOIN disco_menu_items mi ON mi.reference::text = lower(oi.meal_package_reference)
     WHERE oi.order_id = ${order.id} AND oi.meal_package_reference IS NOT NULL
-  `.catch(() => [])) as { item_ref: string; quantity: number; name: string }[] : []
+  `.catch(e => { console.error(`[${source}] inventory item lookup failed (not enforced):`, e instanceof Error ? e.message : e); return [] })) as { item_ref: string; quantity: number; name: string }[] : []
 
   let inventoryFailedItem: string | null = null
   if (orderDate && orderItemRows.length > 0) {
-    const result = await applyOrderInventoryDecrements(
-      orderItemRows.map(oi => ({ itemRef: oi.item_ref, itemName: oi.name, quantity: oi.quantity })),
-      orderDate,
-    )
-    if (!result.ok) inventoryFailedItem = result.failedItem.name
+    try {
+      const result = await checkOrderInventoryAtPayment(
+        order.id,
+        orderItemRows.map(oi => ({ itemRef: oi.item_ref, itemName: oi.name, quantity: Number(oi.quantity) })),
+        orderDate,
+      )
+      if (!result.ok) inventoryFailedItem = result.failedItem.name
+    } catch (e) {
+      console.error(`[${source}] inventory cap check failed (not enforced):`, e instanceof Error ? e.message : e)
+    }
   }
 
   if (inventoryFailedItem) {
