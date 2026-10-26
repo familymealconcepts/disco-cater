@@ -8,6 +8,7 @@ import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { cancelDelivery } from '../../../../../../lib/expedite'
 import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
+import { editRefundedFor, nonEditRefunded, refundableAmount } from '../../../../../../lib/order/refundable'
 
 export const runtime = 'nodejs'
 
@@ -56,6 +57,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   let maxRefundable = 0
   let alreadyRefunded = 0
   let orderTotal = 0
+  // What order edits have already refunded. Those refunds are inside both the
+  // lowered total AND `refund`, so they must be counted once — see
+  // lib/order/refundable.ts (#900000598).
+  let editRefunded = 0
   let discoReference = ''
   // The ORDER'S OWN restaurant. This is what decides which Stripe refunds the
   // money — more precise than the caller's session and than the selected scope,
@@ -86,7 +91,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     priorStatus = String(rows[0].prior_status || '').toUpperCase()
     orderTotal = Number(rows[0].total) || 0
     alreadyRefunded = Number(rows[0].refund) || 0
-    maxRefundable = Math.max(0, orderTotal - alreadyRefunded)
+    editRefunded = await editRefundedFor(discoReference)
+    maxRefundable = refundableAmount(orderTotal, alreadyRefunded, editRefunded)
   } catch (e) {
     console.error('[restaurant/orders/refund] max lookup failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to process refund' }, { status: 500 })
@@ -148,7 +154,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // 'REFUNDED' — matches FM's real OrderStatus enum spelling and the majority
   // of real rows; this writer used to produce the minority spelling.
   const totalRefund = Math.round((alreadyRefunded + amount) * 100) / 100
-  const newStatus = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
+  const newStatus = orderTotal > 0 && nonEditRefunded(totalRefund, editRefunded) < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
   try {
     const rows = (await sql`
       UPDATE disco_orders

@@ -7,12 +7,20 @@
 // post-refund block, and it is why the source filter below was missing from all
 // three at once.
 //
-// DISCO-SOURCE ONLY. disco_orders mirrors FAMILYMEAL-direct orders so the portal
-// can display them, and FM emails those customers itself — verified live in
-// Mailgun, where FM sends "Order refund from {Restaurant} #{orderNumber}" from
-// mg.familymeal.com. FM owns FM-sourced orders end to end: reminders,
-// cancellations and refunds. Disco adding a second message is a duplicate in a
-// stranger's inbox.
+// SKIPPED ONLY WHEN FAMILYMEAL PROCESSED THE ORDER. disco_orders mirrors
+// FamilyMeal's own orders so the portal can display them, and FM emails those
+// customers itself — verified live in Mailgun, where FM sends "Order refund from
+// {Restaurant} #{orderNumber}" from mg.familymeal.com. Disco adding a second
+// message is a duplicate in a stranger's inbox. A mirrored FM order is one with
+// an fm_order_reference.
+//
+// Every order DISCO processed gets the email, whichever link the customer used.
+// This used to test source_of_order = 'DISCO', but source_of_order is the
+// marketing channel (1P link vs Disco marketplace), not who took the money: a
+// native order placed through a restaurant's own link is 'FAMILYMEAL', and
+// FamilyMeal has no record of it. So those refunds went out with no email at
+// all — 8 of them from 31 Aug to 24 Oct 2026, including #900000598 (Apollo
+// Bagels - FiDi, $113.61), whose confirmation Disco had sent itself.
 import { sql } from '../db'
 import { sendCustomerRefundNotification } from '../email/notifications'
 
@@ -37,13 +45,13 @@ export interface RefundEmailArgs {
 
 export interface RefundEmailResult {
   sent: boolean
-  reason?: 'not-disco-source' | 'no-order' | 'no-email' | 'send-failed'
+  reason?: 'familymeal-order' | 'no-order' | 'no-email' | 'send-failed'
 }
 
 interface Row {
   reference: string
   order_number: string | number | null
-  source_of_order: string | null
+  fm_order_reference: string | null
   customer_email: string | null
   customer_first_name: string | null
   customer_last_name: string | null
@@ -60,7 +68,7 @@ interface Row {
 export async function sendOrderRefundEmail(args: RefundEmailArgs): Promise<RefundEmailResult> {
   try {
     const rows = (await sql`
-      SELECT o.reference, o.order_number, o.source_of_order,
+      SELECT o.reference, o.order_number, o.fm_order_reference,
              o.customer_email, o.customer_first_name, o.customer_last_name,
              o.restaurant_reference, o.restaurant_name,
              rc.name AS cache_name
@@ -72,9 +80,8 @@ export async function sendOrderRefundEmail(args: RefundEmailArgs): Promise<Refun
 
     const o = rows[0]
     if (!o) return { sent: false, reason: 'no-order' }
-    // source_of_order is NOT NULL DEFAULT 'DISCO', so this keeps every native
-    // and DISCO-marketplace order and drops only FM-sourced mirrors.
-    if ((o.source_of_order || 'DISCO') !== 'DISCO') return { sent: false, reason: 'not-disco-source' }
+    // FamilyMeal processed it (a mirrored FM order) → FM sends its own email.
+    if (o.fm_order_reference) return { sent: false, reason: 'familymeal-order' }
     if (!o.customer_email) return { sent: false, reason: 'no-email' }
 
     const res = await sendCustomerRefundNotification({

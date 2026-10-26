@@ -5,6 +5,7 @@ import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/order-edit'
 import { displayEmail } from '../../../../../lib/customer-email-guard'
 import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../lib/order-items'
+import { editRefundedFor, refundableAmount } from '../../../../../lib/order/refundable'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -297,7 +298,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   base.orderStatusesToChange = STATUS_TRANSITIONS[d.order_status] || []
   if (base.maxAllowedRefundAmount == null) {
-    base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status) ? Math.max(0, num(d.total) - num(d.refund)) : 0
+    // An order edit's refund is inside both the lowered total and `refund` —
+    // count it once (lib/order/refundable.ts, #900000598).
+    base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status)
+      ? refundableAmount(num(d.total), num(d.refund), await editRefundedFor(d.reference).catch(() => 0))
+      : 0
   }
 
   return NextResponse.json(base)

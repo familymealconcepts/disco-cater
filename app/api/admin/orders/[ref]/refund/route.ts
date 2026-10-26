@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql } from '../../../../../../lib/db'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
+import { editRefundedFor, nonEditRefunded, refundableAmount } from '../../../../../../lib/order/refundable'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
 import { cancelDelivery } from '../../../../../../lib/expedite'
@@ -87,7 +88,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   }
 
   // ── Native refund: REAL Stripe refund, then Neon record. ──
-  const maxRefundable = Math.max(0, nativeRow.total - nativeRow.refund)
+  // An order edit's refund is inside both the lowered total and `refund` —
+  // count it once (lib/order/refundable.ts, #900000598).
+  const editRefunded = await editRefundedFor(nativeRow.discoReference)
+  const maxRefundable = refundableAmount(nativeRow.total, nativeRow.refund, editRefunded)
   if (amount > maxRefundable + 0.001) {
     return NextResponse.json({ error: `Refund amount cannot exceed $${maxRefundable.toFixed(2)}` }, { status: 400 })
   }
@@ -111,7 +115,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // OrderStatus enum spelling and the majority of real rows; this writer used
   // to produce the minority spelling.
   const totalRefund = Math.round((nativeRow.refund + amount) * 100) / 100
-  const newStatus = nativeRow.total > 0 && totalRefund < nativeRow.total - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
+  const newStatus = nativeRow.total > 0 && nonEditRefunded(totalRefund, editRefunded) < nativeRow.total - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
   try {
     const rows = (await sql`
       UPDATE disco_orders

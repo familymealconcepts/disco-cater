@@ -639,9 +639,13 @@ function NoteModal({ order, orderRef, onClose, onSaved }: { order: Order; orderR
 }
 
 function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
-  // Max refundable = order total minus anything already refunded.
+  // Max refundable. maxAllowedRefundAmount is already net of every refund (and
+  // counts an order edit's refund once — lib/order/refundable.ts), so it is used
+  // as-is; subtracting `refund` again here took past refunds off twice.
   const alreadyRefunded = order.refund || 0
-  const maxAmt = Math.max(0, (order.maxAllowedRefundAmount || order.transactionsTotal || 0) - alreadyRefunded)
+  const maxAmt = order.maxAllowedRefundAmount != null
+    ? Math.max(0, order.maxAllowedRefundAmount)
+    : Math.max(0, (order.transactionsTotal || 0) - alreadyRefunded)
   const [amount, setAmount] = useState(String(maxAmt || ''))
   const [useFullAmt, setUseFullAmt] = useState(true)
   const [saving, setSaving] = useState(false)

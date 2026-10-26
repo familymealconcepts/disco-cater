@@ -164,11 +164,13 @@ async function main() {
     check('no scratch rows left behind', remaining[0].n === 0, `${remaining[0].n} remain`)
   }
 
-    // ── 5. Refunds are DISCO-source only too ────────────────────────────────
-    // FM owns FM-sourced orders end to end — reminders, cancellations, refunds.
-    // FM emails those customers itself ("Order refund from {Restaurant}
-    // #{number}", read live from Mailgun), so Disco must not add a second.
-    console.log('\n=== refund email: source filter ===')
+    // ── 5. Refund emails go out for every order Disco processed ─────────────
+    // Skipped only when FamilyMeal processed the order (it has an
+    // fm_order_reference; FM emails those customers itself). source_of_order is
+    // the link the customer used, not who took the money, so a 'FAMILYMEAL'-
+    // source order Disco processed DOES get the email (#900000598, 26 Oct 2026).
+    // makeOrder() creates Disco-processed orders only (no fm_order_reference).
+    console.log('\n=== refund email: Disco-processed orders, either link ===')
     const rDisco = await makeOrder('DISCO', true); made.push(rDisco)
     sent.length = 0
     const rf1 = await sendOrderRefundEmail({
@@ -184,16 +186,15 @@ async function main() {
       orderReference: rFm, amount: 40, totalRefunded: 40, orderTotal: 250,
       isPartial: true, orderProceeding: true,
     })
-    check('an FM-sourced refund sends NOTHING', rf2.sent === false && sent.length === 0, `sent=${sent.length}`)
-    check('   ...for the source reason, not an error', rf2.reason === 'not-disco-source', String(rf2.reason))
+    check('an own-link (FAMILYMEAL-source) refund Disco processed sends', rf2.sent === true && sent.length === 1, `sent=${sent.length} reason=${rf2.reason}`)
 
-    // A FULL refund on an FM-sourced order is equally suppressed — the filter is
-    // on the order, not on the refund shape.
+    // ...and so does a FULL refund on it — the rule is on the order, not on the
+    // refund shape.
     sent.length = 0
     const rf3 = await sendOrderRefundEmail({
       orderReference: rFm, amount: 250, totalRefunded: 250, orderTotal: 250, isPartial: false,
     })
-    check('a FULL FM-sourced refund also sends nothing', rf3.sent === false && sent.length === 0, `sent=${sent.length}`)
+    check('a FULL own-link refund Disco processed also sends', rf3.sent === true && sent.length === 1, `sent=${sent.length} reason=${rf3.reason}`)
 
     // No direct callers of the unfiltered template remain in app code.
     const fs = await import('node:fs')
