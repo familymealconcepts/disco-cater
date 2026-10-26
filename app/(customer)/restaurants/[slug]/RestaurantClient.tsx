@@ -1476,7 +1476,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const SEPARATE_MENU_MESSAGE =
     "This item is on a different menu than what's already in your cart — orders can only include items from one menu at a time. Start a new order, or remove the existing items to add this one."
 
-  function addItemWithConfig(pkg: FmPackage, addQty: number, addOns: CartAddOn[], note: string | undefined, unitPrice: number) {
+  function addItemWithConfig(pkg: FmPackage, addQty: number, addOns: CartAddOn[], note: string | undefined, unitPrice: number, track = true) {
     const menuReference = activeMenu?.reference || 'disco-catering'
     const sig = configSig(addOns, note)
     const isNewLine = cart.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig) < 0
@@ -1508,6 +1508,22 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       setCartBlockMessage(SEPARATE_MENU_MESSAGE)
       setTimeout(() => setCartBlockMessage(''), 8000)
       return
+    }
+    // GA4 add_to_cart: one per add from the menu. Not counted: a blocked cross-menu add (returned
+    // above), Direct Entry, or a reorder rebuild (track=false). No note or add-on names are sent.
+    if (track && !isDirectEntry) {
+      try {
+        trackEvent('add_to_cart', {
+          restaurant_name: restaurant.name,
+          restaurant_slug: slug,
+          item_name: pkg.name,
+          item_id: pkg.reference,
+          quantity: addQty,
+          value: Math.round(unitPrice * addQty * 100) / 100,
+          currency: 'USD',
+          source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+        })
+      } catch { /* tracking must never block an add */ }
     }
     setCart(prev => {
       const i = prev.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig)
@@ -1590,7 +1606,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       const stashedQty = item.count && item.count > 0 ? item.count : 1
       const pkgMin = Number(pkg.minQuantity)
       const qty = Number.isFinite(pkgMin) && pkgMin > 1 ? Math.max(Math.trunc(pkgMin), stashedQty) : stashedQty
-      addItemWithConfig(pkg, qty, addOns, item.comment || undefined, pkg.price + extra)
+      addItemWithConfig(pkg, qty, addOns, item.comment || undefined, pkg.price + extra, false)
     }
 
     const total = items.length

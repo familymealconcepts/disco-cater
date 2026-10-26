@@ -6,6 +6,7 @@ import Image from 'next/image'
 import NavAuthButton from '../components/NavAuthButton'
 import { useAuthContext } from '../context/AuthContext'
 import { geocodeTypedLocation, isCuisineQuery } from '../../lib/geocode-client'
+import { trackEvent } from '../../lib/analytics'
 
 const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
@@ -25,6 +26,13 @@ export default function HomeClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  // Enter on a suggestion can run place_changed AND the form submit; count one search per page view.
+  const searchSentRef = useRef(false)
+  function trackSearchOnce(searchType: 'place' | 'cuisine', selection: 'suggestion' | 'typed') {
+    if (searchSentRef.current) return
+    searchSentRef.current = true
+    trackEvent('search_performed', { surface: 'homepage', search_type: searchType, selection })
+  }
   const autocompleteRef = useRef<any>(null)
   // Admin-managed cuisine names, so a typed "Poke" etc. routes as a cuisine
   // search too (lib/geocode-client.ts carries a static list as the floor).
@@ -91,6 +99,7 @@ export default function HomeClient() {
         const lat = place.geometry.location.lat()
         const lng = place.geometry.location.lng()
         const label = place.formatted_address || inputRef.current?.value || ''
+        trackSearchOnce('place', 'suggestion')
         router.push(`/fullmap?lat=${lat}&lng=${lng}${label ? `&q=${encodeURIComponent(label)}` : ''}`)
       } else {
         setError('Please select a location from the dropdown.')
@@ -108,6 +117,7 @@ export default function HomeClient() {
       // A cuisine/food word ("Italian", "BBQ") is a restaurant search, not a
       // place — geocoders resolve those to Italian Village OH / Bbq Lane MI.
       if (isCuisineQuery(query, cuisineTypesRef.current)) {
+        trackSearchOnce('cuisine', 'typed')
         router.push(`/fullmap?search=${encodeURIComponent(query)}`)
         return
       }
@@ -117,6 +127,7 @@ export default function HomeClient() {
       // then Google Places predictions, then Google Geocoding.
       const hit = await geocodeTypedLocation(query)
       if (hit) {
+        trackSearchOnce('place', 'typed')
         router.push(`/fullmap?lat=${hit.lat}&lng=${hit.lng}&q=${encodeURIComponent(query)}`)
       } else {
         setError('Address not found. Try a city, zip, or full address.')
