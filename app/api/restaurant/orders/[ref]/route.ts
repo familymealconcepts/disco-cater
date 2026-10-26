@@ -297,11 +297,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   } catch { /* best-effort — absence just means no notice is shown */ }
 
   base.orderStatusesToChange = STATUS_TRANSITIONS[d.order_status] || []
+  // What order edits refunded. It is inside both the lowered total and
+  // `refund`, so it is counted once: in the refund limit, and in the drawer's
+  // Amount Charged / Net Total (lib/order/refundable.ts, #900000598).
+  const editRefunded = await editRefundedFor(d.reference).catch(() => 0)
+  base.editRefunded = editRefunded
   if (base.maxAllowedRefundAmount == null) {
-    // An order edit's refund is inside both the lowered total and `refund` —
-    // count it once (lib/order/refundable.ts, #900000598).
     base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status)
-      ? refundableAmount(num(d.total), num(d.refund), await editRefundedFor(d.reference).catch(() => 0))
+      ? refundableAmount(num(d.total), num(d.refund), editRefunded)
       : 0
   }
 

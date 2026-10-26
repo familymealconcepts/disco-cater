@@ -138,13 +138,14 @@ async function main() {
     check('second call sends nothing', sent.length === 0 && r2.sent === false, `sent=${sent.length} reason=${r2.reason}`)
     check('reason is the claim, not an error', r2.reason === 'already-sent', String(r2.reason))
 
-    // ── 3. FM-sourced: nothing at all
-    console.log('\n=== an FM-sourced cancellation ===')
+    // ── 3. Own-link (FAMILYMEAL-source) order Disco processed: it IS emailed.
+    // Skipped only when FamilyMeal processed the order (fm_order_reference set),
+    // which makeOrder() cannot create. Same rule as the refund email.
+    console.log('\n=== an own-link cancellation Disco processed ===')
     const fmRef = await makeOrder('FAMILYMEAL', true); made.push(fmRef)
     sent.length = 0
     const r3 = await sendOrderCancellationEmail(fmRef, 'TEST')
-    check('sends NOTHING for an FM-sourced order', sent.length === 0 && r3.sent === false, `sent=${sent.length}`)
-    check('reason is the source filter', r3.reason === 'not-disco-source', String(r3.reason))
+    check('sends ONE email for an own-link order Disco processed', sent.length === 1 && r3.sent === true, `sent=${sent.length} reason=${r3.reason}`)
 
     // ── 4. Uncharged cancellation says nothing about money at all
     console.log('\n=== a DISCO cancellation with no successful payment ===')

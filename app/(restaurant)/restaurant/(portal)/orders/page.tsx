@@ -75,6 +75,8 @@ interface Order {
   // nashDeliveryStatus/nashDeliveryPickupEta pair, which nothing ever set.
   deliveryStatus?: string
   maxAllowedRefundAmount?: number
+  /** What order edits refunded (inside both the lowered total and `refund`). */
+  editRefunded?: number
   // True only when a SUCCEEDED PaymentIntent exists for this order — see the orders
   // API. Distinguishes "cancelled and the customer is still holding a charge" from
   // "cancelled and nothing was ever taken".
@@ -638,7 +640,7 @@ function NoteModal({ order, orderRef, onClose, onSaved }: { order: Order; orderR
   )
 }
 
-function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
+function RefundModal({ order, orderRef, afterCancel = false, onClose, onSaved }: { order: Order; orderRef: string; afterCancel?: boolean; onClose: () => void; onSaved: () => void }) {
   // Max refundable. maxAllowedRefundAmount is already net of every refund (and
   // counts an order edit's refund once — lib/order/refundable.ts), so it is used
   // as-is; subtracting `refund` again here took past refunds off twice.
@@ -654,14 +656,34 @@ function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
   const parsed = parseFloat(amount)
   const overMax = Number.isFinite(parsed) && parsed > maxAmt + 0.001
   const invalid = !Number.isFinite(parsed) || parsed <= 0 || overMax
+  // Opened by the Cancel button: the cancel's customer email waited for this
+  // choice. Refund → the refund route sends ONE cancellation email stating the
+  // refund. Closing without a refund (No Refund, Cancel, leaving the page) →
+  // the plain cancellation email goes now. An hourly safety net sends it if
+  // neither reaches the server (lib/order/cancellation-email.ts).
+  const emailDecided = useRef(false)
+  const cancellationEmailUrl = `/api/restaurant/orders/${orderRef}/cancellation-email`
+  useEffect(() => {
+    if (!afterCancel) return
+    const onHide = () => { if (!emailDecided.current) { emailDecided.current = true; navigator.sendBeacon(cancellationEmailUrl) } }
+    window.addEventListener('pagehide', onHide)
+    return () => window.removeEventListener('pagehide', onHide)
+  }, [afterCancel, cancellationEmailUrl])
+  function closeWithoutRefund() {
+    if (afterCancel && !emailDecided.current) {
+      emailDecided.current = true
+      fetch(cancellationEmailUrl, { method: 'POST' }).catch(() => {})
+    }
+    onClose()
+  }
   async function save() {
     if (invalid) return
     setSaving(true); setError('')
     const res = await fetch(`/api/restaurant/orders/${orderRef}/refund`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: parsed }),
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: parsed, withCancellation: afterCancel }),
     })
     setSaving(false)
-    if (res.ok) { onSaved(); onClose() }
+    if (res.ok) { emailDecided.current = true; onSaved(); onClose() }
     else { const d = await res.json().catch(() => ({})); setError(d?.error || 'Refund failed') }
   }
   return (
@@ -682,15 +704,17 @@ function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
         </label>
         {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', marginBottom: 12, color: '#DC2626', fontSize: 12 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
+          <button onClick={closeWithoutRefund} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
           {/* NO REFUND — closes this dialog and nothing else.
-              It calls onClose, the same handler as the Cancel button beside it.
+              It calls closeWithoutRefund, the same handler as the Cancel button
+              beside it (which, after a cancel, sends the deferred plain
+              cancellation email).
               It does NOT call save(), so it never reaches PUT .../refund, which is
               the only Stripe path this component has. It issues no refund record,
               does not touch the amount or the full-amount checkbox, and leaves the
               order exactly as it was — which, when this dialog was opened by the
               Cancel button, means cancelled with the payment untouched. */}
-          <button onClick={onClose} disabled={saving}
+          <button onClick={closeWithoutRefund} disabled={saving}
             style={{ padding: '8px 16px', border: '1px solid #d8d8e4', borderRadius: 8, background: '#fff', color: DARK, fontSize: 13, cursor: saving ? 'default' : 'pointer', fontFamily: F, fontWeight: 600 }}>
             No Refund
           </button>
@@ -778,6 +802,8 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'refund' | 'void' | 'reopen' | 'note' | null>(null)
+  // True while the Refund dialog was opened by the Cancel button (see RefundModal).
+  const [refundAfterCancel, setRefundAfterCancel] = useState(false)
   const [confirm, setConfirm] = useState<{ msg: string; action: () => void } | null>(null)
   // Disco promo used on this order (from promo_code_uses), if any. Display-only.
   const [promo, setPromo] = useState<{ code: string; discountApplied: number; refundStatus: string } | null>(null)
@@ -803,10 +829,10 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   // Returns whether the write actually landed. It used to ignore the response
   // entirely, so a 4xx/5xx looked identical to success — which matters now that
   // Cancel chains the Refund dialog off the result.
-  async function updateStatus(status: string): Promise<boolean> {
+  async function updateStatus(status: string, opts: { deferCustomerEmail?: boolean } = {}): Promise<boolean> {
     let ok = false
     try {
-      const res = await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}`, { method: 'PUT' })
+      const res = await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}${opts.deferCustomerEmail ? '&deferCustomerEmail=1' : ''}`, { method: 'PUT' })
       ok = res.ok
       if (!ok) {
         const d = await res.json().catch(() => ({}))
@@ -852,7 +878,9 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   function handleCancelOrder() {
     setConfirm({
       msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
-      action: async () => { if (await updateStatus('CANCELED')) setModal('refund') },
+      // The customer email waits for the dialog: Refund there sends ONE email
+      // that states the refund; No Refund (or closing it) sends the plain one.
+      action: async () => { if (await updateStatus('CANCELED', { deferCustomerEmail: true })) { setRefundAfterCancel(true); setModal('refund') } },
     })
   }
 
@@ -1010,10 +1038,14 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   Otherwise just the Total. The total reconciles with the lines. */}
               {(order.refund ?? 0) > 0 ? (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee' }}>
-                  <TotalRow label="Amount Charged" value={totals.total} />
+                  {/* An edit's refund is inside both the lowered total and the
+                      refund, so it is added back here: Amount Charged is what
+                      the card was charged, and Net Total counts it once
+                      (#900000598: $832.14 − $158.36 = $673.78). */}
+                  <TotalRow label="Amount Charged" value={totals.total + (order.editRefunded ?? 0)} />
                   <TotalRow label="Refund" value={-(order.refund ?? 0)} color="#E53935" />
                   <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #eee' }}>
-                    <TotalRow label="Net Total" value={totals.total - (order.refund ?? 0)} strong />
+                    <TotalRow label="Net Total" value={totals.total + (order.editRefunded ?? 0) - (order.refund ?? 0)} strong />
                   </div>
                 </div>
               ) : (
@@ -1144,7 +1176,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
         )}
       </div>
 
-      {modal === 'refund' && order && <RefundModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'refund' && order && <RefundModal order={order} orderRef={orderRef} afterCancel={refundAfterCancel} onClose={() => { setModal(null); setRefundAfterCancel(false) }} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'void' && order && <VoidModal orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'reopen' && order && <ReopenModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'note' && order && <NoteModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
@@ -1916,8 +1948,9 @@ function OrdersContent() {
                         {order.deliveryStatus || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 600, color: DARK }}>
-                        {/* Net of any refund (RULE 3) — the refund detail shows below. */}
-                        {fmt(order.transactionsTotal - (order.refund ?? 0))}
+                        {/* Net of any refund (RULE 3) — the refund detail shows below.
+                            An edit's refund is counted once (see the drawer). */}
+                        {fmt(order.transactionsTotal + (order.editRefunded ?? 0) - (order.refund ?? 0))}
                         {(order.refund ?? 0) > 0 && (
                           <div style={{ fontSize: 11, fontWeight: 600, color: '#E53935', marginTop: 2 }}>Refund: -{fmt(order.refund ?? 0)}</div>
                         )}

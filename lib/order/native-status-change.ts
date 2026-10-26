@@ -135,7 +135,7 @@ export async function applyNativeStatusChange(
   ref: string,
   status: string,
   source: 'DISCO_STATUS' | 'ADMIN_STATUS',
-  opts?: { invoiceAlreadyVoided?: boolean },
+  opts?: { invoiceAlreadyVoided?: boolean; deferCancellationEmail?: boolean },
 ): Promise<StatusChangeResult> {
   if (!ALLOWED_ORDER_STATUSES.has(status)) return { ok: false, status: 400, error: 'Unsupported status' }
 
@@ -235,9 +235,24 @@ export async function applyNativeStatusChange(
       }
     }
 
-    if (status === 'CANCELED' || status === 'CANCELLED') {
+    let deferred = false
+    if ((status === 'CANCELED' || status === 'CANCELLED') && opts?.deferCancellationEmail) {
+      // The portal's Cancel button opens the Refund dialog next. The email waits
+      // for that choice so a cancel + refund is ONE email that states the refund
+      // (refund route, withCancellation) and a cancel without one is the plain
+      // email (cancellation-email route). If neither ever arrives — the tab was
+      // closed — sendDeferredCancellationEmails() in an existing hourly cron
+      // sends it. See lib/order/cancellation-email.ts.
+      // If the deferral can't be recorded, nothing would ever send it — so the
+      // email goes out now instead.
+      deferred = await sql`
+        INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+        VALUES (${rows[0].reference}::uuid, 'CANCELLATION_EMAIL_DEFERRED', '{}'::jsonb, ${source})
+      `.then(() => true, e => { console.error('[native-status] deferral record failed — sending now:', e instanceof Error ? e.message : e); return false })
+    }
+    if ((status === 'CANCELED' || status === 'CANCELLED') && !deferred) {
       const r = await sendOrderCancellationEmail(rows[0].reference, 'DISCO_STATUS')
-      if (!r.sent && r.reason !== 'not-disco-source' && r.reason !== 'already-sent') {
+      if (!r.sent && r.reason !== 'familymeal-order' && r.reason !== 'already-sent') {
         console.error('[native-status] cancellation email not sent:', r.reason)
       }
     }

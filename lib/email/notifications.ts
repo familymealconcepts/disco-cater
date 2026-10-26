@@ -535,7 +535,7 @@ export async function sendCustomerOrderCancellation(
     // sentence is a one-line change, but nothing prints it today.
     let moneyLine = ''
     if (p.refundedAmount != null && p.refundedAmount > 0.005) {
-      moneyLine = `<p>A refund of <strong>${money(p.refundedAmount)}</strong> has been issued. Please allow a few days for the credit to reach your account, depending on your bank.</p>`
+      moneyLine = `<p>A refund of <strong>${money(p.refundedAmount)}</strong> has been issued to the card you paid with. It usually appears on your statement within 5–10 business days, depending on your bank.</p>`
     }
 
     const content = `

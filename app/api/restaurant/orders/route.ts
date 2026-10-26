@@ -120,6 +120,9 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     subtotal: r.subtotal != null ? num(r.subtotal) : undefined,
     fee: r.fee != null ? num(r.fee) : undefined,
     refund: r.refund != null ? num(r.refund) : undefined,
+    // What order edits refunded — already inside both the lowered total and
+    // `refund`, so displays add it back to show what was charged (refundable.ts).
+    editRefunded: num(r.edit_refunded),
     orderStatus: status,
     orderSeenByAdmin: r.seen_by_admin === true,
     orderStatusesToChange: STATUS_TRANSITIONS[status] || [],

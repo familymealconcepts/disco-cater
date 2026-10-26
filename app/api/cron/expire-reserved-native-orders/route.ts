@@ -3,6 +3,7 @@ import { runDiscoOrderMigrations } from '../../../../lib/db'
 import { stripeClient } from '../../../../lib/order/native-payment'
 import { expireStaleNativeReservedOrders, DEFAULT_RESERVED_EXPIRY_MINUTES } from '../../../../lib/order/native-reserved-expiry'
 import { withCronRun } from '../../../../lib/cron-runs'
+import { sendDeferredCancellationEmails } from '../../../../lib/order/cancellation-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,6 +26,14 @@ function hasCronSecret(req: NextRequest): boolean {
 async function runGet(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Rides along here rather than on a schedule of its own: a cancellation whose
+  // customer email waited on the portal's Refund dialog that never answered
+  // (lib/order/cancellation-email.ts). Independent of Stripe, so it runs first.
+  const deferredCancellationEmails = await sendDeferredCancellationEmails().catch(e => {
+    console.error('[cron/expire-reserved-native-orders] deferred cancellation emails failed:', e instanceof Error ? e.message : e)
+    return null
+  })
+
   const stripe = stripeClient(process.env.STRIPE_SECRET_KEY)
   if (!stripe) {
     console.error('[cron/expire-reserved-native-orders] STRIPE_SECRET_KEY not configured — cannot verify PaymentIntent state, skipping run')
@@ -39,7 +48,7 @@ async function runGet(req: NextRequest) {
     console.log(
       `[cron/expire-reserved-native-orders] checked=${summary.checked} reconciled=${summary.reconciled} expired=${summary.expired} skipped=${summary.skipped} (minutes=${minutes})`,
     )
-    return NextResponse.json({ ok: true, minutes, ...summary })
+    return NextResponse.json({ ok: true, minutes, ...summary, deferredCancellationEmails })
   } catch (err) {
     console.error('[cron/expire-reserved-native-orders] failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Sweep failed' }, { status: 500 })

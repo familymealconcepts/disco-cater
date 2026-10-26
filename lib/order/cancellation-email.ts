@@ -16,13 +16,13 @@ import { sendCustomerOrderCancellation } from '../email/notifications'
 export interface CancellationEmailResult {
   sent: boolean
   /** Why not, when sent is false — for logging, never surfaced to a customer. */
-  reason?: 'not-disco-source' | 'no-order' | 'no-email' | 'already-sent' | 'send-failed'
+  reason?: 'familymeal-order' | 'no-order' | 'no-email' | 'already-sent' | 'send-failed'
 }
 
 interface Row {
   reference: string
   order_number: string | number | null
-  source_of_order: string | null
+  fm_order_reference: string | null
   customer_email: string | null
   customer_first_name: string | null
   customer_last_name: string | null
@@ -67,19 +67,28 @@ async function claimCancellationEmail(orderReference: string, source: string): P
  * NEVER THROWS and never blocks the cancellation. A cancellation that succeeded
  * must not be reported as a failure because an email bounced.
  *
- * DISCO-SOURCE ONLY. disco_orders mirrors FAMILYMEAL-direct orders so the portal
- * can display them, and FM emails those customers itself from
- * mg.familymeal.com ("Order cancellation from {Restaurant}"). Disco sending a
- * second one is a duplicate in a stranger's inbox, not a safety net. Same rule
- * as the order-reminders cron.
+ * SKIPPED ONLY WHEN FAMILYMEAL PROCESSED THE ORDER (it has an
+ * fm_order_reference). FM emails those customers itself from mg.familymeal.com
+ * ("Order cancellation from {Restaurant}"); Disco sending a second one is a
+ * duplicate in a stranger's inbox. Every order DISCO processed gets it,
+ * whichever link the customer used — this used to test source_of_order =
+ * 'DISCO', but that is the link, not who took the money, so Disco-processed
+ * orders placed through a restaurant's own link got no cancellation email at
+ * all. Same rule as lib/order/refund-email.ts.
+ *
+ * `opts.refundAmount`: the cancel and a refund happened in ONE action (the
+ * portal's Cancel button, then Refund in the dialog it opens). This email then
+ * states that refund — amount, original card, timing — and the caller sends
+ * no separate refund email, so the customer gets one message, not two.
  */
 export async function sendOrderCancellationEmail(
   ref: string,
   source: string,
+  opts: { refundAmount?: number } = {},
 ): Promise<CancellationEmailResult> {
   try {
     const rows = (await sql`
-      SELECT o.reference, o.order_number, o.source_of_order,
+      SELECT o.reference, o.order_number, o.fm_order_reference,
              o.customer_email, o.customer_first_name, o.customer_last_name,
              o.restaurant_reference, o.restaurant_name,
              rc.name AS cache_name, rc.phone AS cache_phone,
@@ -96,9 +105,8 @@ export async function sendOrderCancellationEmail(
 
     const o = rows[0]
     if (!o) return { sent: false, reason: 'no-order' }
-    // source_of_order is NOT NULL DEFAULT 'DISCO', so this keeps every native
-    // and DISCO-marketplace order and drops only FM-sourced mirrors.
-    if ((o.source_of_order || 'DISCO') !== 'DISCO') return { sent: false, reason: 'not-disco-source' }
+    // FamilyMeal processed it (a mirrored FM order) → FM sends its own email.
+    if (o.fm_order_reference) return { sent: false, reason: 'familymeal-order' }
     if (!o.customer_email) return { sent: false, reason: 'no-email' }
 
     if (!(await claimCancellationEmail(o.reference, source))) return { sent: false, reason: 'already-sent' }
@@ -117,11 +125,41 @@ export async function sendOrderCancellationEmail(
       wasCharged: o.was_charged === true && refunded <= 0.005,
       // If money HAS already gone back (cancel after a refund), say so plainly
       // rather than implying a charge still stands.
-      refundedAmount: refunded > 0.005 ? refunded : undefined,
+      refundedAmount: opts.refundAmount != null && opts.refundAmount > 0.005
+        ? opts.refundAmount
+        : refunded > 0.005 ? refunded : undefined,
     })
     return res.success ? { sent: true } : { sent: false, reason: 'send-failed' }
   } catch (err) {
     console.error('[cancellation-email] failed (non-fatal):', err instanceof Error ? err.message : err)
     return { sent: false, reason: 'send-failed' }
   }
+}
+
+/**
+ * Safety net for a cancellation whose email was deferred to the Refund dialog
+ * (applyNativeStatusChange, deferCancellationEmail) when the dialog never
+ * answered — the tab was closed. Runs inside an existing hourly cron; no
+ * schedule of its own. Sends the plain cancellation email (stating any refund
+ * already recorded) once the deferral is 20 minutes old, only while the order is
+ * still cancelled; the one-time claim keeps it from doubling a send the dialog
+ * already made.
+ */
+export async function sendDeferredCancellationEmails(): Promise<{ due: number; sent: number }> {
+  const rows = (await sql`
+    SELECT DISTINCT d.order_reference::text AS ref
+    FROM disco_order_events d
+    JOIN disco_orders o ON o.reference = d.order_reference
+    WHERE d.event_type = 'CANCELLATION_EMAIL_DEFERRED'
+      AND d.created_at < NOW() - INTERVAL '20 minutes'
+      AND d.created_at > NOW() - INTERVAL '3 days'
+      AND o.fm_order_reference IS NULL
+      AND upper(o.order_status) IN ('CANCELED', 'CANCELLED')
+      AND NOT EXISTS (SELECT 1 FROM disco_order_events s
+                      WHERE s.order_reference = d.order_reference AND s.event_type = 'CANCELLATION_EMAIL_SENT')
+    LIMIT 50
+  `) as { ref: string }[]
+  let sent = 0
+  for (const r of rows) if ((await sendOrderCancellationEmail(r.ref, 'DEFERRED_BACKSTOP')).sent) sent++
+  return { due: rows.length, sent }
 }

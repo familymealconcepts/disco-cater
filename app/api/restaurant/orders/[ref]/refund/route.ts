@@ -4,6 +4,7 @@ import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
+import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { cancelDelivery } from '../../../../../../lib/expedite'
@@ -40,9 +41,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid order reference' }, { status: 400 })
 
   let amount = 0
+  // Sent by the Refund dialog the Cancel button opens: this refund and that
+  // cancel are one action, so the customer gets one email (below).
+  let withCancellation = false
   try {
     const body = await req.json()
     amount = Math.max(0, Number(body?.amount) || 0)
+    withCancellation = body?.withCancellation === true
   } catch { /* amount stays 0 */ }
   if (!(amount > 0)) return NextResponse.json({ error: 'Refund amount required' }, { status: 400 })
 
@@ -184,8 +189,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       console.log('[restaurant/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
     }
 
-    // Notify the customer of the refund. DISCO-source only and non-throwing
-    // inside the helper — FM emails its own customers about FM-sourced orders.
+    // CANCEL + REFUND IN ONE ACTION → ONE EMAIL. The Cancel button deferred the
+    // cancellation email to this dialog; it goes out now and states this refund
+    // (amount, original card, timing), and the separate refund email is not
+    // sent. Only when the order really was cancelled before this refund. If the
+    // cancellation email already went (the hourly safety net beat the dialog),
+    // the refund email below still tells the customer about the money.
+    if (withCancellation && CANCELLED_BEFORE_REFUND.has(priorStatus)) {
+      const c = await sendOrderCancellationEmail(reference, 'DISCO_REFUND', { refundAmount: amount })
+      if (c.sent || c.reason === 'familymeal-order' || c.reason === 'no-email') {
+        return NextResponse.json({ ok: true, orderStatus: newStatus, refund: totalRefund })
+      }
+    }
+
+    // Notify the customer of the refund. Skipped inside the helper when
+    // FamilyMeal processed the order (FM emails those customers) and non-throwing.
     await sendOrderRefundEmail({
       orderReference: reference,
       amount,

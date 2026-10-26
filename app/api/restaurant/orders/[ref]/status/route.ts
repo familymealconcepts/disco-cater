@@ -78,7 +78,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   // Neon write, invoice void, event and cancellation email all live in ONE
   // place now, shared with the super-admin route — see lib/order/native-status-change.ts.
-  const r = await applyNativeStatusChange(ref, status, 'DISCO_STATUS', { invoiceAlreadyVoided: true })
+  // deferCustomerEmail=1: sent by the portal's Cancel button, which opens the
+  // Refund dialog next — the customer email waits for that choice so a cancel +
+  // refund is one email (lib/order/cancellation-email.ts).
+  const deferCancellationEmail = req.nextUrl.searchParams.get('deferCustomerEmail') === '1'
+  const r = await applyNativeStatusChange(ref, status, 'DISCO_STATUS', { invoiceAlreadyVoided: true, deferCancellationEmail })
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
   return NextResponse.json({ ok: true, orderStatus: r.orderStatus, neon: r.neon })
 }
