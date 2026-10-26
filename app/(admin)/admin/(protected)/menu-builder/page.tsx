@@ -99,6 +99,9 @@ function NewSession({ onDenied, onStarted }: { onDenied: (m: string) => void; on
   const [menus, setMenus] = useState<{ reference: string; name: string; visible: boolean; archived: boolean }[]>([])
   const [targetMenu, setTargetMenu] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [dragging, setDragging] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const addFiles = (list: FileList | null) => { const picked = Array.from(list || []); setFiles(prev => [...prev, ...picked]) }
   const [links, setLinks] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -186,15 +189,30 @@ function NewSession({ onDenied, onStarted }: { onDenied: (m: string) => void; on
       </div>
       <div style={card}>
         <Label>3. Files</Label>
-        <p style={{ fontSize: 12, color: MUTED, margin: '0 0 8px' }}>PDFs, photos (JPG, PNG, HEIC, photos of printed menus), ZIPs of photos, Excel/CSV, Word. Photos are matched to items by name. Files are deleted once the builder has read them.</p>
-        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.zip,.xlsx,.xlsm,.csv,.tsv,.txt,.docx,image/*"
-          onChange={e => { setFiles([...files, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
-        {files.map((f, i) => (
-          <div key={i} style={{ fontSize: 12, marginTop: 4 }}>{f.name} <span style={{ color: MUTED }}>({(f.size / 1024 / 1024).toFixed(1)} MB)</span>
-            <span onClick={() => setFiles(files.filter((_, j) => j !== i))} style={{ marginLeft: 8, cursor: 'pointer', color: RED }}>remove</span></div>
-        ))}
-        <Label style={{ marginTop: 14 }}>Google Sheet links (one per line; every tab is read; share as “anyone with the link”)</Label>
-        <textarea style={{ ...input, minHeight: 50 }} value={links} onChange={e => setLinks(e.target.value)} />
+        <p style={{ fontSize: 12, color: MUTED, margin: '0 0 10px' }}>PDFs, images, ZIPs, spreadsheets or Word files.</p>
+        <input ref={fileInput} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.zip,.xlsx,.xlsm,.csv,.tsv,.txt,.docx,image/*"
+          onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
+        <button type="button" onClick={() => fileInput.current?.click()}
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files) }}
+          style={{ width: '100%', padding: '26px 16px', borderRadius: 12, border: `2px dashed ${dragging ? BLUE : BORDER}`, background: dragging ? '#EEF0FF' : PAGE_BG, cursor: 'pointer', fontFamily: F, color: DARK }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Upload files</div>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>or drag and drop them here</div>
+        </button>
+        {files.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            {files.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 13, padding: '6px 0', borderBottom: i < files.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: MUTED, fontSize: 18, lineHeight: 1, padding: '0 4px' }}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <Label style={{ marginTop: 14 }}>Google Sheet links</Label>
+        <input style={input} value={links} onChange={e => setLinks(e.target.value)} placeholder="https://docs.google.com/spreadsheets/…" />
       </div>
       <div style={card}>
         <Label>4. Instructions</Label>
