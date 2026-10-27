@@ -5,7 +5,7 @@ import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { editRefundedFor, nonEditRefunded, refundableAmount } from '../../../../../../lib/order/refundable'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
-import { cancelDelivery } from '../../../../../../lib/expedite'
+import { cancelCourierAndReport } from '../../../../../../lib/order/courier-sync'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -78,8 +78,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       `.catch(() => [])) as { total: string | null; expedite_delivery_id: string | null }[]
       const row = orderTotalRows[0]
       if (row?.expedite_delivery_id && row.expedite_delivery_id !== 'PENDING' && amount >= (Number(row.total) || 0) - 0.001) {
-        const result = await cancelDelivery(row.expedite_delivery_id)
-        console.log('[admin/orders/refund] FM-order expedite cancel:', result.success ? 'ok' : result.error)
+        await cancelCourierAndReport(ref, 'ADMIN_REFUND', 'refunded')
       }
       return NextResponse.json({ ok: true })
     } catch {
@@ -138,8 +137,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       // Fully refunded (not a partial/goodwill adjustment) → stand down any
       // booked courier.
       if (newStatus === 'REFUND' && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
-        const result = await cancelDelivery(o.expedite_delivery_id)
-        console.log('[admin/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
+        await cancelCourierAndReport(o.reference, 'ADMIN_REFUND', 'refunded')
       }
 
       // DISCO-source only, via the shared helper — see lib/order/refund-email.ts.

@@ -552,6 +552,9 @@ export async function applyPendingEdit(args: {
   await sql`
     UPDATE disco_orders
     SET total = COALESCE(${newTotal}, total),
+        -- A moved order gets a fresh restaurant reminder (lib/order/order-reminders.ts).
+        admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM COALESCE(${orderDateIso || null}::date, order_date) OR order_time IS DISTINCT FROM COALESCE(${orderTime || null}::time, order_time)
+          THEN false ELSE admin_reminder_sent END,
         order_date = COALESCE(${orderDateIso || null}::date, order_date),
         order_time = COALESCE(${orderTime || null}::time, order_time),
         edit_count = COALESCE(edit_count,0) + 1,
@@ -688,6 +691,9 @@ export async function applyPendingEdit(args: {
     console.error('[applyPendingEdit] restaurant notify failed (non-fatal):', e instanceof Error ? e.message : e)
   }
 
-  // Expedite — push the updated date/time/items to the courier (best-effort).
-  await syncExpediteOnEdit(orderId, orderReference)
+  // Expedite — push the updated date/time/items to the courier (best-effort),
+  // recorded on the order and alerted on failure (lib/order/courier-sync.ts;
+  // imported lazily because courier-sync imports this module).
+  const { syncCourierAndReport } = await import('./order/courier-sync')
+  await syncCourierAndReport(orderReference, 'PORTAL_EDIT')
 }

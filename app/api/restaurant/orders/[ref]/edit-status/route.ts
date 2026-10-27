@@ -126,5 +126,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   else if (!isSuperAdmin && hrs < 24) { canEdit = false; reason = 'Order cannot be edited within 24 hours of pickup' }
   else if (status && !isEditableStatus(status)) { canEdit = false; reason = `This order is ${status.toLowerCase()} and can no longer be edited` }
 
-  return NextResponse.json({ editCount, canEdit, reason, editStatus, pendingPayment })
+  // FamilyMeal processed this order (or Disco only mirrors it). Ops reschedules
+  // these here because FamilyMeal refuses edits inside 24 hours, but nothing here
+  // tells FamilyMeal or its courier about the change (#13539753) — so the edit
+  // screen warns before saving, and the save alerts ops.
+  const fmProcessed = !order || !!order.fm_order_reference
+  const dateChangeWarning = fmProcessed ? "FamilyMeal and the Expedite courier won't be updated. Contact Expedite to change the courier." : ''
+
+  return NextResponse.json({ editCount, canEdit, reason, editStatus, pendingPayment, fmProcessed, dateChangeWarning })
 }

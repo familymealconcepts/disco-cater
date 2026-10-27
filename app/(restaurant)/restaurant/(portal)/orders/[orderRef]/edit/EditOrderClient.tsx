@@ -219,6 +219,9 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // ─── Edit eligibility (Disco-native — no FM lock) ─────────────────────────
   const [editCount, setEditCount] = useState(0)
   const [canEdit, setCanEdit] = useState(true)
+  // FamilyMeal-processed order: a date/time change here reaches neither
+  // FamilyMeal nor the courier, so it is warned about before saving.
+  const [dateChangeWarning, setDateChangeWarning] = useState('')
   const [editReason, setEditReason] = useState('')
 
   // ─── Commit / discard / UI ────────────────────────────────────────────────
@@ -411,6 +414,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
             // A clean order (edit_status null) never shows it. If the invoice was
             // already paid, edit-status applied the edit, so this is false.
             setPendingPayment(es.pendingPayment === true)
+            setDateChangeWarning(str(es.dateChangeWarning))
           }
         } catch { /* best-effort — default to editable */ }
         if (cancelled) return
@@ -651,6 +655,13 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
       })
       const data = (await res.json().catch(() => ({}))) as AnyRec
       if (!res.ok) throw new Error(str(data.error) || 'Could not commit the edit.')
+      // Nothing differed from the saved order: nothing was written or emailed,
+      // and no edit was used. Say so instead of claiming an update.
+      if (data.noChange === true) {
+        setCommitError(str(data.message) || 'Nothing changed, so the order was not updated.')
+        setCommitting(false)
+        return
+      }
 
       // Every successful outcome returns to the orders list with a green banner.
       // The invoice path (pending_payment) shows an "invoice sent" message; a
@@ -848,6 +859,11 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
                   Reschedule
                 </button>
               </div>
+              {dateChangeWarning && rescheduled && (
+                <div role="alert" style={{ fontSize: 12, color: '#8a5a00', background: '#fff7e0', border: '1px solid #f0d58c', borderRadius: 8, padding: '8px 10px', marginTop: 8, fontWeight: 600 }}>
+                  {dateChangeWarning}
+                </div>
+              )}
             </div>
 
             <Row label="Original Total" value={formatCurrency(origTotal)} muted strike={changed} />
@@ -949,6 +965,11 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
                     ? <>Showing all times. <button type="button" onClick={() => setShowAllTimes(false)} style={linkBtn}>Back to {orderMenu?.name || 'menu'} hours</button></>
                     : <>{scheduleSlots[0] && scheduleSlots[scheduleSlots.length - 1] ? `${orderMenu?.name || 'Menu'} hours · ${fmt12h(scheduleSlots[0])}–${fmt12h(scheduleSlots[scheduleSlots.length - 1])}. ` : ''}<button type="button" onClick={() => setShowAllTimes(true)} style={linkBtn}>Show all times</button></>}
             </div>
+            {dateChangeWarning && (
+              <div role="alert" style={{ fontSize: 12.5, color: '#8a5a00', background: '#fff7e0', border: '1px solid #f0d58c', borderRadius: 8, padding: '8px 10px', marginBottom: 14, fontWeight: 600 }}>
+                {dateChangeWarning}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setRescheduleOpen(false)} style={pillBtnOutline('#666')}>Cancel</button>
               <button

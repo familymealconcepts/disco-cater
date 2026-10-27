@@ -481,13 +481,9 @@ export async function refundNativeOrderAndRecord(args: {
     // booked courier. A cancel is always a full stand-down.
     const fullyRefunded = derived === 'REFUND'
     if (fullyRefunded && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
-      try {
-        const { cancelDelivery } = await import('../expedite')
-        const result = await cancelDelivery(o.expedite_delivery_id)
-        console.log('[native-refund] expedite cancel:', result.success ? 'ok' : result.error)
-      } catch (e) {
-        console.error('[native-refund] expedite cancel failed:', e instanceof Error ? e.message : e)
-      }
+      // Recorded on the order and alerted on failure (never throws).
+      const { cancelCourierAndReport } = await import('./courier-sync')
+      await cancelCourierAndReport(o.reference, String(source), 'refunded')
     }
 
     // Best-effort, AFTER the money and the row are settled — an email failure must

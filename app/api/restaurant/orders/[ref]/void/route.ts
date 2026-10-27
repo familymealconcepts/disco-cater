@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
-import { cancelDelivery } from '../../../../../../lib/expedite'
+import { cancelCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 
 export const runtime = 'nodejs'
@@ -56,10 +56,8 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
     `
 
     // Cancel the Expedite delivery if one was dispatched (best-effort).
-    if (o.expedite_delivery_id) {
-      const result = await cancelDelivery(o.expedite_delivery_id)
-      console.log('[restaurant/orders/void] expedite cancel:', result.success ? 'ok' : result.error)
-    }
+    // Recorded on the order and alerted on failure (lib/order/courier-sync.ts).
+    if (o.expedite_delivery_id) await cancelCourierAndReport(reference, 'DISCO_VOID', 'voided')
 
     // Notify the customer their order was canceled (best-effort — never block the void).
     //

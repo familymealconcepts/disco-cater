@@ -7,7 +7,7 @@ import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
 import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
-import { cancelDelivery } from '../../../../../../lib/expedite'
+import { cancelCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 import { editRefundedFor, nonEditRefunded, refundableAmount } from '../../../../../../lib/order/refundable'
 
@@ -184,9 +184,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
     // Fully refunded (not a partial/goodwill adjustment) → stand down any booked
     // courier. See the confirm-payment fix + Winfield Street Coffee incident.
+    // Recorded on the order and alerted on failure (lib/order/courier-sync.ts).
     if (newStatus === 'REFUND' && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
-      const result = await cancelDelivery(o.expedite_delivery_id)
-      console.log('[restaurant/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
+      await cancelCourierAndReport(reference, 'DISCO_REFUND', 'refunded')
     }
 
     // CANCEL + REFUND IN ONE ACTION → ONE EMAIL. The Cancel button deferred the

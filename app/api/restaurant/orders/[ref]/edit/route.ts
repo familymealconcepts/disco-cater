@@ -26,7 +26,7 @@ import { resolveOrderAccess } from '../../../../../../lib/order/order-scope'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import {
   getDiscoOrder, loadOrderBaseline,
-  hoursUntil, isEditableStatus, MAX_EDITS, syncExpediteOnEdit, type FmOrderItem,
+  hoursUntil, isEditableStatus, MAX_EDITS, type FmOrderItem,
   isOrderInPast, loadRestaurantTimeZone,
 } from '../../../../../../lib/order-edit'
 import {
@@ -46,6 +46,10 @@ import { alertEditVoidFailed, alertEditReissueFailed, alertEditRefundImpossible 
 import { decideEditPaymentAction } from '../../../../../../lib/order/edit-payment-action'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
+import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
+import { alertOps } from '../../../../../../lib/ops-alert'
+import { orderLink } from '../../../../../../lib/ops-alert-format'
+import { fulfillmentLabel } from '../../../../../../lib/order/fulfillment-label'
 import { formatTime12 } from '../../../../../../lib/utils/time'
 import { cartSubtotal } from '../../../../../../lib/pricing/cart'
 
@@ -145,6 +149,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   if (!isSuperAdmin && discoOrder && hoursUntil(String(discoOrder.order_date).slice(0, 10), discoOrder.order_time) < 24) {
     return NextResponse.json({ error: 'Order cannot be edited within 24 hours of pickup.' }, { status: 400 })
   }
+  // ONE UNPAID EDIT AT A TIME. Only the edit screen's status check stopped a
+  // second edit while the first's invoice was open; a direct request went through
+  // and stacked a second invoice on the first (pending_edit_data holds one).
+  if (discoOrder?.edit_status === 'pending_payment') {
+    return NextResponse.json({ error: 'This order has an edit waiting for the customer to pay its invoice. It can be edited again once that invoice is paid.' }, { status: 409 })
+  }
   if (discoOrder && !isEditableStatus(discoOrder.order_status)) {
     return NextResponse.json({ error: `This order is ${discoOrder.order_status.toLowerCase()} and can no longer be edited.` }, { status: 400 })
   }
@@ -182,6 +192,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   if (!itemsChanged) for (const [k, v] of newMap) if (origMap.get(k) !== v) { itemsChanged = true; break }
   const dateChanged = (!!orderDate && orderDate !== base.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (base.orderTime || '').slice(0, 5))
   const editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
+
+  // ── A SAVE THAT CHANGES NOTHING IS NOT AN EDIT ────────────────────────────
+  // editType fell back to RESCHEDULE when nothing differed, so pressing Save
+  // again emailed the customer and every restaurant recipient and used one of
+  // the order's 3 edits: #13539753's 2nd and 3rd saves were identical and left
+  // it locked. Same items, quantities, options and item notes, same date and
+  // time → nothing is written or sent.
+  if (!dateChanged && discoOrder) {
+    const same = await storedLinesIfUnchanged(discoOrder.id, activeLines).catch(() => null)
+    if (same) {
+      const storedNotes = ((await sql`SELECT meal_package_reference::text AS ref, notes FROM disco_order_items WHERE order_id = ${discoOrder.id}`
+        .catch(() => [])) as { ref: string | null; notes: string | null }[])
+        .map(r => `${r.ref || ''}|${(r.notes || '').trim()}`).sort().join('\n')
+      const postedNotes = activeLines.map(l => `${l.reference || ''}|${lineNote(l) || ''}`).sort().join('\n')
+      if (storedNotes === postedNotes) {
+        return NextResponse.json({ success: true, noChange: true, message: 'Nothing changed, so the order was not updated.' })
+      }
+    }
+  }
 
   // RESCHEDULE rule: the NEW pickup must be ≥24h away (SUPER_ADMIN exempt).
   if (!isSuperAdmin && dateChanged && hoursUntil(effDate, effTime) < 24) {
@@ -298,7 +327,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const deliveryType = delRows[0]?.delivery_type || null
     const orderMenuReference = delRows[0]?.menu_reference || undefined
     const orig = origRows[0]
-    const fulfillment: Fulfillment = deliveryType === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : deliveryType === 'THIRD_PARTY_DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
+    // Through the shared label, which knows every courier value: FamilyMeal's
+    // DLIVRD_DELIVERY used to fall through to PICKUP here, so any edit of such an
+    // order re-priced it without its delivery fee (#13539753: $375.66 → $337.41,
+    // emailed as "No change to your total").
+    const fLabel = fulfillmentLabel(deliveryType, base.orderType)
+    const fulfillment: Fulfillment = fLabel === 'Self-Delivery' ? 'OWN_DELIVERY' : fLabel === 'Third-Party Delivery' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
     const origSubtotal = Number(orig?.subtotal) || 0
     const origDiscount = Number(orig?.discount) || 0
     const origBase = origSubtotal - origDiscount
@@ -409,6 +443,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   let stripeRefundId = ''
   let stripeInvoiceId = ''
 
+  // A FamilyMeal-processed order's date/time changed here reaches neither
+  // FamilyMeal nor the courier it booked. Ops uses Disco for these because
+  // FamilyMeal refuses edits inside 24 hours; the edit screen warned before
+  // saving, and ops is told so the courier gets moved by hand.
+  async function alertFamilyMealDateChange(): Promise<void> {
+    if (!dateChanged || (discoOrder && !discoOrder.fm_order_reference)) return
+    const from = `${base.orderDateIso} ${formatTime12(String(base.orderTime || ''))}`
+    const to = `${effDate} ${formatTime12(String(effTime || ''))}`
+    await alertOps({
+      severity: 'urgent',
+      headline: `FamilyMeal order rescheduled in Disco — #${orderNumber}`,
+      lines: [
+        `${businessName}: moved from ${from} to ${to}${editorEmail ? ` by ${editorEmail}` : ''}.`,
+        "FamilyMeal and the Expedite courier were NOT updated.",
+      ],
+      action: 'update the courier at Expedite by hand (and the date in FamilyMeal if it allows).',
+      link: orderLink(discoOrder?.reference || ref, orderNumber),
+      context: { ref, orderNumber, from, to },
+    }).catch(e => console.error('[orders/edit] FamilyMeal date-change alert (non-fatal):', e instanceof Error ? e.message : e))
+  }
+
   // Replace disco_order_items with the edited lines. Shared by the confirm path
   // (immediate apply) and the pending/invoice path (so the order reflects the
   // edited items right away, even while the delta invoice is outstanding).
@@ -470,6 +525,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     await sql`
       UPDATE disco_orders SET
         subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
+        -- A moved order gets a fresh restaurant reminder (lib/order/order-reminders.ts).
+        admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM ${effDate}::date OR order_time IS DISTINCT FROM ${effTime}::time
+          THEN false ELSE admin_reminder_sent END,
         order_date = ${effDate}::date, order_time = ${effTime}::time,
         edit_count = COALESCE(edit_count,0) + 1, edit_status = NULL, updated_at = NOW()
       WHERE id = ${discoOrder.id}
@@ -609,7 +667,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     }
 
     // Expedite — push the updated date/time/items to the courier (best-effort).
-    if (discoOrder) await syncExpediteOnEdit(discoOrder.id, discoOrder.reference)
+    // Recorded on the order; a refusal alerts ops (lib/order/courier-sync.ts).
+    if (discoOrder) await syncCourierAndReport(discoOrder.reference, 'PORTAL_EDIT')
+    await alertFamilyMealDateChange()
 
     return NextResponse.json({ status: 'confirmed', editType, newTotal, delta, editNumber: newEditNumber })
   }
@@ -715,6 +775,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       await sql`
         UPDATE disco_orders
         SET subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
+            -- A moved order gets a fresh restaurant reminder (lib/order/order-reminders.ts).
+            admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM ${effDate}::date OR order_time IS DISTINCT FROM ${effTime}::time
+              THEN false ELSE admin_reminder_sent END,
             order_date = ${effDate}::date, order_time = ${effTime}::time,
             edit_status = 'pending_payment', pending_edit_data = ${JSON.stringify(pending)}::jsonb,
             pending_edit_delta = ${delta}, pending_stripe_invoice_id = ${stripeInvoiceId || null}, updated_at = NOW()
@@ -746,6 +809,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       sendOrderEditPendingRestaurant({ to, orderNumber, businessName, amountDue: delta }).catch(() => {})
     }
 
+    await alertFamilyMealDateChange()
     return NextResponse.json({ status: 'pending_payment', editType, delta, amountDue: delta, invoiceUrl, editNumber: newEditNumber })
   }
 

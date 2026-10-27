@@ -14,11 +14,14 @@ const GOLD = '#EFB84A'
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 // What the kitchen actually has to cook, plus what it already cooked this month.
-// CANCELED / CANCELLED / VOID / VOIDED / EXPIRED / REFUND / PARTIAL_REFUND are all
+// CANCELED / CANCELLED / VOID / VOIDED / EXPIRED / REFUND are all
 // excluded: a cancelled order on a calendar is worse than no order at all.
 // UNPAID is INCLUDED deliberately — a native invoice order is a real booking the
 // kitchen must prepare, it simply has not been collected yet, and it is badged.
-const CALENDAR_STATUSES = ['DUE', 'PAID', 'UNPAID', 'RESERVED', 'COMPLETED']
+// PARTIAL_REFUND is a live order that is still going ahead with part of its
+// money returned (#900000712, #900000598) — it was left off and vanished from
+// the kitchen's calendar.
+const CALENDAR_STATUSES = ['DUE', 'PAID', 'UNPAID', 'RESERVED', 'COMPLETED', 'PARTIAL_REFUND']
 
 export interface CalendarOrder {
   orderReference: string

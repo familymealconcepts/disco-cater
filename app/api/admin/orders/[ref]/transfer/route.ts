@@ -3,7 +3,7 @@ import { getAdminRole, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../../../lib/db'
 import { sendEmail } from '../../../../../../lib/email/send'
 import { layout } from '../../../../../../lib/email/layout'
-import { modifyDelivery, buildPayloadFromNeon } from '../../../../../../lib/expedite'
+import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { syncOneFmOrder } from '../../../../../../lib/fm-orders-sync'
 import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
 
@@ -182,12 +182,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // Expedite pickup-location update — best-effort, gated on an active delivery.
     // The order's restaurant_reference was just updated to newRef, so the rebuilt
     // payload's pickup task uses the new restaurant's address automatically.
+    // Recorded on the order; a refusal alerts ops (lib/order/courier-sync.ts).
+    // Expedite refuses a changed pickup address on an existing booking ("address
+    // modifications are not allowed"), so for a real transfer expect the alert:
+    // the courier then has to be rebooked by hand. No automatic cancel-and-rebook.
     let expedite: { success: boolean; error?: string } = { success: false, error: 'no active delivery' }
     if (order.expedite_delivery_id) {
-      const payload = await buildPayloadFromNeon(order.reference)
-      expedite = payload
-        ? await modifyDelivery(payload)
-        : { success: false, error: 'could not build payload' }
+      const r = await syncCourierAndReport(order.reference, 'TRANSFER')
+      expedite = { success: r.success, error: r.error }
     }
 
     return NextResponse.json({

@@ -26,10 +26,11 @@
 import Stripe from 'stripe'
 import { runDiscoOrderMigrations, sql } from '../db'
 import { sendOrderCancellationEmail } from './cancellation-email'
-import { voidUnpaidOrderInvoice } from './invoice-void'
+import { voidUnpaidOrderInvoice, voidPendingEditInvoice } from './invoice-void'
 import { alertOps, alertOnce, resolveAlert } from '../ops-alert'
 import { orderLink, money, shortError } from '../ops-alert-format'
 import { orderFacts, orderLine } from '../ops-alert-facts'
+import { cancelCourierAndReport } from './courier-sync'
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 export const ALLOWED_ORDER_STATUSES = new Set([
@@ -89,6 +90,42 @@ export async function voidInvoiceBeforeCancel(ref: string, status: string): Prom
         context: { ref, invoiceId: voided.invoiceId, amount: facts.total },
       }).catch(() => null)
     }
+  }
+
+  // ── AND AN UNPAID EDIT'S OWN INVOICE ──────────────────────────────────────
+  // An edit that raised the total is billed separately (pending_stripe_invoice_id).
+  // Left open, a customer could pay it after the cancel and the restaurant would
+  // be paid its share of a cancelled order. Same invariant: withdrawn first, or
+  // the cancel is refused. Ops is told either way.
+  const edit = await voidPendingEditInvoice(ref, stripe)
+  if (edit.action === 'failed') {
+    console.error('[native-status] edit invoice void failed — refusing to cancel:', ref, edit.invoiceId, edit.error)
+    const f = await orderFacts(ref)
+    await alertOps({
+      severity: 'urgent',
+      headline: `Cancel refused — unpaid edit invoice couldn't be voided, order ${f?.orderNumber ? `#${f.orderNumber}` : ref}`,
+      lines: [orderLine(f) || '', `Stripe said: ${shortError(edit.error)}`],
+      action: 'void the edit invoice in Stripe, then cancel the order again.',
+      link: orderLink(f?.reference ?? ref, f?.orderNumber ?? null),
+      context: { ref, invoiceId: edit.invoiceId, error: edit.error },
+    }).catch(() => null)
+    return {
+      ok: false, status: 502,
+      error: `This order was not cancelled: the invoice for its unpaid edit could not be voided, so the customer could still pay it. ${edit.error}`,
+    }
+  }
+  if (edit.action === 'voided') {
+    const f = await orderFacts(ref)
+    await alertOps({
+      severity: 'warn',
+      headline: `Unpaid edit invoice voided on cancel — order ${f?.orderNumber ? `#${f.orderNumber}` : ref}`,
+      lines: [
+        orderLine(f) || '',
+        `The order was cancelled while an edit${edit.amount != null ? ` for ${money(edit.amount)}` : ''} was still waiting for payment, so that invoice (${edit.invoiceId}) was voided.`,
+      ],
+      link: orderLink(f?.reference ?? ref, f?.orderNumber ?? null),
+      context: { ref, invoiceId: edit.invoiceId, amount: edit.amount },
+    }).catch(() => null)
   }
   return { ok: true }
 }
@@ -182,57 +219,7 @@ export async function applyNativeStatusChange(
     // disco_expedite_deliveries either way, so "was the courier told?" is a
     // query and not a guess — the same reason disco_mirror_alerts exists.
     if ((status === 'CANCELED' || status === 'CANCELLED') && rows[0].expedite_delivery_id) {
-      const deliveryId = rows[0].expedite_delivery_id
-      let okFlag = false
-      let detail = ''
-      try {
-        const { cancelDelivery } = await import('../expedite')
-        const res = await cancelDelivery(deliveryId)
-        okFlag = !!res.success
-        detail = res.success ? 'cancelled' : String(res.error ?? 'unknown error')
-      } catch (e) {
-        detail = e instanceof Error ? e.message : String(e)
-      }
-      console.log(`[native-status] expedite cancel for ${rows[0].reference}: ${okFlag ? 'ok' : 'FAILED — ' + detail}`)
-      await sql`
-        INSERT INTO disco_expedite_deliveries
-          (order_reference, order_id, event, external_delivery_id, ok, response_body, parsed_status)
-        VALUES (${rows[0].reference}::uuid, ${rows[0].id}, 'delivery_cancel', ${deliveryId}, ${okFlag},
-                ${detail.slice(0, 500)}, ${okFlag ? 'success' : 'failed'})
-      `.catch(e => console.error('[native-status] expedite cancel log failed (non-fatal):', e instanceof Error ? e.message : e))
-      if (okFlag) {
-        // Closes the thread a previous failed cancel opened, if there was one.
-        await resolveAlert(`courier-cancel:${String(rows[0].reference).toLowerCase()}`, 'Resolved: Expedite confirmed the cancellation.').catch(() => false)
-      }
-      if (!okFlag) {
-        // A courier can only still turn up for a delivery that hasn't happened.
-        // Disco never receives Expedite's delivery status, so the delivery
-        // date decides: past → Expedite's refusal is recorded on the order and
-        // nobody is paged (23 Oct: three Apollo Bagels deliveries from 28 Sep–
-        // 12 Oct paged ops for "NOT stood down"); upcoming → the alert stands.
-        const facts = await fulfillmentFacts(rows[0].reference)
-        if (facts?.past) {
-          await sql`
-            INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-            VALUES (${rows[0].reference}::uuid, 'EXPEDITE_CANCEL_AFTER_DELIVERY',
-                    ${JSON.stringify({ expediteDeliveryId: deliveryId, reply: detail.slice(0, 300), deliveryWas: facts.when })}::jsonb, ${source})
-          `.catch(e => console.error('[native-status] expedite after-delivery note failed (non-fatal):', e instanceof Error ? e.message : e))
-        } else {
-          const f = await orderFacts(rows[0].reference)
-          const n = f?.orderNumber ?? facts?.orderNumber ?? null
-          await alertOnce(`courier-cancel:${String(rows[0].reference).toLowerCase()}`, {
-            severity: 'urgent',
-            headline: `Courier still booked on a cancelled order — ${n ? `#${n}` : rows[0].reference}`,
-            lines: [
-              orderLine(f, { amount: null }),
-              `The order was cancelled but Expedite rejected the cancellation (${shortError(detail, 80).replace(/^expedite (\d{3})$/i, 'error $1')}), so a driver may still turn up and Disco may still be charged the fee.`,
-            ],
-            action: 'cancel the delivery with Expedite directly.',
-            link: orderLink(rows[0].reference, n),
-            context: { orderReference: rows[0].reference, expediteDeliveryId: deliveryId, error: detail.slice(0, 200) },
-          }).catch(() => false)
-        }
-      }
+      await cancelCourierAndReport(rows[0].reference, source, 'cancelled')
     }
 
     let deferred = false

@@ -6,7 +6,7 @@ import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification }
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
-import { cancelDelivery } from '../../../../lib/expedite'
+import { cancelCourierAndReport } from '../../../../lib/order/courier-sync'
 import { recordTransferReversed } from '../../../../lib/order/transfer-reversals'
 import { waitUntil } from '@vercel/functions'
 
@@ -277,8 +277,8 @@ export async function POST(request: NextRequest) {
             LIMIT 1
           `.catch(() => [])) as { expedite_delivery_id: string }[]
           if (orders[0]?.expedite_delivery_id) {
-            const result = await cancelDelivery(orders[0].expedite_delivery_id)
-            console.log('[Webhook] charge.refunded — expedite cancel:', result.success ? 'ok' : result.error)
+            // Recorded on the order and alerted on failure (lib/order/courier-sync.ts).
+            await cancelCourierAndReport(payments[0].order_reference, 'STRIPE_WEBHOOK', 'refunded')
           }
         }
         break
@@ -395,7 +395,14 @@ export async function POST(request: NextRequest) {
         // account (platform-invoice + transfer, mirroring the card destination
         // charge), and dispatch confirmations. Gated on the native kind so FM /
         // order-edit / subscription invoices are untouched.
-        if (invoice.metadata?.kind === 'native_order_invoice') {
+        //
+        // 'order_edit_reissue' is the SAME kind of invoice: an edit that lowered an
+        // unpaid invoice order voids the original and reissues one for the WHOLE
+        // new total (edit route, void-reissue), with the restaurant's share of the
+        // whole order in transferDollars. It used to fall through here untouched,
+        // so a paid reissue left the order UNPAID, unpaid-out and unrefundable
+        // (#900000663, $336.54 paid 27 Oct 2026, $274.10 never transferred).
+        if (invoice.metadata?.kind === 'native_order_invoice' || invoice.metadata?.kind === 'order_edit_reissue') {
           // First payment only — the guard makes retries a no-op.
           const flipped = (await sql`
             UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW()

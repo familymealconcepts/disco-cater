@@ -7,9 +7,8 @@ import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order
 import { loadOrderItemsWithAddOns } from '../../../../../../lib/order-items'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
-import { fmtDateHuman, syncExpediteOnEdit, type ExpediteSyncResult } from '../../../../../../lib/order-edit'
-import { alertOps } from '../../../../../../lib/ops-alert'
-import { orderLink } from '../../../../../../lib/ops-alert-format'
+import { fmtDateHuman, type ExpediteSyncResult } from '../../../../../../lib/order-edit'
+import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { formatTime12 as fmtTimeHuman } from '../../../../../../lib/utils/time'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -90,36 +89,7 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
  * the date change is already saved.
  */
 async function syncCourier(orderRef: string): Promise<ExpediteSyncResult> {
-  try {
-    const rows = (await sql`
-      SELECT id, order_number::text AS order_number FROM disco_orders WHERE reference = ${orderRef}::uuid LIMIT 1
-    `) as Array<{ id: number; order_number: string }>
-    const o = rows[0]
-    if (!o) return { attempted: false, success: false }
-    const r = await syncExpediteOnEdit(o.id, orderRef)
-    if (r.attempted && !r.success) {
-      const reply = r.error || 'no reply'
-      await sql`
-        INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-        VALUES (${orderRef}::uuid, 'EXPEDITE_UPDATE_FAILED', ${JSON.stringify({ error: reply, trigger: 'ADMIN_DATE_TIME' })}::jsonb, 'ADMIN_DATE_TIME')
-      `.catch(e => console.error('[admin/orders/date-time] courier failure event (non-fatal):', e instanceof Error ? e.message : e))
-      await alertOps({
-        severity: 'urgent',
-        headline: `Courier booking not updated — order #${o.order_number}`,
-        lines: [
-          `The order's date/time was changed in Super Admin, but Expedite did not accept the update, so the courier is still booked for the old pickup.`,
-          `Expedite replied: ${reply}`,
-        ],
-        action: 'update or rebook the courier at Expedite by hand.',
-        link: orderLink(orderRef, o.order_number),
-        context: { reference: orderRef, orderNumber: o.order_number, error: reply },
-      }).catch(e => console.error('[admin/orders/date-time] ops alert (non-fatal):', e instanceof Error ? e.message : e))
-    }
-    return r
-  } catch (e) {
-    console.error('[admin/orders/date-time] courier sync failed (non-fatal):', e instanceof Error ? e.message : e)
-    return { attempted: true, success: false, error: e instanceof Error ? e.message : String(e) }
-  }
+  return syncCourierAndReport(orderRef, 'ADMIN_DATE_TIME')
 }
 
 
@@ -159,7 +129,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     try {
       await sql`
         UPDATE disco_orders
-           SET order_date = ${orderDate}::date, order_time = ${time}::time, updated_at = NOW()
+           SET admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM ${orderDate}::date OR order_time IS DISTINCT FROM ${time}::time
+          THEN false ELSE admin_reminder_sent END,
+               order_date = ${orderDate}::date, order_time = ${time}::time, updated_at = NOW()
          WHERE reference = ${ref}::uuid
       `
       await sql`

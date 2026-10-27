@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { reminderKey } from '../../../../lib/order/order-reminders'
 import { fulfillmentLabel } from '../../../../lib/order/fulfillment-label'
 import { sql, runMigrations } from '../../../../lib/db'
 import {
@@ -73,14 +74,21 @@ interface ReminderRow {
 
 // Atomically claim the one-time CUSTOMER reminder for an order. Returns true only
 // for the caller that inserts the ORDER_REMINDER_SENT marker (so it should send).
-async function claimCustomerReminder(orderReference: string): Promise<boolean> {
+async function claimCustomerReminder(orderReference: string, forKey: string): Promise<boolean> {
+  // One per date/time (lib/order/order-reminders.ts): a reminder for an order's
+  // OLD date doesn't block one for its new date. A legacy marker (no `for`, from
+  // before this change) blocks only for 2 hours — long enough to cover the
+  // 1-hour window it was sent in, after which only a moved order can come back
+  // into the window, and that one should be reminded.
   try {
     const rows = (await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      SELECT ${orderReference}::uuid, 'ORDER_REMINDER_SENT', '{}'::jsonb, 'cron/order-reminders'
+      SELECT ${orderReference}::uuid, 'ORDER_REMINDER_SENT', ${JSON.stringify({ for: forKey })}::jsonb, 'cron/order-reminders'
       WHERE NOT EXISTS (
         SELECT 1 FROM disco_order_events
         WHERE order_reference = ${orderReference}::uuid AND event_type = 'ORDER_REMINDER_SENT'
+          AND (event_data->>'for' = ${forKey}
+               OR (event_data->>'for' IS NULL AND created_at > NOW() - INTERVAL '2 hours'))
       )
       RETURNING id
     `) as { id: number }[]
@@ -246,14 +254,22 @@ async function runGet(req: NextRequest) {
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
       WHERE ov.order_reminder_emails_enabled = true
-        AND o.order_status = 'DUE'
+        -- Live orders: DUE, or partly refunded and still going ahead
+        -- (#900000712). A cancelled order that was then partly refunded also
+        -- reads PARTIAL_REFUND, so the cancel is checked in its history.
+        AND (o.order_status = 'DUE' OR (o.order_status = 'PARTIAL_REFUND' AND NOT EXISTS (
+              SELECT 1 FROM disco_order_events c WHERE c.order_reference = o.reference
+                 AND c.event_type = 'STATUS_CHANGED' AND c.event_data->>'status' IN ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED'))))
         AND o.is_deleted = false
-        -- DISCO-source only. disco_orders also mirrors FAMILYMEAL-direct orders
-        -- (synced in so the portal can display them). FamilyMeal sends those
-        -- customers their own reminder from noreply@mg.familymeal.com — Disco must
-        -- NOT also email them from orders@discocater.com. source_of_order is
-        -- NOT NULL DEFAULT 'DISCO', so this keeps all native + DISCO orders.
-        AND o.source_of_order = 'DISCO'
+        -- Orders DISCO PROCESSED, whichever link they came through. disco_orders
+        -- also mirrors FamilyMeal-direct orders (fm_order_reference set);
+        -- FamilyMeal reminds those itself, so Disco must not email them twice.
+        -- source_of_order is the CHANNEL, not the processor: this used to be
+        -- source_of_order = 'DISCO', which dropped every native order placed
+        -- through a restaurant's own /order link (source FAMILYMEAL) — 99
+        -- upcoming orders on 27 Oct 2026 that nobody reminded, since FamilyMeal
+        -- has never seen them.
+        AND (o.fm_order_reference IS NULL OR o.source_of_order = 'DISCO')
         AND o.customer_email IS NOT NULL AND o.customer_email <> ''
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
@@ -263,7 +279,7 @@ async function runGet(req: NextRequest) {
     let customerSent = 0
     let customerSkipped = 0
     for (const o of custOrders) {
-      if (!(await claimCustomerReminder(o.reference))) { customerSkipped++; continue }
+      if (!(await claimCustomerReminder(o.reference, reminderKey(o.order_date, o.order_time)))) { customerSkipped++; continue }
       const packages = await loadPackages(o.id)
       const res = await sendCustomerOrderReminder({
         to: o.customer_email as string,
@@ -312,7 +328,12 @@ async function runGet(req: NextRequest) {
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
       WHERE ov.admin_order_reminder_emails_enabled = true
         AND o.admin_reminder_sent = false
-        AND o.order_status = 'DUE'
+        -- Live orders: DUE, or partly refunded and still going ahead
+        -- (#900000712). A cancelled order that was then partly refunded also
+        -- reads PARTIAL_REFUND, so the cancel is checked in its history.
+        AND (o.order_status = 'DUE' OR (o.order_status = 'PARTIAL_REFUND' AND NOT EXISTS (
+              SELECT 1 FROM disco_order_events c WHERE c.order_reference = o.reference
+                 AND c.event_type = 'STATUS_CHANGED' AND c.event_data->>'status' IN ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED'))))
         AND o.is_deleted = false
         -- DISCO-source only — the SAME rule PASS 1 has, and for the same reason.
         -- FM owns reminders for FM-sourced orders in BOTH directions: it already
@@ -322,7 +343,7 @@ async function runGet(req: NextRequest) {
         -- it, which is why the customer side was clean and the restaurant side
         -- was not. source_of_order is NOT NULL DEFAULT 'DISCO', so every native
         -- and DISCO-marketplace order still qualifies.
-        AND o.source_of_order = 'DISCO'
+        AND (o.fm_order_reference IS NULL OR o.source_of_order = 'DISCO')
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
         AND COALESCE(o.placed_at, o.created_at) <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'

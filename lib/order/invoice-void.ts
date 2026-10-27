@@ -76,3 +76,53 @@ export async function voidUnpaidOrderInvoice(ref: string, stripe: Stripe | null)
     return { action: 'failed', invoiceId: row.stripe_invoice_id, error: e instanceof Error ? e.message : String(e) }
   }
 }
+
+// Void the open invoice for an UNPAID EDIT when its order is cancelled.
+//
+// An edit that raised a native order's total, with no card to charge, is billed
+// on its own invoice (disco_orders.pending_stripe_invoice_id, edit_status
+// 'pending_payment'), separate from the order's own invoice above. Cancelling
+// voided only the order's invoice, so the edit's stayed payable: if the customer
+// paid it after the cancel, applyPendingEdit still ran and the restaurant was
+// still paid its share of a cancelled order. Same rules as above: Stripe is read
+// first, a paid invoice is never voided, nothing else moves.
+export type VoidEditInvoiceResult =
+  | { action: 'none'; reason: string }
+  | { action: 'voided'; invoiceId: string; amount: number | null }
+  | { action: 'failed'; invoiceId: string | null; error: string }
+
+export async function voidPendingEditInvoice(ref: string, stripe: Stripe | null): Promise<VoidEditInvoiceResult> {
+  let row: { id: number; reference: string; edit_status: string | null; pending_stripe_invoice_id: string | null; pending_edit_delta: string | null } | undefined
+  try {
+    const rows = (await sql`
+      SELECT id, reference::text AS reference, edit_status, pending_stripe_invoice_id, pending_edit_delta
+      FROM disco_orders
+      WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
+      LIMIT 1
+    `) as NonNullable<typeof row>[]
+    row = rows[0]
+  } catch (e) {
+    return { action: 'failed', invoiceId: null, error: e instanceof Error ? e.message : String(e) }
+  }
+  if (!row) return { action: 'none', reason: 'no-neon-row' }
+  if (row.edit_status !== 'pending_payment' || !row.pending_stripe_invoice_id) return { action: 'none', reason: 'no-pending-edit' }
+  const invoiceId = row.pending_stripe_invoice_id
+  if (!stripe) return { action: 'failed', invoiceId, error: 'Stripe is not configured' }
+
+  try {
+    const live = await stripe.invoices.retrieve(invoiceId)
+    // Paid: the webhook applies the edit; there is nothing to withdraw.
+    if (live.status === 'paid') return { action: 'none', reason: 'edit-invoice-paid' }
+    if (live.status !== 'void') await stripe.invoices.voidInvoice(invoiceId)
+    await sql`
+      UPDATE disco_orders SET edit_status = NULL, pending_stripe_invoice_id = NULL, updated_at = NOW()
+      WHERE id = ${row.id} AND pending_stripe_invoice_id = ${invoiceId}
+    `
+    await sql`UPDATE disco_order_edits SET payment_status = 'voided' WHERE stripe_invoice_id = ${invoiceId}`
+      .catch(e => console.error('[invoice-void] edit row (non-fatal):', e instanceof Error ? e.message : e))
+    const amount = row.pending_edit_delta != null ? Number(row.pending_edit_delta) : null
+    return { action: 'voided', invoiceId, amount: Number.isFinite(amount as number) ? amount : null }
+  } catch (e) {
+    return { action: 'failed', invoiceId, error: e instanceof Error ? e.message : String(e) }
+  }
+}
