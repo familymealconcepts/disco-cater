@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminRole, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../../../lib/db'
-import { sendEmail } from '../../../../../../lib/email/send'
-import { layout } from '../../../../../../lib/email/layout'
+import { sendOrderTransferredNotice } from '../../../../../../lib/email/notifications'
+import { loadOrderItemsWithAddOns } from '../../../../../../lib/order-items'
+import { remapLinesToRestaurant } from '../../../../../../lib/order/native-cart-reprice'
+import { fmtDateHuman } from '../../../../../../lib/order-edit'
+import { formatTime12 } from '../../../../../../lib/utils/time'
 import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { syncOneFmOrder } from '../../../../../../lib/fm-orders-sync'
 import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
@@ -122,9 +125,51 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
           restaurant_address = ${dest.address},
           restaurant_phone = ${dest.phone},
           restaurant_email = ${newEmails[0] ?? null},
+          -- New to the receiving kitchen: it never saw this order, so it must
+          -- show as new there (#900000724 kept seen_by_admin = true).
+          seen_by_admin = false,
           updated_at = NOW()
       WHERE reference = ${order.reference}::uuid
     `
+
+    // ── THE ITEMS AND MENU MOVE TOO ───────────────────────────────────────────
+    // Items kept the old location's menu item references, so they kept counting
+    // against the OLD kitchen's daily limits (orderedQtyByItem keys on the item)
+    // and every later edit failed its menu check until 4550a47 re-matched them at
+    // edit time. Now they are matched here, by the same rule (name → category →
+    // menu, unique match only; lib/order/native-cart-reprice.ts). An item the new
+    // location doesn't carry keeps its old reference and is reported back.
+    let itemsMatched = 0, itemsUnmatched: string[] = []
+    try {
+      const itemRows = (await sql`
+        SELECT i.id, i.meal_package_reference::text AS reference, i.name FROM disco_order_items i
+          JOIN disco_orders o ON o.id = i.order_id WHERE o.reference = ${order.reference}::uuid ORDER BY i.id
+      `) as Array<{ id: number; reference: string | null; name: string }>
+      const withRef = itemRows.filter(r => !!r.reference) as Array<{ id: number; reference: string; name: string }>
+      const r = await remapLinesToRestaurant(newRef, withRef)
+      for (let i = 0; i < withRef.length; i++) {
+        if (r.lines[i].reference !== withRef[i].reference) {
+          await sql`UPDATE disco_order_items SET meal_package_reference = ${r.lines[i].reference}::uuid WHERE id = ${withRef[i].id}`
+          itemsMatched++
+        }
+      }
+      const stillForeign = (await sql`
+        SELECT i.name FROM disco_order_items i JOIN disco_orders o ON o.id = i.order_id
+          JOIN disco_menu_items m ON m.reference::text = i.meal_package_reference::text
+         WHERE o.reference = ${order.reference}::uuid AND m.restaurant_reference::text <> ${newRef}
+      `) as Array<{ name: string }>
+      itemsUnmatched = stillForeign.map(x => x.name)
+      // The order's menu: the new location's menu of the same name, if exactly one.
+      await sql`
+        UPDATE disco_orders o SET menu_reference = nm.reference
+          FROM disco_menus om, disco_menus nm
+         WHERE o.reference = ${order.reference}::uuid AND om.reference = o.menu_reference
+           AND nm.restaurant_reference = ${newRef}::uuid AND lower(trim(nm.name)) = lower(trim(om.name))
+           AND (SELECT count(*) FROM disco_menus x WHERE x.restaurant_reference = ${newRef}::uuid AND lower(trim(x.name)) = lower(trim(om.name))) = 1
+      `
+    } catch (e) {
+      console.error('[admin/orders/transfer] item re-match failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
 
     // Audit event.
     await sql`
@@ -150,28 +195,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // BOTH RESTAURANTS ARE, and to every configured recipient rather than one
     // account row. The receiving kitchen has to cook the order; the losing one
     // has to stop. Best-effort — a send failure must not fail the transfer.
-    const oldSends = oldEmails.map(to =>
-      sendEmail({
-        to,
-        subject: `Order #${orderNum} transferred to another location`,
-        html: layout(`
-          <p style="margin:0 0 12px;">Order #${orderNum} has been transferred to another location. You no longer need to prepare it.</p>
-        `),
-      }))
-    const newSends = newEmails.map(to =>
-      sendEmail({
-        to,
-        subject: `Order #${orderNum} assigned to your location`,
-        html: layout(`
-          <p style="margin:0 0 12px;">Order #${orderNum} has been assigned to your location. Please prepare as scheduled.</p>
-        `),
-      }))
-    const [oldResults, newResults] = await Promise.all([
-      Promise.allSettled(oldSends),
-      Promise.allSettled(newSends),
-    ])
-    const okCount = (rs: PromiseSettledResult<{ success: boolean }>[]) =>
-      rs.filter(r => r.status === 'fulfilled' && r.value.success).length
+    // ONE email per recipient, naming both locations, the date and the items.
+    // A chain's locations often share recipients; they used to get two emails
+    // that contradicted each other and named nothing (#900000724).
+    const fromName = order.restaurant_name || 'the previous location'
+    const toName = dest.name || 'the new location'
+    const facts = (await sql`
+      SELECT id, to_char(order_date, 'YYYY-MM-DD') AS d, order_time::text AS t, order_type
+        FROM disco_orders WHERE reference = ${order.reference}::uuid LIMIT 1
+    `.catch(() => [])) as Array<{ id: number; d: string | null; t: string | null; order_type: string | null }>
+    const lines = facts[0] ? await loadOrderItemsWithAddOns(facts[0].id).catch(() => []) : []
+    const items = lines.map(l => ({
+      count: l.quantity, name: l.name, price: l.pricePerUnit,
+      ...(l.addOns.length ? { addOns: l.addOns.map(a => ({ name: a.name, price: a.price, count: a.quantity })) } : {}),
+      ...(l.notes ? { comment: l.notes } : {}),
+    }))
+    const norm = (e: string) => e.trim().toLowerCase()
+    const oldSet = new Set(oldEmails.map(norm)), newSet = new Set(newEmails.map(norm))
+    const everyone = [...new Map([...oldEmails, ...newEmails].map(e => [norm(e), e])).values()]
+    const sends = everyone.map(to => sendOrderTransferredNotice({
+      to, orderNumber: orderNum, fromName, toName,
+      role: oldSet.has(norm(to)) && newSet.has(norm(to)) ? 'both' : newSet.has(norm(to)) ? 'to' : 'from',
+      orderDate: facts[0]?.d ? fmtDateHuman(facts[0].d) : undefined,
+      orderTime: facts[0]?.t ? formatTime12(facts[0].t) : undefined,
+      orderType: facts[0]?.order_type ?? null,
+      items,
+    }))
+    const results = await Promise.allSettled(sends)
+    const sentTo = (set: Set<string>) => everyone.filter((e, i) => set.has(norm(e)) && results[i].status === 'fulfilled'
+      && (results[i] as PromiseFulfilledResult<{ success: boolean }>).value.success).length
 
     // Neither side having a reachable recipient is worth seeing: the order moved
     // and no kitchen was told by email. Logged rather than alerted — a transfer
@@ -198,10 +250,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       to: newRef,
       emails: {
         // customer: deliberately not sent — see the notifications block.
-        oldRestaurant: { sent: okCount(oldResults), recipients: oldEmails.length },
-        newRestaurant: { sent: okCount(newResults), recipients: newEmails.length },
+        oldRestaurant: { sent: sentTo(oldSet), recipients: oldEmails.length },
+        newRestaurant: { sent: sentTo(newSet), recipients: newEmails.length },
       },
       expedite,
+      items: { matched: itemsMatched, notOnNewMenu: itemsUnmatched },
     })
   } catch (err) {
     console.error('[admin/orders/transfer] failed:', err instanceof Error ? err.message : err)

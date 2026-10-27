@@ -143,6 +143,8 @@ export interface OrderReportRow {
    * arithmetic without putting a fourth tip column back on the sheet.
    */
   tipThirdPartyCourierPortion: number
+  /** What refunds took back from a native payout (refund ÷ charge × payout). Not a column. */
+  refundReversal: number
   /** Which settlement produced totalDistributed. Not a column; used for diagnostics. */
   settlement: 'native' | 'fm'
   /** Not columns — carried so callers can filter without a second query. */
@@ -250,7 +252,19 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            t.source, t.subtotal, t.state_tax, t.local_tax, t.other_tax,
            t.own_delivery_fee, t.third_party_delivery_fee, t.tips_in_price, t.third_party_delivery_tips,
            t.service_charge, t.discount, t.lead_gen_one_disco_fee, t.lead_gen_two_disco_fee,
-           t.total, t.fee, t.stripe_fee, t.third_party_delivery_subsiding
+           t.total, t.fee, t.stripe_fee, t.third_party_delivery_subsiding,
+           o.total AS order_total,
+           t0.total AS orig_total, t0.subtotal AS orig_subtotal, t0.tips_in_price AS orig_tips_in_price,
+           t0.state_tax AS orig_state_tax, t0.local_tax AS orig_local_tax, t0.other_tax AS orig_other_tax,
+           t0.own_delivery_fee AS orig_own_delivery_fee, t0.service_charge AS orig_service_charge,
+           t0.third_party_delivery_subsiding AS orig_third_party_delivery_subsiding, t0.discount AS orig_discount,
+           t0.stripe_fee AS orig_stripe_fee, t0.lead_gen_one_disco_fee AS orig_lead_gen_one_disco_fee,
+           t0.lead_gen_two_disco_fee AS orig_lead_gen_two_disco_fee,
+           -- What edits refunded (lib/order/refundable.ts editRefundedSql): already
+           -- inside the lowered total, so only the REST of o.refund is a refund.
+           (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
+              WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
+                AND e.payment_status = 'refunded' AND e.delta < 0) AS edit_refunded
       FROM disco_orders o
       -- Money belongs to the location whose Stripe account received it, not the
       -- one a transfer moved the order to (lib/order/money-location.ts).
@@ -266,10 +280,29 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
           o.restaurant_reference)
         ELSE o.restaurant_reference END AS paid_ref) m
       LEFT JOIN disco_restaurant_cache pc ON pc.restaurant_reference = m.paid_ref::text
-      LEFT JOIN disco_sale_transactions t
-        ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+      -- t = the order's CURRENT figures: the newest edit breakdown (a MANUAL_EDIT
+      -- row carrying taxes), else checkout — the same rule as the PDF and order
+      -- details (lib/order/current-breakdown.ts). Reading checkout only left
+      -- every paid edit out (#900000522 +$65.97). An UNPAID edit writes no row,
+      -- so it is not counted until it is paid. t0 = checkout, for the payout
+      -- share a later refund takes back.
+      LEFT JOIN disco_sale_transactions t0
+        ON t0.order_id = o.id AND t0.transaction_type = 'ORIGINAL'
+      LEFT JOIN LATERAL (
+        SELECT * FROM disco_sale_transactions x
+         WHERE x.order_id = o.id
+           AND (x.transaction_type = 'ORIGINAL'
+                OR (x.source = 'MANUAL_EDIT' AND x.transaction_type IN ('ADDITIONAL', 'REFUND') AND x.state_tax IS NOT NULL))
+         ORDER BY (x.transaction_type = 'ORIGINAL'), x.created_at DESC, x.id DESC
+         LIMIT 1
+      ) t ON true
      WHERE m.paid_ref = ANY(${opts.refs}::uuid[])
        AND o.is_deleted = false
+       -- A Disco order cancelled before anything was charged is not a sale
+       -- (#900000473: cancelled, never paid, printed as $372.63 of payout).
+       AND NOT (o.fm_order_reference IS NULL
+                AND o.order_status IN ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'EXPIRED', 'PAYMENT_FAILED')
+                AND NOT EXISTS (SELECT 1 FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED'))
        AND (
              (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
                BETWEEN ${opts.from}::date AND ${opts.to}::date
@@ -286,11 +319,28 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
   `.catch(() => [])) as Record<string, unknown>[]
 
   return rows.map(row => {
-    const refund = n(row.refund)
+    // THE BRANCH. The checkout row's source, never o.source_of_order — see the
+    // header. (t may be an edit row, whose source is MANUAL_EDIT.)
+    const isNative = String(row.source ?? '') === 'NATIVE_CHECKOUT' || String(row.source ?? '') === 'MANUAL_EDIT'
+    // A native order's real refunds: an edit's refund is already inside the
+    // lowered figures, so only the rest counts (lib/order/refundable.ts).
+    const refund = isNative ? r2(Math.max(0, n(row.refund) - n(row.edit_refunded))) : n(row.refund)
     const service = serviceTypeOf((row.delivery_type as string) ?? null)
-    // THE BRANCH. t.source, never o.source_of_order — see the header.
-    const isNative = String(row.source ?? '') === 'NATIVE_CHECKOUT'
-    const totalDistributed = isNative ? nativeTotalDistributed(row) : fmTotalDistributed(row, refund)
+    // ── WHAT A REFUND TAKES BACK FROM THE PAYOUT ──────────────────────────────
+    // A portal/Super Admin refund reverses the restaurant's transfer in
+    // proportion to the charge (reverse_transfer, lib/order/native-refund.ts):
+    // refund ÷ checkout charge × checkout payout. A full refund therefore takes
+    // the payout to zero (#900000499 still showed $420.63 of payout).
+    const origTotal = n(row.orig_total)
+    const origPayout = nativeTotalDistributed({
+      subtotal: row.orig_subtotal, tips_in_price: row.orig_tips_in_price, state_tax: row.orig_state_tax,
+      local_tax: row.orig_local_tax, other_tax: row.orig_other_tax, own_delivery_fee: row.orig_own_delivery_fee,
+      service_charge: row.orig_service_charge, third_party_delivery_subsiding: row.orig_third_party_delivery_subsiding,
+      discount: row.orig_discount, stripe_fee: row.orig_stripe_fee,
+      lead_gen_one_disco_fee: row.orig_lead_gen_one_disco_fee, lead_gen_two_disco_fee: row.orig_lead_gen_two_disco_fee,
+    })
+    const refundReversal = isNative && refund > 0 && origTotal > 0 ? r2(Math.min(refund / origTotal, 1) * origPayout) : 0
+    const totalDistributed = isNative ? r2(nativeTotalDistributed(row) - refundReversal) : fmTotalDistributed(row, refund)
     return {
       // A transferred order is listed under the location that was paid, naming
       // the one that prepares it, so neither reads it as a mistake.
@@ -351,6 +401,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       refundAmount: refund,
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),
       totalDistributed,
+      refundReversal,
       settlement: isNative ? 'native' : 'fm',
       orderStatus: String(row.order_status ?? ''),
       deliveryType: (row.delivery_type as string) ?? null,
@@ -380,7 +431,7 @@ export function reconcileRow(r: OrderReportRow): { ok: boolean; expected: number
   const ownTip = r.tipPickup + r.tipSelfDelivery + r.tipThirdPartyDelivery - r.tipThirdPartyCourierPortion
   const expected = r.settlement === 'native'
     ? r2(r.netSales + ownTip + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
-        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo)
+        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal)
     : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + ownTip + r.serviceCharge + r.selfDeliveryFee)
         - (r.discount + r.stripeFee + r.leadGenOne + r.leadGenTwo + r.refundAmount))
   const delta = r2(Math.abs(expected - r.totalDistributed))

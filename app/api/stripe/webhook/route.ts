@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
             const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
             try {
               // idempotencyKey → a webhook retry can't double-pay the restaurant.
-              await stripe.transfers.create({
+              const editPayout = await stripe.transfers.create({
                 amount: Math.round(transferDollars * 100),
                 currency: 'usd',
                 destination: connectedAccountId,
@@ -342,6 +342,12 @@ export async function POST(request: NextRequest) {
                 transfer_group: order.reference,
                 metadata: { orderReference: order.reference, kind: 'native_edit_payout' },
               }, { idempotencyKey: `native-edit-invoice-transfer-${invoice.id}` })
+              // Recorded on the edit's payment row so a refund of this payment
+              // can take the restaurant's share back (lib/order/native-refund.ts).
+              await sql`
+                UPDATE disco_stripe_payments SET stripe_transfer_id = ${editPayout.id}, charge_id = COALESCE(charge_id, ${chargeId}), updated_at = NOW()
+                WHERE stripe_payment_intent_id = ${editPiId || invoice.id}
+              `.catch(e => console.error('[Webhook] edit payout id record (non-fatal):', e instanceof Error ? e.message : e))
             } catch (e) {
               console.error('[Webhook] order-edit invoice payout transfer failed:', e instanceof Error ? e.message : e)
               await alertRestaurantNotPaid(order.reference, {

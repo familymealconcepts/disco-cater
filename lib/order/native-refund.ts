@@ -229,9 +229,16 @@ async function refundNativeInvoiceOrder(
   const headroom = Math.max(0, amountPaid - postCn)
   const requested = cents(amountDollars)
   const apply = Math.min(requested, headroom)
-  if (apply <= 0) {
+  // Beyond what the invoice can still credit, the rest comes from the order's
+  // OTHER payments (an edit charge or paid edit invoice — #900000228's +$45.86
+  // could never be refunded). Planned now, before anything moves.
+  const invPi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+  const invPiId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
+  const extraSlices = requested > apply ? await planRefundSlices(stripe, orderReference, requested - apply, via, invPiId) : []
+  if (apply <= 0 && !extraSlices.length) {
     throw new Error(`This invoice has already been credited in full (${(postCn / 100).toFixed(2)} of ${(amountPaid / 100).toFixed(2)}), so there is nothing left to refund.`)
   }
+  if (apply <= 0) return executeRefundSlices(stripe, orderReference, extraSlices, via)
 
   // ── DECIDE THE RESTAURANT'S SHARE BEFORE THE CUSTOMER'S MONEY MOVES ───────
   // This block used to sit AFTER creditNotes.create, which meant an unfundable
@@ -307,11 +314,127 @@ async function refundNativeInvoiceOrder(
   const pick = (v: string | { id?: string } | null | undefined) => (typeof v === 'string' ? v : v?.id)
   const refundId = pick(fromArray) || pick(fromFlat)
   const pi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+  if (extraSlices.length) await executeRefundSlices(stripe, orderReference, extraSlices, via)
   return {
     refundId: refundId || creditNote.id,
     status: 'succeeded',
     paymentIntentId: (typeof pi === 'string' ? pi : pi?.id) || '',
   }
+}
+
+// ── REFUNDS ACROSS EVERY PAYMENT ON THE ORDER ─────────────────────────────────
+// An order edited upward is paid by MORE THAN ONE payment: the checkout charge
+// plus an edit charge or a paid edit invoice. The refund used to go entirely to
+// the NEWEST payment row, which after an edit is the small edit payment — so a
+// larger refund failed at Stripe, and an edit-invoice payment (no
+// transfer_data: its payout was a separate transfer) was refunded without
+// taking the restaurant's share back, Disco absorbing it.
+//
+// Now the refund is planned across every successful payment, OLDEST FIRST
+// (the checkout charge), up to what each still holds, and refused before
+// anything moves if together they can't cover it. Each slice takes the
+// restaurant's share back the way that payment paid it out: reverse_transfer on
+// a destination charge, or a proportional reversal of the recorded separate
+// transfer — balance-checked before the first refund, like the paths below.
+interface RefundSlice {
+  paymentIntentId: string
+  amount: number               // cents refunded from this payment
+  reverseTransfer: boolean     // destination charge → Stripe reverses in the same call
+  separate: { transferId: string; share: number } | null
+}
+
+async function planRefundSlices(
+  stripe: Stripe,
+  orderReference: string,
+  wantCents: number,
+  via: RefundVia,
+  excludePaymentIntent?: string | null,
+): Promise<RefundSlice[]> {
+  const rows = (await sql`
+    SELECT stripe_payment_intent_id, stripe_transfer_id FROM disco_stripe_payments
+     WHERE order_reference = ${orderReference}::uuid AND status = 'SUCCEEDED'
+       AND stripe_payment_intent_id LIKE 'pi_%'
+     ORDER BY created_at ASC, id ASC
+  `.catch(() => [])) as { stripe_payment_intent_id: string; stripe_transfer_id: string | null }[]
+  const slices: RefundSlice[] = []
+  let left = wantCents
+  let capacity = 0
+  for (const r of rows) {
+    if (left <= 0) break
+    if (excludePaymentIntent && r.stripe_payment_intent_id === excludePaymentIntent) continue
+    const intent = await stripe.paymentIntents.retrieve(r.stripe_payment_intent_id)
+    const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
+    if (!chargeId) continue
+    const charge = await stripe.charges.retrieve(chargeId)
+    const holds = (charge.amount_captured ?? charge.amount) - (charge.amount_refunded ?? 0)
+    if (holds <= 0) continue
+    capacity += holds
+    const take = Math.min(holds, left)
+    const hasTransfer = !!intent.transfer_data
+    let separate: RefundSlice['separate'] = null
+    // A payment paid out by a SEPARATE transfer (an edit invoice) — its id is on
+    // the payment row from now on; older ones are found by the charge they paid
+    // out of (source_transaction), within the order's transfer group.
+    let separateId = r.stripe_transfer_id
+    if (!hasTransfer && !separateId) {
+      try {
+        const list = await stripe.transfers.list({ transfer_group: orderReference, limit: 20 })
+        separateId = list.data.find(t => (typeof t.source_transaction === 'string' ? t.source_transaction : t.source_transaction?.id) === chargeId)?.id ?? null
+      } catch { /* none found — refunded from funds Disco holds, as before */ }
+    }
+    if (!hasTransfer && separateId) {
+      const transfer = await stripe.transfers.retrieve(separateId)
+      const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
+      const share = Math.min(remaining, Math.round(transfer.amount * (take / (charge.amount_captured ?? charge.amount))))
+      if (share > 0) {
+        await assertReversalIsFunded(stripe, transfer.destination, share, {
+          orderReference, paymentIntentId: r.stripe_payment_intent_id, transferId: separateId,
+          refundAmount: `$${(take / 100).toFixed(2)}`, via,
+        })
+        separate = { transferId: separateId, share }
+      }
+    }
+    slices.push({ paymentIntentId: r.stripe_payment_intent_id, amount: take, reverseTransfer: hasTransfer, separate })
+    left -= take
+  }
+  if (left > 0) {
+    throw new Error(`Only $${((wantCents - left) / 100).toFixed(2)} of this order's payments can still be refunded${capacity ? '' : ' (no refundable payment is linked)'}. No money has moved.`)
+  }
+  return slices
+}
+
+async function executeRefundSlices(
+  stripe: Stripe,
+  orderReference: string,
+  slices: RefundSlice[],
+  via: RefundVia,
+): Promise<{ refundId: string; status: string; paymentIntentId: string }> {
+  let first: { refundId: string; status: string; paymentIntentId: string } | null = null
+  for (const s of slices) {
+    const refund = await stripe.refunds.create({
+      payment_intent: s.paymentIntentId,
+      amount: s.amount,
+      ...(s.reverseTransfer ? { reverse_transfer: true } : {}),
+    })
+    if (refund.status === 'failed' || refund.status === 'canceled') {
+      throw new Error(`Stripe refund ${refund.status}${first ? ' (an earlier part of this refund already went through — see the order)' : ''}`)
+    }
+    if (s.separate) {
+      try {
+        await stripe.transfers.createReversal(s.separate.transferId, { amount: s.separate.share })
+      } catch (e) {
+        console.error('[native-refund] edit-payment payout reversal FAILED after a successful balance check:', orderReference, e instanceof Error ? e.message : e)
+        await recordMoneyFailure({
+          kind: 'payout_not_reversed', via, orderReference, refundAmount: s.amount / 100,
+          neededAmount: s.separate.share / 100, stripeTransferId: s.separate.transferId, stripeError: e,
+        })
+        await alertRestaurantKeptPayout(orderReference, { refund: s.amount / 100, transferId: s.separate.transferId, error: e })
+      }
+    }
+    first ??= { refundId: refund.id, status: refund.status || 'unknown', paymentIntentId: s.paymentIntentId }
+  }
+  if (!first) throw new Error('Nothing to refund.')
+  return first
 }
 
 /** Last-resort lookup when the transfer id was never recorded (orders paid before that column existed). */
@@ -347,10 +470,18 @@ export async function refundNativeOrder(
   const viaInvoice = await refundNativeInvoiceOrder(stripe, orderReference, amountDollars, via)
   if (viaInvoice) return viaInvoice
 
+  // An ordinary refund is spread across the order's payments (planRefundSlices).
+  if (transferReversalDollars == null) {
+    const slices = await planRefundSlices(stripe, orderReference, cents(amountDollars), via)
+    return executeRefundSlices(stripe, orderReference, slices, via)
+  }
+
+  // An EDIT's refund passes the exact payout change; it comes off the checkout
+  // charge — the payment whose transfer the edit re-priced — the oldest one.
   const pays = (await sql`
     SELECT stripe_payment_intent_id FROM disco_stripe_payments
-    WHERE order_reference = ${orderReference}::uuid AND stripe_payment_intent_id IS NOT NULL
-    ORDER BY created_at DESC LIMIT 1
+    WHERE order_reference = ${orderReference}::uuid AND status = 'SUCCEEDED' AND stripe_payment_intent_id LIKE 'pi_%'
+    ORDER BY created_at ASC, id ASC LIMIT 1
   `.catch(() => [])) as { stripe_payment_intent_id: string }[]
   const paymentIntentId = pays[0]?.stripe_payment_intent_id
   if (!paymentIntentId) throw new Error('No Stripe payment is linked to this order, so it cannot be refunded.')

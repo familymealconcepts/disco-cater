@@ -90,6 +90,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   // Actual refund recorded against this order (distinct from the Disco promo
   // credit below, which is a post-order card credit shown for transparency).
   const refund = Number(order?.refund) || 0
+  // An edit that lowered the price refunded the difference AND lowered the
+  // total, so the card was charged the lowered total PLUS that refund. Counting
+  // it once: Amount Charged = total + edit refund, Net = that − all refunds
+  // (#900000598: $832.14 − $158.36 = $673.78; it showed $629.03).
+  const editRefunded = Number(order?.editRefunded) || 0
+  const amountCharged = total + editRefunded
   const orderDate = order?.orderDate || order?.localDate || ''
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
@@ -283,13 +289,13 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 {total > 0 && refund > 0 ? (
                   <div style={{ paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                      <span>Amount Charged</span><span style={amountCol}>{fmt$(total)}</span>
+                      <span>Amount Charged</span><span style={amountCol}>{fmt$(amountCharged)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#E53935', fontWeight: 600 }}>
                       <span>Refund</span><span style={amountCol}>−{fmt$(refund)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 2, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
-                      <span>Net Total</span><span style={amountCol}>{fmt$(Math.max(0, total - refund))}</span>
+                      <span>Net Total</span><span style={amountCol}>{fmt$(Math.max(0, amountCharged - refund))}</span>
                     </div>
                   </div>
                 ) : total > 0 ? (

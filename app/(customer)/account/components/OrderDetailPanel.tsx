@@ -72,6 +72,8 @@ export interface FmOrderDetail {
   otherSalesTaxInPrice?: number
   discount?: number
   refund?: number
+  /** What edits refunded — inside both the lowered total and `refund`. */
+  editRefunded?: number
   orderMealPackages?: OrderMealPackage[]
   orderClassics?: OrderClassic[]
   orderSubscription?: OrderSubscription | null
@@ -127,7 +129,8 @@ function deriveHeadcount(d: FmOrderDetail): number | null {
 function paymentLabel(d: FmOrderDetail): { label: string; color: string } {
   const s = (d.orderStatus || '').toUpperCase()
   if (s === 'UNPAID') return { label: 'Unpaid', color: '#E24B4A' }
-  if (s === 'REFUND' || s === 'PARTIAL_REFUND') return { label: 'Refunded', color: ORANGE }
+  if (s === 'PARTIAL_REFUND') return { label: 'Partially refunded', color: ORANGE }
+  if (s === 'REFUND') return { label: 'Refunded', color: ORANGE }
   if (s === 'CANCELED' || s === 'VOID' || s === 'VOIDED' || s === 'EXPIRED') return { label: s.charAt(0) + s.slice(1).toLowerCase(), color: '#727272' }
   return { label: 'Paid', color: GREEN }
 }
@@ -287,7 +290,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
                   {/* Net of any refund (RULE 3) — the breakdown below shows the detail. */}
-                  <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney((detail.total || 0) - (detail.refund || 0))}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney(Math.max(0, (detail.total || 0) + (detail.editRefunded || 0) - (detail.refund || 0)))}</div>
                   <div style={{ textAlign: 'right', fontSize: 11, color: '#555' }}>
                     <div>{dateText}</div>
                     {detail.orderTime && <div style={{ color: '#727272', marginTop: 1 }}>{fmtTime(detail.orderTime)}</div>}
@@ -321,6 +324,9 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                 const discount = detail.discount || 0
                 const refund = detail.refund || 0
                 const total = detail.total || 0
+                // The card was charged the lowered total plus an edit's refund;
+                // counting that refund once (#900000598 net $673.78, not $629.03).
+                const amountCharged = total + (detail.editRefunded || 0)
                 return (
                   <>
                     <SectionLabel>Pricing</SectionLabel>
@@ -333,10 +339,10 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                       {discount > 0 && <PriceRow label="Discount" value={`−${fmtMoney(discount)}`} color="#1D9E75" />}
                       {refund > 0 ? (
                         <div style={{ paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee' }}>
-                          <PriceRow label="Amount Charged" value={fmtMoney(total)} />
+                          <PriceRow label="Amount Charged" value={fmtMoney(amountCharged)} />
                           <PriceRow label="Refund" value={`−${fmtMoney(refund)}`} color="#E53935" />
                           <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 2, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
-                            <span>Net Total</span><span>{fmtMoney(Math.max(0, total - refund))}</span>
+                            <span>Net Total</span><span>{fmtMoney(Math.max(0, amountCharged - refund))}</span>
                           </div>
                         </div>
                       ) : (

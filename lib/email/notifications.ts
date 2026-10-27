@@ -825,11 +825,27 @@ function renderEditItems(items: EditItem[]): string {
   return renderItemRows(items || [])
 }
 
-// One-line payment summary for an edit's delta.
-function paymentSummary(delta: number): string {
-  if (delta > 0.005) return `<strong>${money(delta)} charged</strong> for the difference.`
-  if (delta < -0.005) return `<strong>${money(Math.abs(delta))} refunded</strong> for the difference.`
-  return 'No change to your total.'
+/** What actually happened to the money on an edit (the edit route's paymentAction/paymentStatus). */
+export interface EditPaymentOutcome { action: string; status: string }
+
+// One-line payment summary for an edit. Says "refunded" / "charged" ONLY when
+// that payment succeeded: it used to read the delta alone, so #900000663's
+// customer was told "$40.28 refunded" beside a "Payment required" email (the
+// unpaid invoice was reissued — nothing was refunded), and a failed refund
+// was reported as done. Without an outcome (older callers) it states the
+// change in the total, never a payment.
+function paymentSummary(delta: number, outcome?: EditPaymentOutcome): string {
+  const amt = money(Math.abs(delta))
+  if (Math.abs(delta) < 0.005) return 'No change to your total.'
+  const a = outcome?.action, st = outcome?.status
+  if (delta > 0) {
+    if (a === 'charge' && st === 'succeeded') return `<strong>${amt} charged</strong> for the difference.`
+    if (st === 'invoiced' || st === 'pending') return `Your total went up by <strong>${amt}</strong>; an invoice for the difference has been sent.`
+    return `Your total went up by <strong>${amt}</strong>.`
+  }
+  if (a === 'refund' && st === 'refunded') return `<strong>${amt} refunded</strong> for the difference.`
+  if (a === 'void-reissue') return `Your total went down by <strong>${amt}</strong>; your invoice has been replaced with one for the new total.`
+  return `Your total went down by <strong>${amt}</strong>.`
 }
 
 // A delivery order's time is the drop-off, not a pickup — this read "New
@@ -842,10 +858,46 @@ function dateTimeLine(orderDate?: string, orderTime?: string, orderType?: string
   return `<p style="margin:0;"><strong>${label}:</strong> ${when}${t === 'DELIVERY' && orderTime ? ' (drop-off)' : ''}</p>`
 }
 
+// Order transferred between locations — ONE email per recipient. A chain's
+// locations often share recipients, and #900000724's inboxes got both "You no
+// longer need to prepare it" and "assigned to your location" with no location,
+// date or items named. `role` says which side this recipient is on; 'both'
+// means it is on both lists and gets the one combined message.
+export async function sendOrderTransferredNotice(params: {
+  to: string; orderNumber: string | number; fromName: string; toName: string
+  role: 'from' | 'to' | 'both'
+  orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const what = String(p.orderType || '').toUpperCase() === 'DELIVERY' ? 'Delivery' : String(p.orderType || '').toUpperCase() === 'PICKUP' ? 'Pickup' : 'Date and time'
+    const lead = p.role === 'from'
+      ? `Order <strong>#${escapeHtml(p.orderNumber)}</strong> has moved from <strong>${escapeHtml(p.fromName)}</strong> to <strong>${escapeHtml(p.toName)}</strong>. ${escapeHtml(p.fromName)} no longer needs to prepare it.`
+      : p.role === 'to'
+        ? `Order <strong>#${escapeHtml(p.orderNumber)}</strong> has moved from <strong>${escapeHtml(p.fromName)}</strong> to <strong>${escapeHtml(p.toName)}</strong>. Please prepare it at ${escapeHtml(p.toName)} as scheduled.`
+        : `Order <strong>#${escapeHtml(p.orderNumber)}</strong> has moved from <strong>${escapeHtml(p.fromName)}</strong> to <strong>${escapeHtml(p.toName)}</strong>. ${escapeHtml(p.toName)} prepares it now; ${escapeHtml(p.fromName)} no longer needs to.`
+    const content = `
+<p style="margin:0 0 12px 0;">${lead}</p>
+${p.orderDate ? `<p style="margin:0;"><strong>${what}:</strong> ${escapeHtml(p.orderDate)}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}</p>` : ''}
+${HR}
+${renderItemRows(p.items || [])}
+`
+    return await sendEmail({
+      orderNumber: p.orderNumber, to: p.to,
+      subject: `Order #${p.orderNumber} moved from ${p.fromName} to ${p.toName} | Disco Cater`,
+      html: layout(content),
+    })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderTransferredNotice failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 // 1. order-updated (customer)
 export async function sendOrderUpdated(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number
+  paymentOutcome?: EditPaymentOutcome
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -857,7 +909,7 @@ ${HR}
 ${renderEditItems(p.items)}
 ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
-<p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
+<p style="margin:6px 0 0 0;">${paymentSummary(p.delta, p.paymentOutcome)}</p>
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Your order has been updated | Disco Cater', html: layout(content) })
   } catch (err) {
@@ -971,6 +1023,7 @@ ${p.updatePaymentUrl ? button('Update payment method', p.updatePaymentUrl) : ''}
 export async function sendOrderUpdatedRestaurant(params: {
   to: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
+  paymentOutcome?: EditPaymentOutcome
   attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }): Promise<{ success: boolean }> {
   try {
@@ -983,7 +1036,7 @@ ${HR}
 ${renderEditItems(p.items)}
 ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
-<p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
+<p style="margin:6px 0 0 0;">${paymentSummary(p.delta, p.paymentOutcome)}</p>
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content), attachments: p.attachments })
   } catch (err) {

@@ -43,8 +43,17 @@ async function nativeSaleStats(fromIso: string | null, toIso_: string | null, re
       COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "thirdPartyTipsOrdersSum",
       COALESCE(SUM(st.third_party_delivery_fee), 0)::float8 AS "thirdPartyDeliveryFeeSum",
       COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum"
-    FROM disco_sale_transactions st
-    JOIN disco_orders o ON o.id = st.order_id
+    FROM disco_orders o
+    LEFT JOIN LATERAL (
+      -- The order's CURRENT figures: newest edit breakdown, else checkout (lib/order/
+      -- current-breakdown.ts). Checkout only left paid edits out (#900000522 +$65.97).
+      SELECT * FROM disco_sale_transactions x
+       WHERE x.order_id = o.id
+         AND (x.transaction_type = 'ORIGINAL'
+              OR (x.source = 'MANUAL_EDIT' AND x.transaction_type IN ('ADDITIONAL', 'REFUND') AND x.state_tax IS NOT NULL))
+       ORDER BY (x.transaction_type = 'ORIGINAL'), x.created_at DESC, x.id DESC
+       LIMIT 1
+    ) st ON true
     -- Money belongs to the location whose Stripe account received it, not the
     -- one a transfer moved the order to (lib/order/money-location.ts).
     CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
@@ -58,8 +67,9 @@ async function nativeSaleStats(fromIso: string | null, toIso_: string | null, re
             ORDER BY e.created_at LIMIT 1),
           o.restaurant_reference)
         ELSE o.restaurant_reference END AS paid_ref) m
-    WHERE st.transaction_type = 'ORIGINAL'
-      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
+    WHERE st.id IS NOT NULL
+      -- A fully refunded order is not a sale (#900000499).
+      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND')
       AND (${scopedRef}::uuid IS NULL OR m.paid_ref = ${scopedRef}::uuid)
       AND (${fromIso}::date IS NULL OR o.order_date >= ${fromIso}::date)
       AND (${toIso_}::date IS NULL OR o.order_date <= ${toIso_}::date)

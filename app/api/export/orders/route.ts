@@ -165,15 +165,24 @@ export async function GET(request: Request) {
                -- withItems, until repaired) — o.total/subtotal are set at
                -- header-insert time regardless, so a bare order still reports
                -- its real total instead of a null that looks like $0.
-               COALESCE(t.subtotal, o.subtotal) AS subtotal,
-               COALESCE(t.total, o.total) AS total,
+               -- The ORDER's total and subtotal — disco_orders holds the current
+               -- figures after any edit. This took the newest transaction row,
+               -- which for an edited order is the edit's row, whose total is only
+               -- the ADJUSTMENT (#900000598 exported $44.75 of $787.39; #900000448
+               -- $24.12 of $107.47). The transaction row is the fallback for a
+               -- header with no money on it.
+               COALESCE(NULLIF(o.subtotal, 0), t.subtotal) AS subtotal,
+               COALESCE(NULLIF(o.total, 0), t.total) AS total,
                t.own_delivery_fee, t.third_party_delivery_fee
         FROM disco_orders o
         LEFT JOIN LATERAL (
           SELECT subtotal, total, own_delivery_fee, third_party_delivery_fee
           FROM disco_sale_transactions st
           WHERE st.order_id = o.id
-          ORDER BY st.transaction_version DESC, st.id DESC
+            -- current figures: newest edit breakdown, else checkout (lib/order/current-breakdown.ts)
+            AND (st.transaction_type = 'ORIGINAL'
+                 OR (st.source = 'MANUAL_EDIT' AND st.transaction_type IN ('ADDITIONAL', 'REFUND') AND st.state_tax IS NOT NULL))
+          ORDER BY (st.transaction_type = 'ORIGINAL'), st.created_at DESC, st.id DESC
           LIMIT 1
         ) t ON true
         WHERE (${fromIso}::date IS NULL OR COALESCE(o.placed_at, o.created_at)::date >= ${fromIso}::date)

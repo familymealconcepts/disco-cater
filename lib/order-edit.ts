@@ -644,7 +644,11 @@ export async function applyPendingEdit(args: {
   if (restaurantRef) {
     await sql`
       INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total, created_at)
-      VALUES (${orderReference}::uuid, ${restaurantRef}::uuid, ${args.paymentIntentId || invoiceId}, 'SUCCEEDED', ${newTotal}, NOW())
+      -- The amount THIS payment collected — the edit's extra amount, like a
+      -- card-charged edit records — not the order's new total. Recording the
+      -- total made an order's payments add up to more than it cost (#900000522:
+      -- $497.38 + $563.35 for a $563.35 order).
+      VALUES (${orderReference}::uuid, ${restaurantRef}::uuid, ${args.paymentIntentId || invoiceId}, 'SUCCEEDED', ${Number(p.delta) > 0 ? Number(p.delta) : newTotal}, NOW())
       ON CONFLICT (stripe_payment_intent_id) DO NOTHING
     `.catch(e => console.error('[applyPendingEdit] stripe_payment:', e))
   }
@@ -685,6 +689,8 @@ export async function applyPendingEdit(args: {
         items: Array.isArray(p.newItems) ? (p.newItems as EditItem[]) : [],
         newTotal: typeof p.newTotal === 'number' ? p.newTotal : (newTotal ?? 0),
         delta: typeof p.delta === 'number' ? p.delta : 0,
+        // The edit invoice was just paid — the difference really was collected.
+        paymentOutcome: { action: 'charge', status: 'succeeded' },
       }).catch(err => console.error('[applyPendingEdit] restaurant email:', err))
     }
   } catch (e) {

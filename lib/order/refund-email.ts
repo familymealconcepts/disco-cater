@@ -23,6 +23,7 @@
 // Bagels - FiDi, $113.61), whose confirmation Disco had sent itself.
 import { sql } from '../db'
 import { sendCustomerRefundNotification } from '../email/notifications'
+import { editRefundedFor, nonEditRefunded } from './refundable'
 
 export interface RefundEmailArgs {
   /** Disco order reference (uuid). FM references are matched too. */
@@ -84,6 +85,11 @@ export async function sendOrderRefundEmail(args: RefundEmailArgs): Promise<Refun
     if (o.fm_order_reference) return { sent: false, reason: 'familymeal-order' }
     if (!o.customer_email) return { sent: false, reason: 'no-email' }
 
+    // "leaving $X charged" = the order's (lowered) total less the refunds that
+    // did NOT come from an edit — an edit's refund is already inside the lowered
+    // total (lib/order/refundable.ts). Counting it again told #900000598's
+    // customer $629.03 was left when their card held $673.78.
+    const editRefunded = await editRefundedFor(String(o.reference)).catch(() => 0)
     const res = await sendCustomerRefundNotification({
       to: o.customer_email,
       firstName: o.customer_first_name || '',
@@ -92,7 +98,7 @@ export async function sendOrderRefundEmail(args: RefundEmailArgs): Promise<Refun
       refundAmount: args.amount,
       businessName: o.cache_name || o.restaurant_name || 'the restaurant',
       orderTotal: args.orderTotal && args.orderTotal > 0 ? args.orderTotal : undefined,
-      totalRefunded: args.totalRefunded,
+      totalRefunded: nonEditRefunded(args.totalRefunded, editRefunded),
       isPartial: args.isPartial,
       orderProceeding: args.orderProceeding,
     })

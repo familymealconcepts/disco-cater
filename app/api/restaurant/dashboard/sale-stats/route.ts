@@ -110,7 +110,11 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       -- st.fee is populated on 100% of ORIGINAL rows (verified fleet-wide:
       -- 25,037 rows, zero NULLs), and COALESCE keeps an order with no
       -- transaction row from nulling the whole sum.
-      COALESCE(SUM(o.total), 0)::float8
+      -- Less real refunds (an edit's refund is already inside the lowered total —
+      -- lib/order/refundable.ts).
+      COALESCE(SUM(o.total - GREATEST(0, COALESCE(o.refund, 0) - (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
+              WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
+                AND e.payment_status = 'refunded' AND e.delta < 0))), 0)::float8
         - COALESCE(SUM(st.fee), 0)::float8
         - COALESCE(SUM(st.third_party_delivery_fee), 0)::float8
         - COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "totalOrdersSum",
@@ -153,10 +157,21 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
           o.restaurant_reference)
         ELSE o.restaurant_reference END AS paid_ref) m
     LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
-    LEFT JOIN disco_sale_transactions st ON st.order_id = o.id AND st.transaction_type = 'ORIGINAL'
+    LEFT JOIN LATERAL (
+      -- The order's CURRENT figures: newest edit breakdown, else checkout (lib/order/
+      -- current-breakdown.ts). Checkout only left paid edits out (#900000522 +$65.97).
+      SELECT * FROM disco_sale_transactions x
+       WHERE x.order_id = o.id
+         AND (x.transaction_type = 'ORIGINAL'
+              OR (x.source = 'MANUAL_EDIT' AND x.transaction_type IN ('ADDITIONAL', 'REFUND') AND x.state_tax IS NOT NULL))
+       ORDER BY (x.transaction_type = 'ORIGINAL'), x.created_at DESC, x.id DESC
+       LIMIT 1
+    ) st ON true
     WHERE m.paid_ref = ANY(${refs}::uuid[])
       AND o.is_deleted = false
-      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
+      -- A fully refunded order is not a sale: it used to count at its whole total
+      -- (#900000499, $420.63). Partial refunds stay, net of the refund above.
+      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND')
       AND (
         ${from}::date IS NULL OR
         (CASE WHEN ${byCreated}

@@ -3,6 +3,8 @@ import { getToken } from '../../../../lib/auth'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { sql } from '../../../../lib/db'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
+import { loadCurrentBreakdown } from '../../../../lib/order/current-breakdown'
+import { editRefundedFor } from '../../../../lib/order/refundable'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -16,12 +18,12 @@ const dnum = (v: unknown): number => { const n = parseFloat(String(v ?? '')); re
 // FM — an order is a receipt of something that already happened and must always be
 // viewable from captured data, independent of the restaurant's current state.
 async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextResponse> {
-  const stRows = (await sql`
-    SELECT subtotal, total, fee, own_delivery_fee, third_party_delivery_fee,
-           tips_in_price, third_party_delivery_tips, state_tax, local_tax, other_tax, discount
-    FROM disco_sale_transactions WHERE order_id = ${nr.id as number} ORDER BY id LIMIT 1
-  `) as Array<Record<string, unknown>>
-  const st = stRows[0] || {}
+  // The order's CURRENT figures (newest edit breakdown, else checkout) — this
+  // read the first row by id, so an edited order showed checkout taxes.
+  const st = ((await loadCurrentBreakdown(nr.id as number).catch(() => ({ row: null }))).row || {}) as Record<string, unknown>
+  // What edits refunded: inside both the lowered total and `refund`, so the
+  // panel counts it once (lib/order/refundable.ts; #900000598, #900000448).
+  const editRefunded = await editRefundedFor(String(nr.reference)).catch(() => 0)
   const itemRows = await loadOrderItemsWithAddOns(nr.id as number)
   // Restaurant block: prefer the frozen snapshot on the order, fall back to the
   // live cache (empty for a deleted restaurant → the panel shows just the order).
@@ -69,6 +71,7 @@ async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextRespons
     otherSalesTaxInPrice: dnum(st.other_tax),
     discount: dnum(st.discount),
     refund: dnum(nr.refund),
+    editRefunded,
     note: nr.note || '',
     // 1P (FAMILYMEAL, the restaurant's own /order/ link) or 3P (DISCO). "Order
     // again" returns a 1P customer to the restaurant's own link.

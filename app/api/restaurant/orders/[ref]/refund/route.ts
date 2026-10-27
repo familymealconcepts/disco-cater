@@ -163,7 +163,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   try {
     const rows = (await sql`
       UPDATE disco_orders
-      SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
+      -- A PARTIAL refund of a cancelled/voided order keeps it cancelled. Writing
+      -- PARTIAL_REFUND turned it back into a live order: in the Active tab,
+      -- counted in daily item limits, max orders/day and reports.
+      SET order_status = CASE WHEN ${newStatus} = 'PARTIAL_REFUND' AND order_status IN ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED')
+                              THEN order_status ELSE ${newStatus} END,
+          refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
       RETURNING reference, order_number, customer_email, customer_first_name,
                 customer_last_name, restaurant_reference, restaurant_name, expedite_delivery_id

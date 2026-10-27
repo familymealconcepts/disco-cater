@@ -540,7 +540,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // split, lead-gen by tier) instead of leaving those columns NULL, so
   // downstream reporting/exports that sum them stay accurate for edited orders.
   async function recordStripe(): Promise<void> {
-    if (!discoOrder || (paymentAction !== 'charge' && paymentAction !== 'refund')) return
+    // void-reissue also gets the breakdown row: the reissued invoice replaces the
+    // checkout one, so without it the PDF, details and reports kept the voided
+    // checkout figures (#900000663: $376.82 shown, $336.54 billed). Its row is
+    // INITIATED (nothing collected yet) and its total is the signed change.
+    if (!discoOrder || (paymentAction !== 'charge' && paymentAction !== 'refund' && paymentAction !== 'void-reissue')) return
     if (paymentAction === 'charge' && stripePaymentIntentId) {
       await sql`
         INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total)
@@ -582,8 +586,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
         lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
       ) VALUES (
-        ${discoOrder.id}, ${paymentAction === 'charge' ? 'ADDITIONAL' : 'REFUND'}, 'PAID',
-        ${newSubtotal}, ${Math.abs(delta)}, ${newFee}, ${stripePaymentIntentId || null}, NOW()::date, NOW(),
+        ${discoOrder.id}, ${paymentAction === 'refund' ? 'REFUND' : 'ADDITIONAL'}, ${paymentAction === 'void-reissue' ? 'INITIATED' : 'PAID'},
+        ${newSubtotal}, ${paymentAction === 'void-reissue' ? delta : Math.abs(delta)}, ${newFee}, ${stripePaymentIntentId || null}, NOW()::date,
+        ${paymentAction === 'void-reissue' ? null : new Date().toISOString()}::timestamptz,
         ${b?.serviceCharge ?? null}, ${b?.stripeFee ?? null}, ${b?.stateTax ?? null}, ${b?.localTax ?? null}, ${b?.otherTax ?? null},
         ${b?.tipsInPrice ?? null}, ${b?.thirdPartyDeliveryTips ?? null},
         ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b?.discount ?? null},
@@ -624,7 +629,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const dateStr = fmtDate(effDate)
     const timeStr = fmtTime(effTime)
     if (customerEmail) {
-      sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta }).catch(() => {})
+      sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }).catch(() => {})
       // GATED ON paymentStatus, NOT paymentAction. This used to read
       // `paymentAction === 'refund'`, which is set BEFORE the refund is
       // attempted — so a refund that failed still told the customer their money
@@ -662,7 +667,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       for (const to of restaurantEmails) {
-        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments }).catch(() => {})
+        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }).catch(() => {})
       }
     }
 

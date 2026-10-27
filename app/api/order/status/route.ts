@@ -4,6 +4,8 @@ import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-contex
 import { getCallerScopeRefs } from '../../../../lib/order/order-scope'
 import { sql } from '../../../../lib/db'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
+import { loadCurrentBreakdown } from '../../../../lib/order/current-breakdown'
+import { editRefundedFor } from '../../../../lib/order/refundable'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -54,11 +56,13 @@ async function authorizeStatusViewer(req: NextRequest, nr: Record<string, unknow
 // order is a receipt and must stay viewable independent of the restaurant's state.
 // native:true so the confirmation page uses the Neon PDF route (/api/order/[ref]/pdf).
 async function buildNeonStatus(nr: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const stRows = (await sql`
-    SELECT state_tax, local_tax, other_tax, own_delivery_fee, third_party_delivery_fee, discount
-    FROM disco_sale_transactions WHERE order_id = ${nr.id as number} ORDER BY id LIMIT 1
-  `) as Array<Record<string, unknown>>
-  const st = stRows[0] || {}
+  // The order's CURRENT figures (newest edit breakdown, else checkout) — this
+  // read the first row by id, so an edited order showed checkout taxes
+  // (#900000448: $7.29 shown, $5.83 now).
+  const st = ((await loadCurrentBreakdown(nr.id as number).catch(() => ({ row: null }))).row || {}) as Record<string, unknown>
+  // What edits refunded: inside both the lowered total and `refund`, so the
+  // receipt counts it once (lib/order/refundable.ts).
+  const editRefunded = await editRefundedFor(String(nr.reference)).catch(() => 0)
   const orderItems = await loadOrderItemsWithAddOns(nr.id as number)
   const items: ConfirmationItem[] = orderItems.map((it) => ({
     name: it.name, quantity: it.quantity, price: it.pricePerUnit,
@@ -97,6 +101,7 @@ async function buildNeonStatus(nr: Record<string, unknown>): Promise<Record<stri
     otherSalesTaxInPrice: num(st.other_tax),
     discount: num(st.discount),
     refund: num(nr.refund),
+    editRefunded,
     taxExemptId: nr.tax_exempt_id || '',
     taxExempt: !!nr.tax_exempt_id,
     taxExemptState: nr.tax_exempt_state || '',
@@ -119,7 +124,7 @@ export async function GET(req: NextRequest) {
     let nr: Record<string, unknown> | null = null
     if (UUID_RE.test(orderRef)) {
       const rows = (await sql`
-        SELECT o.id, o.fm_order_reference, o.order_number, o.order_status, o.order_type,
+        SELECT o.id, o.reference::text AS reference, o.fm_order_reference, o.order_number, o.order_status, o.order_type,
                o.customer_email, o.customer_first_name, o.customer_last_name,
                to_char(o.order_date,'YYYY-MM-DD') AS order_date, o.order_time::text AS order_time,
                o.subtotal, o.total, o.fee, o.tips, o.refund, o.note, o.company_name, o.persons,
