@@ -368,7 +368,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
   const orderNumber = String(base.orderNumber || discoOrder?.order_number || '')
   const newEditNumber = editCount + 1
-  const newItems: EditItem[] = activeLines.map(l => ({ count: l.quantity, name: l.name, price: l.price, ...(lineNote(l) ? { comment: lineNote(l)! } : {}) }))
+  const newItems: EditItem[] = activeLines.map(l => ({
+    count: l.quantity, name: l.name, price: l.price,
+    ...(l.addOns?.length ? { addOns: l.addOns.map(a => ({ name: a.name, price: Number(a.price) || 0, count: Math.max(1, Math.trunc(Number(a.quantity ?? a.count) || 1)) })) } : {}),
+    ...(lineNote(l) ? { comment: lineNote(l)! } : {}),
+  }))
   const origItems: FmOrderItem[] = base.items
   const NO_DELTA = Math.abs(delta) < 0.01
 
@@ -562,7 +566,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const dateStr = fmtDate(effDate)
     const timeStr = fmtTime(effTime)
     if (customerEmail) {
-      sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta }).catch(() => {})
+      sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta }).catch(() => {})
       // GATED ON paymentStatus, NOT paymentAction. This used to read
       // `paymentAction === 'refund'`, which is set BEFORE the refund is
       // attempted — so a refund that failed still told the customer their money
@@ -600,7 +604,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       for (const to of restaurantEmails) {
-        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta, attachments }).catch(() => {})
+        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments }).catch(() => {})
       }
     }
 

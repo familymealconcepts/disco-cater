@@ -4,7 +4,7 @@
 
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { sendOrderEditPaymentConfirmed, sendOrderUpdatedRestaurant } from './email/notifications'
+import { sendOrderEditPaymentConfirmed, sendOrderUpdatedRestaurant, type EditItem } from './email/notifications'
 import { resolveRestaurantNotificationEmails } from './order-notifications'
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
 import { formatTime12 } from './utils/time'
@@ -656,8 +656,8 @@ export async function applyPendingEdit(args: {
     sendOrderEditPaymentConfirmed({
       to: customerEmail, firstName: String(p.firstName || ''),
       orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
-      orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime),
-      items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : undefined,
+      orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime), orderType: typeof p.orderType === 'string' ? p.orderType : null,
+      items: Array.isArray(p.newItems) ? (p.newItems as EditItem[]) : undefined,
       newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
     }).catch(err => console.error('[applyPendingEdit] email:', err))
   }
@@ -678,8 +678,8 @@ export async function applyPendingEdit(args: {
         to,
         orderNumber: String(p.orderNumber || ''),
         businessName: String(p.businessName || 'the restaurant'),
-        orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime),
-        items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : [],
+        orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime), orderType: typeof p.orderType === 'string' ? p.orderType : null,
+        items: Array.isArray(p.newItems) ? (p.newItems as EditItem[]) : [],
         newTotal: typeof p.newTotal === 'number' ? p.newTotal : (newTotal ?? 0),
         delta: typeof p.delta === 'number' ? p.delta : 0,
       }).catch(err => console.error('[applyPendingEdit] restaurant email:', err))

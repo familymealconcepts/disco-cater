@@ -807,11 +807,33 @@ ${context}
 
 // ── Order editing (Disco-native edit flow) ───────────────────────────────────
 
-export interface EditItem { count: number; name: string; price: number; comment?: string }
+/** One edited line. `price` is the BASE unit price; `addOns[].count` is per
+ *  unit of the item (lineTotal = (price + Σ add-on price × count) × count). */
+export interface EditItem {
+  count: number; name: string; price: number; comment?: string
+  addOns?: { name: string; price: number; count: number }[]
+}
 
-// "(qty) name — $total" rows for an edit's new item list.
+// "(qty) name — $line total" rows for an edit's item list. The line total
+// includes the options, by the canonical rule in lib/pricing/cart.ts; each
+// option is listed under its item with its per-item quantity and price. Before
+// this, an item priced entirely by its options (Son del North's Burrito Box,
+// base $0) read "$0.00" with none of the choices.
 function renderEditItems(items: EditItem[]): string {
-  return renderLineItems((items || []).map(i => ({ count: i.count, name: i.name, price: i.price, comment: i.comment || undefined })))
+  if (!items || !items.length) return ''
+  const muted = 'style="padding:0 8px 2px 0;word-wrap:break-word;max-width:360px;vertical-align:top;color:#666;font-size:13px;"'
+  const rows = items.map(i => {
+    const adds = (i.addOns || []).filter(a => a && a.name)
+    const unit = (Number(i.price) || 0) + adds.reduce((t, a) => t + (Number(a.price) || 0) * (Number(a.count) || 0), 0)
+    let html = `<tr><td ${cellLeft}>(${escapeHtml(i.count)}) ${escapeHtml(i.name)}</td><td ${cellRight}>${money(unit * (Number(i.count) || 0))}</td></tr>`
+    if (adds.length && i.count > 1) html += `<tr><td ${muted}>&emsp;Each includes:</td><td></td></tr>`
+    for (const a of adds) {
+      html += `<tr><td ${muted}>&emsp;+ ${escapeHtml(a.count)} × ${escapeHtml(String(a.name).trim())}${Number(a.price) ? ` (${money(Number(a.price))} each)` : ''}</td><td></td></tr>`
+    }
+    if (i.comment) html += `<tr><td ${cellLeft}>&emsp;${escapeHtml(i.comment)}</td><td></td></tr>`
+    return html
+  }).join('')
+  return `<table style="width:100%;border-collapse:collapse;margin:8px 0;">${rows}</table>`
 }
 
 // One-line payment summary for an edit's delta.
@@ -821,22 +843,27 @@ function paymentSummary(delta: number): string {
   return 'No change to your total.'
 }
 
-function dateTimeLine(orderDate?: string, orderTime?: string): string {
+// A delivery order's time is the drop-off, not a pickup — this read "New
+// pickup:" on every edit, delivery or not (#900000724).
+function dateTimeLine(orderDate?: string, orderTime?: string, orderType?: string | null): string {
   if (!orderDate && !orderTime) return ''
-  return `<p style="margin:0;"><strong>New pickup:</strong> ${escapeHtml(orderDate || '')}${orderTime ? ` at ${escapeHtml(orderTime)}` : ''}</p>`
+  const t = String(orderType || '').toUpperCase()
+  const label = t === 'DELIVERY' ? 'New delivery' : t === 'PICKUP' ? 'New pickup' : 'New date and time'
+  const when = `${escapeHtml(orderDate || '')}${orderTime ? ` at ${escapeHtml(orderTime)}` : ''}`
+  return `<p style="margin:0;"><strong>${label}:</strong> ${when}${t === 'DELIVERY' && orderTime ? ' (drop-off)' : ''}</p>`
 }
 
 // 1. order-updated (customer)
 export async function sendOrderUpdated(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
-  orderDate?: string; orderTime?: string; items: EditItem[]; newTotal: number; delta: number
+  orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number
 }): Promise<{ success: boolean }> {
   try {
     const p = params
     const content = `
 <p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
 <p style="margin:0 0 12px 0;">Your order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)} has been updated.</p>
-${dateTimeLine(p.orderDate, p.orderTime)}
+${dateTimeLine(p.orderDate, p.orderTime, p.orderType)}
 ${HR}
 ${renderEditItems(p.items)}
 ${HR}
@@ -895,14 +922,14 @@ ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 
 export async function sendOrderEditPaymentConfirmed(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
-  orderDate?: string; orderTime?: string; items?: EditItem[]; newTotal?: number
+  orderDate?: string; orderTime?: string; orderType?: string | null; items?: EditItem[]; newTotal?: number
 }): Promise<{ success: boolean }> {
   try {
     const p = params
     const content = `
 <p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
 <p style="margin:0 0 12px 0;">Payment received — your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)} is now confirmed.</p>
-${dateTimeLine(p.orderDate, p.orderTime)}
+${dateTimeLine(p.orderDate, p.orderTime, p.orderType)}
 ${p.items && p.items.length ? `${HR}${renderEditItems(p.items)}` : ''}
 ${p.newTotal != null ? `${HR}<p style="margin:0;"><strong>Total: ${money(p.newTotal)}</strong></p>` : ''}
 `
@@ -954,7 +981,7 @@ ${p.updatePaymentUrl ? button('Update payment method', p.updatePaymentUrl) : ''}
 // 6. order-updated-restaurant
 export async function sendOrderUpdatedRestaurant(params: {
   to: string; orderNumber: string | number; businessName: string
-  orderDate?: string; orderTime?: string; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
+  orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
   attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }): Promise<{ success: boolean }> {
   try {
@@ -962,7 +989,7 @@ export async function sendOrderUpdatedRestaurant(params: {
     const content = `
 <p style="margin:0 0 12px 0;">Order <strong>#${escapeHtml(p.orderNumber)}</strong> has been updated.</p>
 ${p.changeSummary ? `<p style="margin:0 0 12px 0;">${escapeHtml(p.changeSummary)}</p>` : ''}
-${dateTimeLine(p.orderDate, p.orderTime)}
+${dateTimeLine(p.orderDate, p.orderTime, p.orderType)}
 ${HR}
 ${renderEditItems(p.items)}
 ${HR}

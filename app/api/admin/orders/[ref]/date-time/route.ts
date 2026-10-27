@@ -25,18 +25,22 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
   try {
     const rows = (await sql`
       SELECT o.id, o.order_number, o.customer_email, o.customer_first_name,
-             o.restaurant_reference::text AS restaurant_reference, o.restaurant_email,
+             o.restaurant_reference::text AS restaurant_reference, o.restaurant_email, o.order_type,
              COALESCE(o.restaurant_name, rc.name, 'the restaurant') AS business_name,
              COALESCE(o.total, 0)::float8 AS total
         FROM disco_orders o
         LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
        WHERE o.reference = ${orderRef}::uuid LIMIT 1
-    `) as Array<{ id: number; order_number: string | number; customer_email: string | null; customer_first_name: string | null; restaurant_reference: string | null; restaurant_email: string | null; business_name: string; total: number }>
+    `) as Array<{ id: number; order_number: string | number; customer_email: string | null; customer_first_name: string | null; restaurant_reference: string | null; restaurant_email: string | null; order_type: string | null; business_name: string; total: number }>
     const o = rows[0]
     if (!o) return
 
     const lines = await loadOrderItemsWithAddOns(o.id).catch(() => [])
-    const items = lines.map(l => ({ count: l.quantity, name: l.name, price: l.pricePerUnit, ...(l.notes ? { comment: l.notes } : {}) }))
+    const items = lines.map(l => ({
+      count: l.quantity, name: l.name, price: l.pricePerUnit,
+      ...(l.addOns.length ? { addOns: l.addOns.map(a => ({ name: a.name, price: a.price, count: a.quantity })) } : {}),
+      ...(l.notes ? { comment: l.notes } : {}),
+    }))
     const dateStr = fmtDateHuman(orderDate)
     const timeStr = fmtTimeHuman(orderTime)
 
@@ -44,7 +48,7 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
       await sendOrderUpdated({
         to: o.customer_email, firstName: o.customer_first_name || '',
         orderNumber: o.order_number, businessName: o.business_name,
-        orderDate: dateStr, orderTime: timeStr, items, newTotal: o.total, delta: 0,
+        orderDate: dateStr, orderTime: timeStr, orderType: o.order_type, items, newTotal: o.total, delta: 0,
       }).catch(e => console.error('[admin/orders/date-time] customer email:', e))
     }
 
@@ -63,7 +67,7 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
     for (const to of restaurantEmails) {
       await sendOrderUpdatedRestaurant({
         to, orderNumber: o.order_number, businessName: o.business_name,
-        orderDate: dateStr, orderTime: timeStr, items, newTotal: o.total, delta: 0,
+        orderDate: dateStr, orderTime: timeStr, orderType: o.order_type, items, newTotal: o.total, delta: 0,
         changeSummary: `The date and time changed to ${dateStr} at ${timeStr}.`,
         attachments,
       }).catch(e => console.error('[admin/orders/date-time] restaurant email:', e))
