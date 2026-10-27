@@ -34,7 +34,7 @@ import {
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
 import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
-import { repriceEditLinesFromMenu } from '../../../../../../lib/order/native-cart-reprice'
+import { repriceEditLinesFromMenu, storedLinesIfUnchanged, remapLinesToRestaurant } from '../../../../../../lib/order/native-cart-reprice'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
@@ -201,14 +201,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   //
   // Native orders only: an FM-backed order's menu lives in FamilyMeal, which is
   // read-only and has no disco_menu_items rows to price against.
+  //
+  // Lines identical to what the order already holds (a date/time-only save)
+  // keep their STORED prices and skip the menu check — see
+  // storedLinesIfUnchanged. A transferred order's lines are first pointed at
+  // the new location's same items — see remapLinesToRestaurant.
   if (isNative) {
-    const repriced = await repriceEditLinesFromMenu(restaurantRef, activeLines)
-    if (!repriced.ok) return NextResponse.json({ error: repriced.error }, { status: repriced.status })
-    if (repriced.corrected > 0) {
-      console.warn(`[orders/edit] edit prices did not match the menu; used the menu's: order=${ref} corrections=${repriced.corrected}`)
+    const unchanged = discoOrder ? await storedLinesIfUnchanged(discoOrder.id, activeLines) : null
+    let lines = unchanged ?? activeLines
+    if (discoOrder) {
+      const transferred = (await sql`
+        SELECT 1 FROM disco_order_events
+         WHERE order_reference = ${discoOrder.reference}::uuid AND event_type = 'TRANSFERRED' LIMIT 1
+      `) as unknown[]
+      if (transferred.length) {
+        const r = await remapLinesToRestaurant(restaurantRef, lines)
+        if (r.remapped) console.log(`[orders/edit] transferred order: ${r.remapped} line(s) matched to ${restaurantRef}'s menu: order=${ref}`)
+        lines = r.lines
+      }
     }
-    activeLines.length = 0
-    activeLines.push(...repriced.lines)
+    if (!unchanged) {
+      const repriced = await repriceEditLinesFromMenu(restaurantRef, lines)
+      if (!repriced.ok) return NextResponse.json({ error: repriced.error }, { status: repriced.status })
+      if (repriced.corrected > 0) {
+        console.warn(`[orders/edit] edit prices did not match the menu; used the menu's: order=${ref} corrections=${repriced.corrected}`)
+      }
+      lines = repriced.lines
+    }
+    activeLines.splice(0, activeLines.length, ...lines)
   }
 
   // ── 2. RECALCULATE MONEY ────────────────────────────────────────────────────
