@@ -14,17 +14,24 @@ import { assertFiniteMoney } from './promo-pricing'
 const fmtTimeHuman = formatTime12
 
 // Push an edited order's new date/time/items to Expedite when it has an active
-// third-party delivery. Best-effort: never throws.
-export async function syncExpediteOnEdit(orderId: number, orderReference: string): Promise<void> {
+// third-party delivery. Best-effort: never throws. Returns what happened —
+// `attempted: false` when the order has no courier booking — so a caller that
+// must report a refusal (the Super Admin date/time change) can; the portal edit
+// ignores it.
+export type ExpediteSyncResult = { attempted: boolean; success: boolean; error?: string }
+export async function syncExpediteOnEdit(orderId: number, orderReference: string): Promise<ExpediteSyncResult> {
   try {
     const rows = (await sql`
       SELECT expedite_delivery_id FROM disco_orders WHERE id = ${orderId} LIMIT 1
     `.catch(() => [])) as { expedite_delivery_id: string | null }[]
-    if (!rows[0]?.expedite_delivery_id) return
+    if (!rows[0]?.expedite_delivery_id) return { attempted: false, success: false }
     const payload = await buildPayloadFromNeon(orderReference)
-    if (payload) await modifyDelivery(payload)
+    if (!payload) return { attempted: true, success: false, error: "couldn't build the delivery request from the order" }
+    const r = await modifyDelivery(payload)
+    return { attempted: true, success: r.success, error: r.error }
   } catch (e) {
     console.error('[order-edit] syncExpediteOnEdit failed:', e instanceof Error ? e.message : e)
+    return { attempted: true, success: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
 

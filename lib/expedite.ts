@@ -610,7 +610,8 @@ export async function modifyDelivery(payload: ExpediteOrder): Promise<{ success:
     const { ok, status, body } = await post('delivery_modified', payload)
     if (!ok) {
       console.error(`[expedite] modifyDelivery failed ${status}: ${body.slice(0, 300)}`)
-      return { success: false, error: `expedite ${status}` }
+      // Carry Expedite's own reply so it can be recorded on the order.
+      return { success: false, error: `expedite ${status}: ${body.slice(0, 200)}` }
     }
     console.log(`[expedite] modifyDelivery ok for ${payload.external_delivery_id}`)
     return { success: true }

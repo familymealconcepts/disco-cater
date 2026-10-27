@@ -7,7 +7,9 @@ import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order
 import { loadOrderItemsWithAddOns } from '../../../../../../lib/order-items'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
-import { fmtDateHuman } from '../../../../../../lib/order-edit'
+import { fmtDateHuman, syncExpediteOnEdit, type ExpediteSyncResult } from '../../../../../../lib/order-edit'
+import { alertOps } from '../../../../../../lib/ops-alert'
+import { orderLink } from '../../../../../../lib/ops-alert-format'
 import { formatTime12 as fmtTimeHuman } from '../../../../../../lib/utils/time'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -72,6 +74,51 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
 }
 
 
+/**
+ * The courier moves with the order. The portal's edit already pushes a new
+ * date/time to Expedite (syncExpediteOnEdit); this override changed the order and
+ * left the courier booked for the old time. Same code, so the same payload: the
+ * order's CURRENT restaurant address as pickup, the new time.
+ *
+ * Orders with no courier booking are untouched (syncExpediteOnEdit returns
+ * attempted: false). A refusal is not silent: ops is alerted with Expedite's own
+ * reply and the order carries an EXPEDITE_UPDATE_FAILED event. Never throws —
+ * the date change is already saved.
+ */
+async function syncCourier(orderRef: string): Promise<ExpediteSyncResult> {
+  try {
+    const rows = (await sql`
+      SELECT id, order_number::text AS order_number FROM disco_orders WHERE reference = ${orderRef}::uuid LIMIT 1
+    `) as Array<{ id: number; order_number: string }>
+    const o = rows[0]
+    if (!o) return { attempted: false, success: false }
+    const r = await syncExpediteOnEdit(o.id, orderRef)
+    if (r.attempted && !r.success) {
+      const reply = r.error || 'no reply'
+      await sql`
+        INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+        VALUES (${orderRef}::uuid, 'EXPEDITE_UPDATE_FAILED', ${JSON.stringify({ error: reply, trigger: 'ADMIN_DATE_TIME' })}::jsonb, 'ADMIN_DATE_TIME')
+      `.catch(e => console.error('[admin/orders/date-time] courier failure event (non-fatal):', e instanceof Error ? e.message : e))
+      await alertOps({
+        severity: 'urgent',
+        headline: `Courier booking not updated — order #${o.order_number}`,
+        lines: [
+          `The order's date/time was changed in Super Admin, but Expedite did not accept the update, so the courier is still booked for the old pickup.`,
+          `Expedite replied: ${reply}`,
+        ],
+        action: 'update or rebook the courier at Expedite by hand.',
+        link: orderLink(orderRef, o.order_number),
+        context: { reference: orderRef, orderNumber: o.order_number, error: reply },
+      }).catch(e => console.error('[admin/orders/date-time] ops alert (non-fatal):', e instanceof Error ? e.message : e))
+    }
+    return r
+  } catch (e) {
+    console.error('[admin/orders/date-time] courier sync failed (non-fatal):', e instanceof Error ? e.message : e)
+    return { attempted: true, success: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+
 // PUT /api/admin/orders/{ref}/date-time?restaurantReference=
 // Body: { orderDate: "YYYY-MM-DD", orderTime: "HH:MM:SS" }
 // Forwards to FM's super-admin date-time edit (the "Update Order Date & Time"
@@ -129,8 +176,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       // nothing at all. Best-effort: the date change is already committed and an
       // email failure must not report it as failed.
       await notifyDateTimeChanged(ref, orderDate, time)
+      const courier = await syncCourier(ref)
 
-      return NextResponse.json({ ok: true, orderDate, orderTime: time, neon: true })
+      return NextResponse.json({ ok: true, orderDate, orderTime: time, neon: true, courier })
     } catch (e) {
       console.error('[admin/orders/date-time] native update failed:', e instanceof Error ? e.message : e)
       return NextResponse.json({ error: 'Unable to update date/time' }, { status: 500 })
