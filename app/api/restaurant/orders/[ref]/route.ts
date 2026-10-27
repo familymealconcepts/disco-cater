@@ -6,6 +6,7 @@ import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/orde
 import { displayEmail } from '../../../../../lib/customer-email-guard'
 import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../lib/order-items'
 import { editRefundedFor, refundableAmount } from '../../../../../lib/order/refundable'
+import { loadCurrentBreakdown } from '../../../../../lib/order/current-breakdown'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -117,13 +118,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     disco = rows[0] ?? null
     if (disco) {
       items = await loadOrderItemsWithAddOns(disco.id)
-      const txnRows = (await sql`
-        SELECT service_charge, stripe_fee, state_tax, local_tax, other_tax,
-               tips_in_price, third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee,
-               discount, lead_gen_one_disco_fee, lead_gen_two_disco_fee
-        FROM disco_sale_transactions WHERE order_id = ${disco.id} AND transaction_type = 'ORIGINAL' LIMIT 1
-      `.catch(() => [])) as DiscoTxn[]
-      txn = txnRows[0] ?? null
+      // The breakdown as the order stands now: an edit's own breakdown row when
+      // the order was edited, else checkout's. Was ORIGINAL only, so an edited
+      // order showed its checkout taxes beside its edited total. Shared with the
+      // order PDF (lib/order/current-breakdown.ts).
+      txn = ((await loadCurrentBreakdown(disco.id).catch(() => ({ row: null }))).row as DiscoTxn | null) ?? null
     }
   }
 

@@ -8,6 +8,7 @@ import { sendOrderEditPaymentConfirmed, sendOrderUpdatedRestaurant } from './ema
 import { resolveRestaurantNotificationEmails } from './order-notifications'
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
 import { formatTime12 } from './utils/time'
+import { assertFiniteMoney } from './promo-pricing'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTimeHuman = formatTime12
@@ -527,7 +528,7 @@ export async function applyPendingEdit(args: {
   const { orderId, orderReference, invoiceId } = args
   const p = args.pending || {}
   const lines = Array.isArray(p.activeLines)
-    ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number; note?: string; comment?: string; specialInstructions?: string }[])
+    ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number; note?: string; comment?: string; specialInstructions?: string; addOns?: { name?: string; price?: number; quantity?: number; count?: number }[] }[])
     : []
   // Normalize the stored date — legacy pending_edit_data may hold a corrupted
   // "Thu Jul 02"-style string that would fail the ::date cast below and throw the
@@ -552,19 +553,80 @@ export async function applyPendingEdit(args: {
     WHERE id = ${orderId}
   `
 
-  // Replace disco_order_items from the edited lines (best-effort).
+  // ── ITEMS: LEAVE THEM AS EDITED ────────────────────────────────────────────
+  // The edit route already wrote the edited items — add-ons and notes included —
+  // when the edit was saved (its pending path calls writeNeonItems so the order
+  // shows the edit while the invoice is open). This used to replace them again
+  // here from the pending lines, which carried no add-ons: #900000228 lost two
+  // platter sizes ($188) and #900000522 a $16 jelly add-on, while the money kept
+  // them. Now the items are re-saved only if they no longer match the edit, and
+  // then with their add-ons and notes.
   if (lines.length) {
-    // Atomic replace so a failed insert can't leave the order with missing items (I4).
-    const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
-    for (const l of lines) {
-      const unit = n(l.price); const qty = Math.max(1, Math.trunc(n(l.quantity) || 1))
-      stmts.push(sql`
-        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
-        VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100},
-                ${l.note || l.comment || l.specialInstructions || null})
-      `)
+    const current = (await sql`SELECT meal_package_reference AS ref, quantity FROM disco_order_items WHERE order_id = ${orderId}`
+      .catch(() => null)) as { ref: string | null; quantity: number }[] | null
+    const key = (rows: { ref: string | null | undefined; quantity: number }[]) =>
+      rows.map(r => `${String(r.ref || '').toLowerCase()}×${Math.max(1, Math.trunc(n(r.quantity) || 1))}`).sort().join('|')
+    const matches = current !== null && key(current) === key(lines.map(l => ({ ref: l.reference, quantity: l.quantity })))
+    if (!matches) {
+      const oldIds = ((await sql`SELECT id FROM disco_order_items WHERE order_id = ${orderId}`.catch(() => [])) as { id: number }[]).map(r => r.id)
+      // Atomic replace so a failed insert can't leave the order with missing items (I4).
+      const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
+      if (oldIds.length) stmts.push(sql`DELETE FROM disco_order_item_addons WHERE order_item_id = ANY(${oldIds})`)
+      for (const l of lines) {
+        const unit = n(l.price); const qty = Math.max(1, Math.trunc(n(l.quantity) || 1))
+        stmts.push(sql`
+          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, notes)
+          VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100},
+                  ${String(l.note || l.comment || l.specialInstructions || '').trim() || null})
+        `)
+      }
+      await sql.transaction(stmts).catch(e => console.error('[applyPendingEdit] items replace failed:', e))
+      // Add-ons after, keyed to the new item ids (same insertion order as lines).
+      if (lines.some(l => l.addOns?.length)) {
+        const newIds = ((await sql`SELECT id FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id`.catch(() => [])) as { id: number }[]).map(r => r.id)
+        for (let i = 0; i < lines.length && i < newIds.length; i++) {
+          for (const a of lines[i].addOns ?? []) {
+            await sql`
+              INSERT INTO disco_order_item_addons (order_item_id, name, price, quantity)
+              VALUES (${newIds[i]}, ${a.name || 'Add-on'}, ${Math.round(n(a.price) * 100) / 100}, ${Math.max(1, Math.trunc(n(a.quantity ?? a.count) || 1))})
+            `.catch(e => console.error('[applyPendingEdit] addon insert failed:', e))
+          }
+        }
+      }
     }
-    await sql.transaction(stmts).catch(e => console.error('[applyPendingEdit] items replace failed:', e))
+  }
+
+  // ── THE INVOICE'S BREAKDOWN ────────────────────────────────────────────────
+  // A card-charged edit records its full post-edit breakdown as an ADDITIONAL
+  // row; an invoiced one recorded nothing, so the PDF and order details kept
+  // showing the checkout taxes against the edited total (#900000522: $37.20 tax
+  // on a $563.35 order whose tax is $43.43). Same row, written once per invoice.
+  // Every report, dashboard and payout reads only the ORIGINAL row, so this
+  // changes no figure anywhere except the order's own breakdown.
+  const bd = (p.breakdown && typeof p.breakdown === 'object' ? p.breakdown : null) as Record<string, number | null> | null
+  const delta = typeof p.delta === 'number' ? p.delta : null
+  if (bd && delta != null && delta > 0) {
+    const payKey = args.paymentIntentId || invoiceId
+    try {
+      assertFiniteMoney({ ...bd, delta }, `applyPendingEdit breakdown(order=${orderReference})`)
+      await sql`
+        INSERT INTO disco_sale_transactions (
+          order_id, transaction_type, transaction_status, subtotal, total, fee, stripe_payment_intent_id, transaction_date, paid_at,
+          service_charge, stripe_fee, state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
+          own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
+          lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
+        )
+        SELECT ${orderId}, 'ADDITIONAL', 'PAID', ${bd.subtotal ?? null}, ${delta}, ${bd.fee ?? null}, ${payKey}, NOW()::date, NOW(),
+               ${bd.serviceCharge ?? null}, ${bd.stripeFee ?? null}, ${bd.stateTax ?? null}, ${bd.localTax ?? null}, ${bd.otherTax ?? null},
+               ${bd.tipsInPrice ?? null}, ${bd.thirdPartyDeliveryTips ?? null},
+               ${bd.ownDeliveryFee ?? null}, ${bd.thirdPartyDeliveryFee ?? null}, ${bd.thirdPartyDeliverySubsiding ?? null}, ${bd.discount ?? null},
+               ${bd.leadGenOne ?? null}, ${bd.leadGenTwo ?? null}, 'MANUAL_EDIT'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM disco_sale_transactions
+          WHERE order_id = ${orderId} AND transaction_type = 'ADDITIONAL' AND stripe_payment_intent_id = ${payKey}
+        )
+      `
+    } catch (e) { console.error('[applyPendingEdit] breakdown row:', e instanceof Error ? e.message : e) }
   }
 
   // Mark the pending edit row succeeded; record the invoice payment.

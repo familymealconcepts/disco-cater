@@ -8,6 +8,8 @@ import { loadDeliveryTimeWindow } from './native-checkout'
 import { pdfSafe } from '../pdf-text'
 import { fulfillmentLabel } from './fulfillment-label'
 import { sql } from '../db'
+import { loadCurrentBreakdown } from './current-breakdown'
+import { editRefundedFor, nonEditRefunded } from './refundable'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 import { displayEmail } from '../customer-email-guard'
@@ -113,13 +115,17 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   const o = orders[0]
   const orderId = o.id as number
 
-  const txns = (await sql`
-    SELECT subtotal, total, fee, service_charge, state_tax, local_tax, other_tax,
-           tips_in_price, own_delivery_fee, third_party_delivery_fee, discount
-    FROM disco_sale_transactions WHERE order_id = ${orderId} AND transaction_type = 'ORIGINAL' LIMIT 1
-  `) as Record<string, unknown>[]
-  const t = txns[0] ?? {}
-  const hasTxn = txns.length > 0
+  // The breakdown as the order stands now — an edit's own breakdown row when the
+  // order was edited, else checkout's (lib/order/current-breakdown.ts). Same
+  // source as the order details screen.
+  const current = await loadCurrentBreakdown(orderId)
+  const t = (current.row ?? {}) as Record<string, unknown>
+  const hasTxn = !!current.row
+  const edited = current.edited
+  // An edit's refund is inside both the lowered total and `refund`. The edited
+  // lines already add up to the lowered total, so only the OTHER refunds come off
+  // it — the final figure is the drawer's Net Total, and the page adds up.
+  const editRefunded = edited ? await editRefundedFor(String(o.reference ?? '')).catch(() => 0) : 0
 
   const restRef = String(o.restaurant_reference ?? '')
   // Only looked up when the order carries no window of its own, and only for a
@@ -151,14 +157,16 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     ? [o.delivery_address_line1, o.delivery_address_line2, cityStateZip].filter(Boolean).join(', ') || undefined
     : undefined
 
-  const subtotal = hasTxn ? num(t.subtotal) : num(o.subtotal)
+  // Edited: the order's own subtotal/fee/total are the current figures (the
+  // edit row's `total` is only the difference); this is what details shows.
+  const subtotal = edited ? num(o.subtotal) : hasTxn ? num(t.subtotal) : num(o.subtotal)
   const serviceCharge = num(t.service_charge)
   const deliveryFee = num(t.own_delivery_fee) + num(t.third_party_delivery_fee)
   const tip = num(t.tips_in_price) || num(o.tips)
   const promo = num(t.discount)
-  const refund = num(o.refund)
-  const total = hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
-  const fees = hasTxn ? num(t.fee) : num(o.fee)
+  const refund = edited ? nonEditRefunded(num(o.refund), editRefunded) : num(o.refund)
+  const total = edited ? num(o.total) : hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
+  const fees = edited ? num(o.fee) : hasTxn ? num(t.fee) : num(o.fee)
   // No transaction row → no real per-component tax figure exists. Previously
   // inferred it as whatever was left over after subtracting every other known
   // field from the total — a residual that can't fail loudly and silently

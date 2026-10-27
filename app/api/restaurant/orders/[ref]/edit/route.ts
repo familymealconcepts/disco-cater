@@ -650,7 +650,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
     const pending = {
       fmRef: ref, restaurantRef, orderType: base.orderType,
-      activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity, name: l.name, price: l.price, note: lineNote(l) ?? undefined })),
+      // Add-ons and notes travel with the lines: applyPendingEdit re-saves the
+      // items from these if the order no longer matches them, and without the
+      // add-ons it saved the lines bare (#900000228 lost $188 of platter sizes,
+      // #900000522 a $16 jelly add-on).
+      activeLines: activeLines.map(l => ({
+        reference: l.reference, quantity: l.quantity, name: l.name, price: l.price, serves: l.serves ?? null,
+        addOns: l.addOns?.length ? l.addOns : undefined,
+        note: lineNote(l) ?? undefined,
+      })),
+      // The full post-edit breakdown (native orders) — the same figures the
+      // card-charge path writes on its ADDITIONAL row. applyPendingEdit records
+      // it when the invoice is paid, so the PDF and order details can show the
+      // edited order's real taxes/fees instead of the checkout ones.
+      breakdown: nativeBreakdown ? {
+        subtotal: newSubtotal, fee: newFee,
+        serviceCharge: nativeBreakdown.serviceCharge, stripeFee: nativeBreakdown.stripeFee,
+        stateTax: nativeBreakdown.stateTax, localTax: nativeBreakdown.localTax, otherTax: nativeBreakdown.otherTax,
+        tipsInPrice: nativeBreakdown.tipsInPrice, thirdPartyDeliveryTips: nativeBreakdown.thirdPartyDeliveryTips,
+        ownDeliveryFee: nativeCtx?.fulfillment === 'OWN_DELIVERY' ? nativeCtx.ownDeliveryFee : null,
+        thirdPartyDeliveryFee: nativeCtx?.fulfillment === 'THIRD_PARTY_DELIVERY' ? nativeCtx.thirdPartyDeliveryFee : null,
+        thirdPartyDeliverySubsiding: nativeCtx?.thirdPartyDeliverySubsiding ?? null,
+        discount: nativeBreakdown.discount,
+        leadGenOne: nativeLeadGenTier === 1 ? nativeBreakdown.leadGen : 0,
+        leadGenTwo: nativeLeadGenTier === 2 ? nativeBreakdown.leadGen : 0,
+      } : null,
       orderDateIso: effDate, orderTime: effTime, tips: base.tipsRaw, tipsType: base.tipsType,
       newItems, newTotal, delta, editNumber: newEditNumber, editorEmail,
       origItems, origTotal: base.total, origDateIso: base.orderDateIso, origTime: base.orderTime,
