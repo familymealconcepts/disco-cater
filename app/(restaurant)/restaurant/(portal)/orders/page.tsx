@@ -60,6 +60,8 @@ interface Order {
   // Present on the aggregated /api/system-admin/orders response so the
   // SA can see which location each order belongs to (Track 1).
   restaurantName?: string
+  /** Transferred order: "Paid to X, prepared by Y" (lib/order/money-location.ts). */
+  moneyLocationNote?: string | null
   orderDate: string
   orderTime: string
   orderCreatedDate: string
@@ -922,6 +924,9 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 {order.orderTime && <>, {fmtTime(order.orderTime)}</>}
                 {customerFull && <> for {customerFull}</>}
               </div>
+              {order.moneyLocationNote && (
+                <div style={{ fontSize: 12, color: '#5B6FE8', fontWeight: 600, marginTop: 4 }}>{order.moneyLocationNote}</div>
+              )}
             </div>
 
             {isRecurringOrder(order) && (

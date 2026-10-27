@@ -139,9 +139,22 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_tips ELSE 0 END), 0)::float8 AS "doordashTipsOrdersSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_tips END), 0)::float8 AS "thirdPartyDeliveryTipsOrdersSum"
     FROM disco_orders o
+    -- Money belongs to the location whose Stripe account received it, not the
+    -- one a transfer moved the order to (lib/order/money-location.ts).
+    CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
+                                              WHERE te.order_reference = o.reference AND te.event_type = 'TRANSFERRED')
+        THEN COALESCE(
+          (SELECT sp.restaurant_reference FROM disco_stripe_payments sp
+            WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED' AND sp.restaurant_reference IS NOT NULL
+            ORDER BY sp.created_at, sp.id LIMIT 1),
+          (SELECT (e.event_data->>'from_restaurant')::uuid FROM disco_order_events e
+            WHERE e.order_reference = o.reference AND e.event_type = 'TRANSFERRED'
+            ORDER BY e.created_at LIMIT 1),
+          o.restaurant_reference)
+        ELSE o.restaurant_reference END AS paid_ref) m
     LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
     LEFT JOIN disco_sale_transactions st ON st.order_id = o.id AND st.transaction_type = 'ORIGINAL'
-    WHERE o.restaurant_reference = ANY(${refs}::uuid[])
+    WHERE m.paid_ref = ANY(${refs}::uuid[])
       AND o.is_deleted = false
       AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
       AND (

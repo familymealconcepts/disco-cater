@@ -242,7 +242,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
   // version of this query used bare created_at and would have mis-dated every
   // FM-mirrored row, both in the scheduled report and the on-demand export.
   const rows = (await sql`
-    SELECT o.order_number, o.restaurant_name, o.customer_first_name, o.customer_last_name,
+    SELECT o.order_number, o.restaurant_name, pc.name AS paid_to_name, (m.paid_ref <> o.restaurant_reference) AS transferred_money,
+           o.customer_first_name, o.customer_last_name,
            COALESCE(o.placed_at, o.created_at) AS created_at,
            o.order_date::text AS order_date, o.order_time::text AS order_time,
            o.delivery_type, o.order_status, o.refund, o.source_of_order,
@@ -251,9 +252,23 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            t.service_charge, t.discount, t.lead_gen_one_disco_fee, t.lead_gen_two_disco_fee,
            t.total, t.fee, t.stripe_fee, t.third_party_delivery_subsiding
       FROM disco_orders o
+      -- Money belongs to the location whose Stripe account received it, not the
+      -- one a transfer moved the order to (lib/order/money-location.ts).
+      CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
+                                              WHERE te.order_reference = o.reference AND te.event_type = 'TRANSFERRED')
+        THEN COALESCE(
+          (SELECT sp.restaurant_reference FROM disco_stripe_payments sp
+            WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED' AND sp.restaurant_reference IS NOT NULL
+            ORDER BY sp.created_at, sp.id LIMIT 1),
+          (SELECT (e.event_data->>'from_restaurant')::uuid FROM disco_order_events e
+            WHERE e.order_reference = o.reference AND e.event_type = 'TRANSFERRED'
+            ORDER BY e.created_at LIMIT 1),
+          o.restaurant_reference)
+        ELSE o.restaurant_reference END AS paid_ref) m
+      LEFT JOIN disco_restaurant_cache pc ON pc.restaurant_reference = m.paid_ref::text
       LEFT JOIN disco_sale_transactions t
         ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
-     WHERE o.restaurant_reference = ANY(${opts.refs}::uuid[])
+     WHERE m.paid_ref = ANY(${opts.refs}::uuid[])
        AND o.is_deleted = false
        AND (
              (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
@@ -277,7 +292,11 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
     const isNative = String(row.source ?? '') === 'NATIVE_CHECKOUT'
     const totalDistributed = isNative ? nativeTotalDistributed(row) : fmTotalDistributed(row, refund)
     return {
-      location: String(row.restaurant_name ?? ''),
+      // A transferred order is listed under the location that was paid, naming
+      // the one that prepares it, so neither reads it as a mistake.
+      location: row.transferred_money
+        ? `${String(row.paid_to_name ?? '')} (prepared by ${String(row.restaurant_name ?? '')})`
+        : String(row.restaurant_name ?? ''),
       orderId: String(row.order_number ?? ''),
       customerName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ').trim(),
       createdDate: row.created_at ? new Date(row.created_at as string).toISOString().slice(0, 10) : '',

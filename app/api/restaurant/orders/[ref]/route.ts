@@ -7,6 +7,7 @@ import { displayEmail } from '../../../../../lib/customer-email-guard'
 import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../lib/order-items'
 import { editRefundedFor, refundableAmount } from '../../../../../lib/order/refundable'
 import { loadCurrentBreakdown } from '../../../../../lib/order/current-breakdown'
+import { loadMoneyLocation, moneyLocationNote } from '../../../../../lib/order/money-location'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -306,6 +307,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       ? refundableAmount(num(d.total), num(d.refund), editRefunded)
       : 0
   }
+
+  // "Paid to West Village, prepared by LES" on a transferred order — its money
+  // is reported under the location that was paid (lib/order/money-location.ts).
+  base.moneyLocationNote = moneyLocationNote(await loadMoneyLocation(d.reference).catch(() => null))
 
   return NextResponse.json(base)
 }

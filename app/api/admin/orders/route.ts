@@ -45,8 +45,24 @@ async function fetchNativeOrders(fromIso: string | null, toIso: string | null): 
              COALESCE(o.total, 0) AS total,
              o.customer_first_name AS "firstName", o.customer_last_name AS "lastName", o.customer_email AS email,
              o.order_number AS "orderNumber", o.delivery_type AS "deliveryType",
-             o.source_of_order AS sourceoforder, o.is_direct_entry AS "isDirectEntry", true AS native
+             o.source_of_order AS sourceoforder, o.is_direct_entry AS "isDirectEntry", true AS native,
+             -- Transferred order: "Paid to X, prepared by Y" (lib/order/money-location.ts).
+             CASE WHEN m.paid_ref <> o.restaurant_reference
+               THEN 'Paid to ' || COALESCE(pc.name, 'the original location') || ', prepared by ' || COALESCE(o.restaurant_name, rc.name, 'this location')
+             END AS "moneyLocationNote"
       FROM disco_orders o
+      CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
+                                              WHERE te.order_reference = o.reference AND te.event_type = 'TRANSFERRED')
+        THEN COALESCE(
+          (SELECT sp.restaurant_reference FROM disco_stripe_payments sp
+            WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED' AND sp.restaurant_reference IS NOT NULL
+            ORDER BY sp.created_at, sp.id LIMIT 1),
+          (SELECT (e.event_data->>'from_restaurant')::uuid FROM disco_order_events e
+            WHERE e.order_reference = o.reference AND e.event_type = 'TRANSFERRED'
+            ORDER BY e.created_at LIMIT 1),
+          o.restaurant_reference)
+        ELSE o.restaurant_reference END AS paid_ref) m
+      LEFT JOIN disco_restaurant_cache pc ON pc.restaurant_reference = m.paid_ref::text
       -- rc is joined ONLY for display fields (name/timezone) — never add an
       -- is_live/visible/archived_at predicate on it. An archived restaurant's
       -- orders must keep showing up here exactly as before; archiving is not

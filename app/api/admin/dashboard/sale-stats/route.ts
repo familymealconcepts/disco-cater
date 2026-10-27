@@ -45,9 +45,22 @@ async function nativeSaleStats(fromIso: string | null, toIso_: string | null, re
       COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum"
     FROM disco_sale_transactions st
     JOIN disco_orders o ON o.id = st.order_id
+    -- Money belongs to the location whose Stripe account received it, not the
+    -- one a transfer moved the order to (lib/order/money-location.ts).
+    CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
+                                              WHERE te.order_reference = o.reference AND te.event_type = 'TRANSFERRED')
+        THEN COALESCE(
+          (SELECT sp.restaurant_reference FROM disco_stripe_payments sp
+            WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED' AND sp.restaurant_reference IS NOT NULL
+            ORDER BY sp.created_at, sp.id LIMIT 1),
+          (SELECT (e.event_data->>'from_restaurant')::uuid FROM disco_order_events e
+            WHERE e.order_reference = o.reference AND e.event_type = 'TRANSFERRED'
+            ORDER BY e.created_at LIMIT 1),
+          o.restaurant_reference)
+        ELSE o.restaurant_reference END AS paid_ref) m
     WHERE st.transaction_type = 'ORIGINAL'
       AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
-      AND (${scopedRef}::uuid IS NULL OR o.restaurant_reference = ${scopedRef}::uuid)
+      AND (${scopedRef}::uuid IS NULL OR m.paid_ref = ${scopedRef}::uuid)
       AND (${fromIso}::date IS NULL OR o.order_date >= ${fromIso}::date)
       AND (${toIso_}::date IS NULL OR o.order_date <= ${toIso_}::date)
   `.catch(() => [])) as Record<string, number>[]

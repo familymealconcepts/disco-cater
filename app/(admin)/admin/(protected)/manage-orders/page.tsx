@@ -25,6 +25,7 @@ interface Order {
   orderReference: string
   restaurantReference: string
   restaurantName: string
+  moneyLocationNote?: string | null
   restaurantTimezone?: string
   createdDate: string
   orderDate: string
@@ -397,6 +398,8 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '12px 24px' }}>
           {detailRow('Restaurant', order.restaurantName || '—')}
+          {/* Transferred order: money reported under the location that was paid. */}
+          {order.moneyLocationNote ? detailRow('Money', order.moneyLocationNote) : null}
           {detailRow('Customer', `${order.firstName || ''} ${order.lastName || ''}`.trim() || '—')}
           {order.email && detailRow('Email', order.email)}
           {detailRow('Order date', `${fmtDate(order.orderDate)} ${fmtTime(order.orderTime)}`)}

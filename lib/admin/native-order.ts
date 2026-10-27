@@ -14,6 +14,7 @@
  */
 import { sql } from '../db'
 import { loadOrderItemsWithAddOns } from '../order-items'
+import { loadMoneyLocation, moneyLocationNote } from '../order/money-location'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -124,6 +125,8 @@ export async function loadNativeAdminOrder(ref: string): Promise<Record<string, 
       orderReference: r.orderReference,
       restaurantReference: r.restaurantReference,
       restaurantName: r.restaurantName,
+      // Transferred order: whose Stripe account was paid vs who prepares it.
+      moneyLocationNote: moneyLocationNote(await loadMoneyLocation(r.orderReference).catch(() => null)),
       restaurantTimezone: r.restaurantTimezone,
       createdDate,
       orderDate: r.orderDate,
