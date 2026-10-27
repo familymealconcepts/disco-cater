@@ -36,6 +36,10 @@ Standing rule from Peter (23 Oct 2026): **do not change Disco's code, data model
 or design unless Peter or Kevin explicitly asks for that change.** A task to load, migrate
 or set up data is NOT permission to extend the platform to hold it.
 
+**Kevin works on both Disco Cater and Noise Machine** (Peter, 27 Oct 2026). His
+commits, PRs and branches in this repo are normal team work — building on his code
+is fine.
+
 **If a task's data doesn't fit the platform, stop and report it** — say what
 doesn't fit and why — instead of adding columns, fields, screens or behaviour to
 make it fit.
