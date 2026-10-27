@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { DietaryBadges, DietaryLegend, hasDietaryInfo } from './DietaryBadges'
 import { useSearchParams } from 'next/navigation'
 import { effectiveOrderMinimum, isThirdPartyDeliveryType, orderMinimumMessage } from '../../../../lib/order/platform-minimums'
@@ -535,48 +535,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     () => visibleCategories.some(({ visiblePkgs }) => visiblePkgs.some(p => hasDietaryInfo(p))),
     [visibleCategories],
   )
-  // Total height of the sticky bars stacked above the mobile category nav on
-  // mobile — the page header intentionally scrolls away there (see
-  // .header-scroll-mobile below), so only the date/time bar (~46 when present)
-  // and the menu-switcher tabs (~44 when more than one menu exists) are ever
-  // reserved. Used both for the nav's own sticky `top` and for each category
-  // section's scroll-margin-top, so tapping a tab always lands the section
-  // flush below every sticky bar instead of partly hidden under one. Desktop
-  // never renders this nav (CSS media query below), so this offset only ever
-  // matters on mobile.
-  const mobileStickyOffset = (hasSelection ? 46 : 0) + (menuData.length > 1 ? 44 : 0)
-  // Scroll-spy: which category section is currently under the sticky bars,
-  // so its pill can highlight as the user scrolls (not just on tap).
-  const [activeCatRef, setActiveCatRef] = useState<string | null>(null)
-  useEffect(() => {
-    setActiveCatRef(prev => visibleCategories.some(v => v.cat.reference === prev) ? prev : (visibleCategories[0]?.cat.reference ?? null))
-  }, [visibleCategories])
-  useEffect(() => {
-    if (visibleCategories.length <= 1) return
-    const observer = new IntersectionObserver(
-      entries => {
-        const visible = entries.filter(e => e.isIntersecting)
-        if (visible.length === 0) return
-        const topmost = visible.reduce((a, b) => a.boundingClientRect.top < b.boundingClientRect.top ? a : b)
-        setActiveCatRef(topmost.target.id.replace('cat-', ''))
-      },
-      { rootMargin: `-${mobileStickyOffset + 20}px 0px -60% 0px`, threshold: 0 }
-    )
-    visibleCategories.forEach(({ cat }) => {
-      const el = document.getElementById(`cat-${cat.reference}`)
-      if (el) observer.observe(el)
-    })
-    return () => observer.disconnect()
-  }, [visibleCategories, mobileStickyOffset])
-  // Keep the active pill visible within its own horizontally-scrolling bar —
-  // otherwise, once there are more categories than fit on screen (the exact
-  // case this bar scrolls for), the highlight can land on a pill currently
-  // scrolled out of view, defeating the point of it.
-  useEffect(() => {
-    if (!activeCatRef) return
-    document.querySelector(`.category-tabs-sticky button[data-cat-ref="${activeCatRef}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
-  }, [activeCatRef])
   // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
   // Delivery orders show the pickup time as a range; pickup always shows exact.
   const deliveryWindow = restaurantSettings?.deliveryOrderTimeWindows || 'exact'
@@ -641,6 +599,107 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // hidden so it tucks cleanly under the drawer chrome.
   const searchParams = useSearchParams()
   const embedded = searchParams?.get('embed') === '1'
+  // ── Category bar (Starters, Salads, …) — works like FamilyMeal's ─────────
+  // (familymeal_client_ui checkout-pantry: .category-sticky). It sticks at
+  // every screen size directly below whatever already sticks, shows even for a
+  // single category, and highlights the last category whose heading has
+  // reached the bar. Tapping a name scrolls to that category's heading,
+  // clear of the sticky bars, and that name stays highlighted until the
+  // scroll stops (a short last category may never reach the bar).
+  //
+  // What sticks above it: on desktop the page header (50px) plus the date/time
+  // bar (46px) when a date is chosen; on mobile the header scrolls away
+  // (.header-scroll-mobile), so only the date/time bar and — with more than
+  // one menu — the menu tabs (44px). The bar's own `top` comes from CSS
+  // variables (media query in the <style> block); scrolling reads the live
+  // computed `top` and height, so the two can never disagree.
+  const mobileStickyOffset = (hasSelection ? 46 : 0) + (menuData.length > 1 ? 44 : 0)
+  const desktopStickyOffset = 50 + (hasSelection ? 46 : 0)
+  const showCategoryBar = !embedded && visibleCategories.length > 0
+  const CATEGORY_BAR_H = 52
+  const categoryBarRef = useRef<HTMLDivElement>(null)
+  const categoryBarScrollRef = useRef<HTMLDivElement>(null)
+  // Bottom edge of the sticky stack, category bar included, once stuck.
+  const stickyStackBottom = useCallback(() => {
+    const bar = categoryBarRef.current
+    if (!bar) return 0
+    return (parseFloat(getComputedStyle(bar).top) || 0) + bar.offsetHeight
+  }, [])
+  const [activeCatRef, setActiveCatRef] = useState<string | null>(null)
+  // Set while a tapped category's smooth scroll is still running, so the
+  // scroll-spy doesn't flicker through every category it passes. Released when
+  // the page reaches the target, or once scrolling has stopped (the customer
+  // may interrupt it); Safari has no scrollend event to rely on.
+  const catScrollLockRef = useRef<{ ref: string; top: number; at: number } | null>(null)
+  useEffect(() => {
+    setActiveCatRef(prev => visibleCategories.some(v => v.cat.reference === prev) ? prev : (visibleCategories[0]?.cat.reference ?? null))
+  }, [visibleCategories])
+  useEffect(() => {
+    if (!showCategoryBar) return
+    let raf = 0
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const spy = () => {
+      raf = 0
+      if (catScrollLockRef.current) return
+      const line = stickyStackBottom() + 24
+      let current = visibleCategories[0]?.cat.reference ?? null
+      for (const { cat } of visibleCategories) {
+        const el = document.getElementById(`cat-${cat.reference}`)
+        if (el && el.getBoundingClientRect().top <= line) current = cat.reference
+      }
+      // At the very bottom of the page the last categories can't reach the
+      // bar; the one on screen at the end is the last one.
+      const doc = document.documentElement
+      if (visibleCategories.length > 1 && window.scrollY > 0 && window.innerHeight + window.scrollY >= doc.scrollHeight - 2) {
+        current = visibleCategories[visibleCategories.length - 1].cat.reference
+      }
+      setActiveCatRef(current)
+    }
+    const onScroll = () => {
+      const lock = catScrollLockRef.current
+      if (lock) {
+        clearTimeout(settle)
+        if (Math.abs(window.scrollY - lock.top) < 2 || Date.now() - lock.at > 4000) catScrollLockRef.current = null
+        else settle = setTimeout(() => { if (catScrollLockRef.current === lock) catScrollLockRef.current = null }, 400)
+        return
+      }
+      if (!raf) raf = requestAnimationFrame(spy)
+    }
+    spy()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      clearTimeout(settle)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [showCategoryBar, visibleCategories, stickyStackBottom])
+  const scrollToCategory = useCallback((ref: string) => {
+    const el = document.getElementById(`cat-${ref}`)
+    if (!el) return
+    const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY - stickyStackBottom() - 12)
+    setActiveCatRef(ref)
+    if (Math.abs(top - window.scrollY) < 2) return
+    // The page may be too short to reach `top`; the lock then ends when
+    // scrolling stops.
+    const lock = { ref, top: Math.min(top, document.documentElement.scrollHeight - window.innerHeight), at: Date.now() }
+    catScrollLockRef.current = lock
+    // In case no scroll event ever arrives.
+    setTimeout(() => { if (catScrollLockRef.current === lock) catScrollLockRef.current = null }, 4000)
+    window.scrollTo({ top, behavior: 'smooth' })
+  }, [stickyStackBottom])
+  // Keep the highlighted name in view inside its sideways-scrolling bar.
+  // Scrolls the bar itself, never scrollIntoView: that would also move (and
+  // in Chromium cancel) the page's own smooth scroll.
+  useEffect(() => {
+    const scroller = categoryBarScrollRef.current
+    if (!activeCatRef || !scroller) return
+    const btn = scroller.querySelector(`button[data-cat-ref="${activeCatRef}"]`) as HTMLElement | null
+    if (!btn) return
+    const left = btn.offsetLeft - (scroller.clientWidth - btn.offsetWidth) / 2
+    scroller.scrollTo({ left: Math.max(0, left), behavior: 'smooth' })
+  }, [activeCatRef])
   // Calendar deep-link date. The "New order from calendar" flow sends
   // ?orderDate=YYYY-MM-DD; also accept a plain ?date= for any other caller.
   const presetOrderDate = searchParams?.get('orderDate') || searchParams?.get('date') || ''
@@ -2274,24 +2333,31 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
       )}
 
-      {/* Mobile-only category-jump nav (Starters, Salads, etc.) — matches
-          FamilyMeal's mobile ordering pattern. A top-level sibling for the same
-          sticky-containing-block reason as .menu-tabs-sticky above; stacks
-          directly below it (mobileStickyOffset already accounts for whether
-          that bar is present). Tapping a pill scrolls its section into view;
-          each category's own scroll-margin-top (set where categories render
-          below) is kept in sync with this same offset so the section lands
-          flush under the sticky stack, not partly hidden beneath it. */}
-      {!embedded && visibleCategories.length > 1 && (
-        <div className="category-tabs-sticky" style={{ position: 'sticky', top: mobileStickyOffset, zIndex: 130, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
-          <div style={{ display: 'flex', overflowX: 'auto', gap: 6, padding: '10px 12px' }}>
+      {/* Category bar (Starters, Salads, etc.) — sticks at every screen size,
+          like FamilyMeal's. A top-level sibling so its sticky containing block
+          is the full page (the left column has overflow:hidden, which would stop
+          it sticking). Its `top` is set per screen size by the CSS variables in
+          the <style> block; scrolling to a category reads the live geometry
+          (see scrollToCategory). Sideways-scrolling when the names don't fit. */}
+      {showCategoryBar && (
+        <div
+          ref={categoryBarRef}
+          className="category-tabs-sticky"
+          style={{
+            position: 'sticky', zIndex: 130, background: '#fff', borderBottom: '1px solid #f0f0f0', height: CATEGORY_BAR_H, boxSizing: 'border-box',
+            ['--cat-top-desktop' as string]: `${desktopStickyOffset}px`,
+            ['--cat-top-mobile' as string]: `${mobileStickyOffset}px`,
+          }}
+        >
+          <nav aria-label="Menu categories" ref={categoryBarScrollRef} className="category-tabs-scroll" style={{ display: 'flex', alignItems: 'center', overflowX: 'auto', gap: 6, height: '100%', boxSizing: 'border-box', maxWidth: 1140, margin: '0 auto', padding: '0 24px' }}>
             {visibleCategories.map(({ cat }) => {
               const isActiveCat = activeCatRef === cat.reference
               return (
               <button
                 key={cat.reference}
                 data-cat-ref={cat.reference}
-                onClick={() => document.getElementById(`cat-${cat.reference}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                aria-current={isActiveCat ? 'true' : undefined}
+                onClick={() => scrollToCategory(cat.reference)}
                 style={{
                   padding: '7px 14px', background: isActiveCat ? DARK : '#f4f4f8', border: 'none', borderRadius: 999,
                   cursor: 'pointer', fontSize: 13, fontWeight: 600, color: isActiveCat ? '#fff' : DARK,
@@ -2299,7 +2365,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 }}>{cat.name}</button>
               )
             })}
-          </div>
+          </nav>
         </div>
       )}
 
@@ -2337,7 +2403,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <DietaryLegend show={anyDietaryLabels} />
             {visibleCategories.map(({ cat, visiblePkgs }) => {
               return (
-              <div key={cat.reference} id={`cat-${cat.reference}`} style={{ marginBottom: 40, scrollMarginTop: mobileStickyOffset + 12 }}>
+              <div key={cat.reference} id={`cat-${cat.reference}`} className="menu-category-section" style={{ marginBottom: 40 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
                   // Plain block, not sticky. The parent column at line ~892
                   // has overflow:hidden, which breaks position:sticky —
@@ -2471,7 +2537,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             hydration on mobile viewports (see isMobileViewport). */}
         {isMobileViewport !== true && menuData.length > 0 && (
         <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340, alignSelf: 'stretch' }}>
-          <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
+          <div style={{ position: 'sticky', top: (hasSelection ? 106 : 68) + (showCategoryBar ? CATEGORY_BAR_H : 0) }}>
             {/* max-height is set from live geometry by the effect above
                 (cartCardRef); .order-cart-card in the <style> block is only the
                 pre-hydration fallback. Do not add maxHeight back inline. */}
@@ -2946,11 +3012,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         /* #3: sticky menu/category tabs are mobile-only; the in-header row shows on
            desktop. */
         .menu-tabs-sticky { display: none; }
-        .category-tabs-sticky { display: none; }
         @media (max-width: 900px) {
           .menu-tabs-inline { display: none !important; }
           .menu-tabs-sticky { display: block !important; }
-          .category-tabs-sticky { display: block !important; }
+        }
+        /* Category bar: sticks below the header + date bar on desktop, below
+           the date bar + menu tabs on mobile (the header scrolls away there).
+           Section scroll margins match, for anything that jumps by anchor. */
+        .category-tabs-sticky { top: var(--cat-top-desktop); }
+        .menu-category-section { scroll-margin-top: ${desktopStickyOffset + CATEGORY_BAR_H + 12}px; }
+        .category-tabs-scroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+        .category-tabs-scroll::-webkit-scrollbar { display: none; }
+        @media (max-width: 900px) {
+          .category-tabs-sticky { top: var(--cat-top-mobile); }
+          .menu-category-section { scroll-margin-top: ${mobileStickyOffset + CATEGORY_BAR_H + 12}px; }
+          .category-tabs-scroll { padding: 0 12px !important; }
         }
         @media (max-width: 768px) {
           .pkg-grid { grid-template-columns: 1fr !important; }
