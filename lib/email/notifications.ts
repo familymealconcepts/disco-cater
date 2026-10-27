@@ -157,37 +157,43 @@ const cellLeft = 'style="padding:2px 8px 2px 0;word-wrap:break-word;max-width:36
 // ragged on the right instead of the left).
 const cellRight = 'style="padding:2px 0;white-space:nowrap;vertical-align:top;text-align:right;width:90px;"'
 
-// Line-item table: "(qty) name — $total", add-ons indented, optional comment.
-// Mirrors the orderMealPackages loop in user/restaurant-order-confirm.ftl.
-function renderLineItems(packages: OrderMealPackage[]): string {
-  if (!packages || packages.length === 0) return ''
-  const rows = packages
-    .map((pkg) => {
-      let html = ''
-      if (pkg.name != null && pkg.price != null && pkg.count != null) {
-        html += `<tr><td ${cellLeft}>(${escapeHtml(pkg.count)}) ${escapeHtml(pkg.name)}</td><td ${cellRight}>${money(pkg.count * pkg.price)}</td></tr>`
-      }
-      if (pkg.orderAddOns && pkg.orderAddOns.length) {
-        for (const a of pkg.orderAddOns) {
-          if (a.name != null && a.price != null && a.count != null) {
-            // a.count already reflects the add-on's own total quantity for this
-            // item line (see native-checkout.ts's INSERT) — NOT per unit of the
-            // parent item, so this must not also multiply by pkg.count. Matches
-            // order-pdf.ts (a.price * a.quantity) and the restaurant portal
-            // popout, which both compute it the same way with no parent
-            // multiplier — this line previously double-counted whenever a
-            // parent item's own quantity was > 1.
-            html += `<tr><td ${cellLeft}>&emsp;+ (${escapeHtml(a.count)}) ${escapeHtml(a.name)}</td><td ${cellRight}>${money(a.count * a.price)}</td></tr>`
-          }
-        }
-      }
-      if (pkg.comment) {
-        html += `<tr><td ${cellLeft}>&emsp;${escapeHtml(pkg.comment)}</td><td></td></tr>`
-      }
-      return html
-    })
-    .join('')
+// Line-item table. ONE renderer for every order email that lists items
+// (confirmation, reminders, receipts, "order updated"):
+//
+//   (qty) name ............................ $line total
+//        Each includes:                  (only when qty > 1)
+//        + 4 × Carne Asada ($16.00 each)
+//
+// The line total includes the options — (base + Σ option price × count) × qty —
+// because an option's count is PER ITEM (lib/pricing/cart.ts; every native
+// order's stored subtotal reconciles this way). This used to print each option
+// as its own price × count with no × qty, so a second Burrito Box's options
+// showed at half their value ($145 of $290 on #900000724).
+function renderItemRows(items: Array<{ count: number; name: string; price: number; comment?: string | null; addOns?: { name: string; price: number; count: number }[] }>): string {
+  if (!items || !items.length) return ''
+  const muted = 'style="padding:0 8px 2px 0;word-wrap:break-word;max-width:360px;vertical-align:top;color:#666;font-size:13px;"'
+  const rows = items.map(i => {
+    const adds = (i.addOns || []).filter(a => a && a.name != null)
+    const unit = (Number(i.price) || 0) + adds.reduce((t, a) => t + (Number(a.price) || 0) * (Number(a.count) || 0), 0)
+    let html = `<tr><td ${cellLeft}>(${escapeHtml(i.count)}) ${escapeHtml(i.name)}</td><td ${cellRight}>${money(unit * (Number(i.count) || 0))}</td></tr>`
+    if (adds.length && i.count > 1) html += `<tr><td ${muted}>&emsp;Each includes:</td><td></td></tr>`
+    for (const a of adds) {
+      html += `<tr><td ${muted}>&emsp;+ ${escapeHtml(a.count)} × ${escapeHtml(String(a.name).trim())}${Number(a.price) ? ` (${money(Number(a.price))} each)` : ''}</td><td></td></tr>`
+    }
+    if (i.comment) html += `<tr><td ${cellLeft}>&emsp;${escapeHtml(i.comment)}</td><td></td></tr>`
+    return html
+  }).join('')
   return `<table style="width:100%;border-collapse:collapse;margin:8px 0;">${rows}</table>`
+}
+
+function renderLineItems(packages: OrderMealPackage[]): string {
+  return renderItemRows((packages || [])
+    .filter(pkg => pkg.name != null && pkg.price != null && pkg.count != null)
+    .map(pkg => ({
+      count: pkg.count!, name: pkg.name!, price: pkg.price!, comment: pkg.comment,
+      addOns: (pkg.orderAddOns || []).filter(a => a.name != null && a.price != null && a.count != null)
+        .map(a => ({ name: a.name!, price: a.price!, count: a.count! })),
+    })))
 }
 
 // Financial breakdown. Conditional rows mirror the FM templates (service charge
@@ -814,26 +820,9 @@ export interface EditItem {
   addOns?: { name: string; price: number; count: number }[]
 }
 
-// "(qty) name — $line total" rows for an edit's item list. The line total
-// includes the options, by the canonical rule in lib/pricing/cart.ts; each
-// option is listed under its item with its per-item quantity and price. Before
-// this, an item priced entirely by its options (Son del North's Burrito Box,
-// base $0) read "$0.00" with none of the choices.
+// An edit's new item list — the same rows as every other order email.
 function renderEditItems(items: EditItem[]): string {
-  if (!items || !items.length) return ''
-  const muted = 'style="padding:0 8px 2px 0;word-wrap:break-word;max-width:360px;vertical-align:top;color:#666;font-size:13px;"'
-  const rows = items.map(i => {
-    const adds = (i.addOns || []).filter(a => a && a.name)
-    const unit = (Number(i.price) || 0) + adds.reduce((t, a) => t + (Number(a.price) || 0) * (Number(a.count) || 0), 0)
-    let html = `<tr><td ${cellLeft}>(${escapeHtml(i.count)}) ${escapeHtml(i.name)}</td><td ${cellRight}>${money(unit * (Number(i.count) || 0))}</td></tr>`
-    if (adds.length && i.count > 1) html += `<tr><td ${muted}>&emsp;Each includes:</td><td></td></tr>`
-    for (const a of adds) {
-      html += `<tr><td ${muted}>&emsp;+ ${escapeHtml(a.count)} × ${escapeHtml(String(a.name).trim())}${Number(a.price) ? ` (${money(Number(a.price))} each)` : ''}</td><td></td></tr>`
-    }
-    if (i.comment) html += `<tr><td ${cellLeft}>&emsp;${escapeHtml(i.comment)}</td><td></td></tr>`
-    return html
-  }).join('')
-  return `<table style="width:100%;border-collapse:collapse;margin:8px 0;">${rows}</table>`
+  return renderItemRows(items || [])
 }
 
 // One-line payment summary for an edit's delta.

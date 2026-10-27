@@ -62,7 +62,7 @@ async function buildNeonStatus(nr: Record<string, unknown>): Promise<Record<stri
   const orderItems = await loadOrderItemsWithAddOns(nr.id as number)
   const items: ConfirmationItem[] = orderItems.map((it) => ({
     name: it.name, quantity: it.quantity, price: it.pricePerUnit,
-    lineTotal: Math.round(it.pricePerUnit * it.quantity * 100) / 100,
+    lineTotal: Math.round((it.pricePerUnit + it.addOns.reduce((t, a) => t + a.price * a.quantity, 0)) * it.quantity * 100) / 100, // options are per item
     addOns: it.addOns.length ? it.addOns.map((a) => ({ name: a.name, price: a.price, quantity: a.quantity })) : undefined,
   }))
   // Restaurant name: prefer the frozen snapshot on the order, fall back to the live
@@ -235,7 +235,7 @@ export async function GET(req: NextRequest) {
             const orderItems = await loadOrderItemsWithAddOns(idRows[0].id)
             items = orderItems.map((it) => ({
               name: it.name, quantity: it.quantity, price: it.pricePerUnit,
-              lineTotal: Math.round(it.pricePerUnit * it.quantity * 100) / 100,
+              lineTotal: Math.round((it.pricePerUnit + it.addOns.reduce((t, a) => t + a.price * a.quantity, 0)) * it.quantity * 100) / 100, // options are per item
               addOns: it.addOns.length ? it.addOns.map((a) => ({ name: a.name, price: a.price, quantity: a.quantity })) : undefined,
             }))
           }

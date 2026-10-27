@@ -5,7 +5,7 @@ import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
 import {
-  lineQty, lineRowTotal, lineModifiers, modifierQty, modifierRowTotal, formatCurrency,
+  lineQty, lineGrandTotal, lineModifiers, modifierQty, formatCurrency,
 } from '../../../../../lib/pricing/lineItem'
 import { FulfillmentDateTime } from '../../../../components/FulfillmentDateTime'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
@@ -2128,7 +2128,9 @@ function LineItemRow({ item }: { item: OrderMealPackage }) {
   // shared helpers and FM source citations.
   const qty = lineQty(item)
   const name = item.name || '—'
-  const lineTotal = lineRowTotal(item)
+  // Full price including options; options listed below with per-item qty and
+  // unit price (lib/pricing/lineItem.ts lineGrandTotal).
+  const lineTotal = lineGrandTotal(item)
   const modifiers = lineModifiers(item)
   return (
     <>
@@ -2137,11 +2139,18 @@ function LineItemRow({ item }: { item: OrderMealPackage }) {
         <td style={lineCell}>{name}</td>
         <td style={{ ...lineCell, textAlign: 'right' }}>{formatCurrency(lineTotal)}</td>
       </tr>
+      {modifiers.length > 0 && qty > 1 && (
+        <tr>
+          <td style={lineCellSub}></td>
+          <td style={{ ...lineCellSub, paddingLeft: 24 }} colSpan={2}>Each includes:</td>
+        </tr>
+      )}
       {modifiers.map((ex, i) => (
         <tr key={i}>
           <td style={lineCellSub}></td>
-          <td style={{ ...lineCellSub, paddingLeft: 24 }}>+ ({modifierQty(ex)}) {ex.name}</td>
-          <td style={{ ...lineCellSub, textAlign: 'right' }}>{formatCurrency(modifierRowTotal(ex))}</td>
+          <td style={{ ...lineCellSub, paddingLeft: 24 }} colSpan={2}>
+            + {modifierQty(ex)} × {String(ex.name ?? '').trim()}{ex.price ? ` (${formatCurrency(ex.price)} each)` : ''}
+          </td>
         </tr>
       ))}
       {(item.specialInstructions || item.comment) && (

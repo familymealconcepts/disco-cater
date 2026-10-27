@@ -383,22 +383,32 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const SUBROW = 16
   for (const it of d.items) {
     const addOns = it.addOns ?? []
-    const subLineCount = addOns.length + (it.note ? 1 : 0)
+    // "Each includes:" heads the options when the item is ordered more than once:
+    // an option's quantity is PER ITEM, not for the whole line.
+    const eachLine = addOns.length && it.quantity > 1 ? 1 : 0
+    const subLineCount = eachLine + addOns.length + (it.note ? 1 : 0)
     const h = IROW + subLineCount * SUBROW
     brk(h)
     page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 1.2 })
     text(trunc(`(${it.quantity}) ${it.name}`, font, 10.5, itemMaxW), LEFT + PADX, y - 14, 10.5, font, DARK)
-    // Item line total is the BASE price × qty; add-ons are their own priced sub-lines
-    // (add-ons are stored separately, never baked into price_per_unit).
-    textR(money(it.price * it.quantity), RIGHT - PADX, y - 14, 10.5, font, DARK)
+    // The item's FULL price: (base + Σ option price × option qty) × qty — the
+    // same figure the order subtotal is made of. This printed the base price
+    // alone and each option as price × its qty with no × item qty, so a second
+    // Burrito Box's $290 read as $0.00 plus $145 of options (#900000724).
+    const unit = it.price + addOns.reduce((t, a) => t + a.price * a.quantity, 0)
+    textR(money(unit * it.quantity), RIGHT - PADX, y - 14, 10.5, font, DARK)
     const bx = LEFT + PADX + 18
     let subY = y - 28
-    // Add-ons: indented "+ {name}" with the add-on price on the right (FM style).
+    if (eachLine) {
+      text('Each includes:', bx - 10, subY, 9, font, GREY)
+      subY -= SUBROW
+    }
+    // Options: "+ 4 × Carne Asada ($16.00 each)" — quantity and price, no
+    // right-hand amount (it is already inside the item's price).
     for (const a of addOns) {
-      const label = `${a.quantity > 1 ? `${a.quantity}× ` : ''}${a.name}`
+      const label = `${a.quantity} × ${a.name.trim()}${a.price ? ` (${money(a.price)} each)` : ''}`
       text('+', LEFT + PADX + 8, subY, 9, font, GREY)
-      text(trunc(label, font, 9, RIGHT - PADX - bx - 44), bx, subY, 9, font, GREY)
-      if (a.price) textR(money(a.price * a.quantity), RIGHT - PADX, subY, 9, font, GREY)
+      text(trunc(label, font, 9, RIGHT - PADX - bx), bx, subY, 9, font, GREY)
       subY -= SUBROW
     }
     // Item note: indented with a dash marker so it reads as a sub-line, not an item.

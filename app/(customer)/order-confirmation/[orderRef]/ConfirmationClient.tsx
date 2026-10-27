@@ -206,9 +206,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                   {items.map((item: any, i: number) => {
                     const name = item.name || item.mealPackageName || item.packageName || 'Item'
                     const quantity = Number(item.quantity ?? item.count) || 1
-                    const price = Number(item.price ?? item.pricePerUnit) || 0
-                    const lineTotal = Number(item.lineTotal) || price * quantity
+                    const base = Number(item.price ?? item.pricePerUnit) || 0
                     const addOns: any[] = item.addOns || item.orderAddOns || []
+                    // Full price per item, options included — an option's quantity is
+                    // PER ITEM, so options count once per item, not once per line.
+                    const price = base + addOns.reduce((t: number, a: any) => t + (Number(a.price) || 0) * (Number(a.quantity ?? a.count) || 1), 0)
+                    const lineTotal = price * quantity
                     return (
                       <div key={i} style={{ marginBottom: 10 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, fontSize: 14, color: DARK }}>
@@ -221,15 +224,18 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                           <span style={{ ...amountCol, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
                         </div>
                         {/* Indented "+" sub-lines — same convention as the PDF/email
-                            receipts, including a $0.00 add-on (the item's real price
-                            can live entirely on the add-on, e.g. order #900000086). */}
+                            receipts: per-item quantity and unit price, already inside
+                            the item's price (it can live entirely on the options,
+                            e.g. order #900000086, #900000724's Burrito Box). */}
+                        {addOns.length > 0 && quantity > 1 && (
+                          <div style={{ paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#727272' }}>Each includes:</div>
+                        )}
                         {addOns.map((a: any, j: number) => {
                           const aQty = Number(a.quantity ?? a.count) || 1
                           const aPrice = Number(a.price) || 0
                           return (
-                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#727272' }}>
-                              <span>+ ({aQty}) {a.name}</span>
-                              <span style={amountCol}>{fmt$(aQty * aPrice)}</span>
+                            <div key={j} style={{ paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#727272' }}>
+                              + {aQty} × {String(a.name ?? '').trim()}{aPrice ? ` (${fmt$(aPrice)} each)` : ''}
                             </div>
                           )
                         })}

@@ -82,12 +82,17 @@ export function modifierRowTotal(mod: OrderLineModifier): number {
   return (mod.price ?? 0) * modifierQty(mod)
 }
 
-/** Sum of base × qty + all modifier totals. Used when an aggregate
- *  is needed (e.g. cart subtotal). FM doesn't display this per-line on
- *  the order-detail screen, but it's the math that reconciles to the
- *  order subtotal. */
+/** The line's FULL price: (base + Σ modifier.price × modifier.count) × qty.
+ *  A modifier's count is PER ITEM (lib/pricing/cart.ts; every native order's
+ *  stored subtotal reconciles this way, as do FM orders since 2023), so the
+ *  modifiers are multiplied by the item quantity too. This is the figure every
+ *  Disco item list shows on the item row; modifiers are listed under it with
+ *  their per-item quantity and unit price, without a separate amount. The old
+ *  display (base × qty on the row, price × count on each modifier, no × qty)
+ *  showed #900000724's second Burrito Box at $145 of its $290. */
 export function lineGrandTotal(item: OrderLineItem): number {
-  return lineRowTotal(item) + lineModifiers(item).reduce((s, m) => s + modifierRowTotal(m), 0)
+  const unit = (item.price ?? 0) + lineModifiers(item).reduce((s, m) => s + modifierRowTotal(m), 0)
+  return unit * lineQty(item)
 }
 
 /** USD currency formatter. FM uses Angular's CurrencyPipe with the
