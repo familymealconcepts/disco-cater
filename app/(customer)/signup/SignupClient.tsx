@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuthContext } from '../../context/AuthContext'
 import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../lib/utils/email-format'
+import { suggestDinerEmail } from '../../../lib/diner-email-suggest'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -65,6 +66,15 @@ export default function SignupClient() {
   const [emailTouched, setEmailTouched] = useState(false)
   const emailMalformed = email.trim() !== '' && !isValidEmailFormat(email)
   const emailError = emailTouched && emailMalformed ? INVALID_EMAIL_MESSAGE : ''
+  // "Did you mean name@gmail.com?" for a misspelled big-provider domain, one tap to
+  // fix (lib/diner-email-suggest.ts). Fixes the confirmation field too when it
+  // holds the same misspelling. The server refuses a domain that can't receive mail.
+  const emailSuggestion = emailTouched ? suggestDinerEmail(email) : null
+  function useSuggestedEmail() {
+    if (!emailSuggestion) return
+    if (confirmEmail.trim().toLowerCase() === email.trim().toLowerCase()) setConfirmEmail(emailSuggestion)
+    setEmail(emailSuggestion)
+  }
 
   async function submit() {
     setError('')
@@ -119,6 +129,13 @@ export default function SignupClient() {
           </div>
           <Field label="Phone Number (optional)" value={phone} onChange={setPhone} name="signup-phone" type="tel" autoComplete="tel" placeholder="e.g. (555) 555-5555" />
           <Field label="Email" value={email} onChange={setEmail} name="signup-email" type="email" autoComplete="email" error={emailError} onBlurField={() => setEmailTouched(true)} />
+          {emailSuggestion && (
+            <div style={{ marginTop: -6, marginBottom: 12 }}>
+              <div role="status" style={{ fontSize: 12, color: '#727272', fontFamily: F, marginTop: 6 }}>
+                Did you mean <button type="button" onClick={useSuggestedEmail} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: BLUE, textDecoration: 'underline', cursor: 'pointer' }}>{emailSuggestion}</button>?
+              </div>
+            </div>
+          )}
           <Field label="Confirm Email" value={confirmEmail} onChange={setConfirmEmail} name="signup-confirm-email" type="email" autoComplete="email" />
           <Field label="Password" value={password} onChange={setPassword} name="signup-password" type="password" autoComplete="new-password" />
 

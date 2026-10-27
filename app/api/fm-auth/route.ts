@@ -11,6 +11,7 @@ import {
 } from '../../../lib/customer-auth'
 import { sendCustomerWelcome } from '../../../lib/email/notifications'
 import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../lib/utils/email-format'
+import { checkDinerEmailDomain } from '../../../lib/diner-email-domain'
 
 export const runtime = 'nodejs'
 
@@ -66,6 +67,10 @@ export async function POST(req: NextRequest) {
       if (!isValidEmailFormat(email)) {
         return NextResponse.json({ error: INVALID_EMAIL_MESSAGE }, { status: 400 })
       }
+      // A domain that can't receive mail is refused with the correction; a lookup
+      // error allows it (lib/diner-email-domain.ts).
+      const mailCheck = await checkDinerEmailDomain(email)
+      if (!mailCheck.ok) return NextResponse.json({ error: mailCheck.error, suggestion: mailCheck.suggestion }, { status: 400 })
       const existing = await getDiscoCustomer(email).catch(() => null)
       if (existing) {
         return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 })

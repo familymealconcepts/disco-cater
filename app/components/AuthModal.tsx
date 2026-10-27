@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
 import { sanitizePhone } from '../../lib/utils/phone'
 import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../lib/utils/email-format'
+import { suggestDinerEmail } from '../../lib/diner-email-suggest'
 import { staysPutAfterAuth } from '../../lib/utils/auth-landing'
 
 const F = "'DM Sans', sans-serif"
@@ -60,6 +61,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   const [signupFirst, setSignupFirst] = useState('')
   const [signupLast, setSignupLast] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
+  const [signupEmailTouched, setSignupEmailTouched] = useState(false)
   const [signupPhone, setSignupPhone] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
   const [signupShowPw, setSignupShowPw] = useState(false)
@@ -93,7 +95,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   function handleClose() {
     setLoginError('')
     setLoginEmail(''); setLoginPassword('')
-    setSignupError(''); setSignupFirst(''); setSignupLast(''); setSignupEmail(''); setSignupPhone(''); setSignupPassword('')
+    setSignupError(''); setSignupFirst(''); setSignupLast(''); setSignupEmail(''); setSignupEmailTouched(false); setSignupPhone(''); setSignupPassword('')
     setMode('login')
     setForgotEmail(''); setForgotError(''); setForgotSent(false); setForgotLoading(false)
     onClose()
@@ -364,10 +366,17 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                 name="signup-email"
                 value={signupEmail}
                 onChange={e => setSignupEmail(e.target.value)}
+                onBlur={() => setSignupEmailTouched(true)}
                 placeholder="you@company.com"
                 autoComplete="email"
                 style={inputStyle}
               />
+              {/* "Did you mean name@gmail.com?" — one tap fixes it (lib/diner-email-suggest.ts). */}
+              {signupEmailTouched && suggestDinerEmail(signupEmail) && (
+                <div role="status" style={{ fontSize: 12, color: '#727272', fontFamily: F, marginTop: 6 }}>
+                Did you mean <button type="button" onClick={() => setSignupEmail(suggestDinerEmail(signupEmail) || signupEmail)} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: BLUE, textDecoration: 'underline', cursor: 'pointer' }}>{suggestDinerEmail(signupEmail)}</button>?
+              </div>
+              )}
             </div>
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Phone</label>

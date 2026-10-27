@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/customer-auth'
 import { sendCustomerWelcome } from '../../../../lib/email/notifications'
 import { isValidEmailFormat, INVALID_EMAIL_MESSAGE } from '../../../../lib/utils/email-format'
+import { checkDinerEmailDomain } from '../../../../lib/diner-email-domain'
 
 export const runtime = 'nodejs'
 
@@ -33,6 +34,10 @@ export async function POST(req: NextRequest) {
     if (!isValidEmailFormat(email)) {
       return NextResponse.json({ error: INVALID_EMAIL_MESSAGE }, { status: 400 })
     }
+    // A domain that can't receive mail (gmail.vom) is refused with the correction;
+    // a lookup error allows it (lib/diner-email-domain.ts).
+    const mailCheck = await checkDinerEmailDomain(email)
+    if (!mailCheck.ok) return NextResponse.json({ error: mailCheck.error, suggestion: mailCheck.suggestion }, { status: 400 })
 
     try { await runDiscoOrderMigrations() } catch (e) { console.error('[signup] migration warning:', e instanceof Error ? e.message : e) }
 

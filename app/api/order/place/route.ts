@@ -22,6 +22,7 @@ import { alertPaidOrderMissing } from '../../../../lib/order/missing-order-alert
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
 import { stampCheckoutContactOrderPlaced } from '../../../../lib/checkout-contacts'
 import { ACQUISITION_COOKIE, parseAcquisitionCookie, recordOrderAcquisition, checkoutPagePath, sourceForCheckoutPage, recordCheckoutPath } from '../../../../lib/attribution'
+import { checkDinerEmailDomain } from '../../../../lib/diner-email-domain'
 
 export const runtime = 'nodejs'
 
@@ -311,6 +312,20 @@ async function mirrorOrderToNeon(args: {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+
+    // ── A DINER EMAIL THAT CAN'T RECEIVE MAIL IS REFUSED (lib/diner-email-domain.ts)
+    // The email typed at checkout, unless it is the signed-in diner's own account
+    // email (existing accounts are left as they are). Fails open on a lookup error.
+    {
+      const typed = String(body?.customer?.email ?? '').trim()
+      if (typed) {
+        const signedIn = await getCustomerSession(req).catch(() => null)
+        if (!signedIn?.email || signedIn.email.toLowerCase() !== typed.toLowerCase()) {
+          const check = await checkDinerEmailDomain(typed)
+          if (!check.ok) return NextResponse.json({ error: check.error, suggestion: check.suggestion }, { status: 400 })
+        }
+      }
+    }
 
     // ── 1P vs 3P FROM THE CHECKOUT PAGE (lib/attribution.ts) ────────────────
     // Decided here, before either branch, so the Disco-native placement, what

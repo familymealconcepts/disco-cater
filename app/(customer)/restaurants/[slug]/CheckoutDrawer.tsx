@@ -13,7 +13,7 @@ import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage, postCheckoutContact } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
-import { suggestEmailCorrection } from '../../../../lib/email-typo'
+import { suggestDinerEmail } from '../../../../lib/diner-email-suggest'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -264,10 +264,11 @@ export default function CheckoutDrawer({
   const [contactFirst, setContactFirst] = useState('')
   const [contactLast, setContactLast] = useState('')
   const [contactEmail, setContactEmail] = useState('')
-  // "Did you mean ...?" for a known domain typo (lib/email-typo.ts, Kevin 2026-10-23). Shown once the
-  // field has been left, so it does not flicker while typing. WARN ONLY: it never blocks placing the order.
+  // "Did you mean ...?" for a misspelled big-provider domain (lib/diner-email-suggest.ts). Shown once
+  // the field has been left, so it does not flicker while typing. The hint itself never blocks; the
+  // server refuses only a domain that can't receive mail (lib/diner-email-domain.ts).
   const [emailTouched, setEmailTouched] = useState(false)
-  const emailSuggestion = useMemo(() => suggestEmailCorrection(contactEmail), [contactEmail])
+  const emailSuggestion = useMemo(() => suggestDinerEmail(contactEmail), [contactEmail])
   const [contactPhone, setContactPhone] = useState('')
   // Optional company name — Disco-only (never sent to FM). Pre-filled from the
   // customer's saved profile when logged in; editable here.
