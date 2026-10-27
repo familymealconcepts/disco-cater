@@ -62,6 +62,17 @@ interface ActiveLineAddOn { name: string; price: number; count?: number; quantit
 interface ActiveLine {
   reference: string; name: string; price: number; quantity: number; serves?: string | number | null
   addOns?: ActiveLineAddOn[]
+  /** Per-item Special Instructions → disco_order_items.notes. */
+  note?: string
+}
+
+// Per-item Special Instructions on an edited line. Every save deletes and
+// re-inserts disco_order_items, so a line that arrives without its note loses
+// it — including one the customer left at checkout (5b6de13 started storing
+// them; this route's replace never carried them).
+function lineNote(l: { note?: unknown }): string | null {
+  const t = typeof l.note === 'string' ? l.note.trim() : ''
+  return t || null
 }
 
 // Live by default. `testMode` (SUPER_ADMIN E2E only — see POST) swaps in the
@@ -337,7 +348,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
   const orderNumber = String(base.orderNumber || discoOrder?.order_number || '')
   const newEditNumber = editCount + 1
-  const newItems: EditItem[] = activeLines.map(l => ({ count: l.quantity, name: l.name, price: l.price }))
+  const newItems: EditItem[] = activeLines.map(l => ({ count: l.quantity, name: l.name, price: l.price, ...(lineNote(l) ? { comment: lineNote(l)! } : {}) }))
   const origItems: FmOrderItem[] = base.items
   const NO_DELTA = Math.abs(delta) < 0.01
 
@@ -394,9 +405,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     for (const l of activeLines) {
       const unit = Number(l.price) || 0
       stmts.push(sql`
-        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, serves)
+        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, serves, notes)
         VALUES (${discoOrder.id}, ${l.reference || null}, ${l.name}, ${Math.max(1, Math.trunc(Number(l.quantity) || 1))},
-                ${unit}, ${round2(unit * (Number(l.quantity) || 0))}, ${servesToInt(l.serves)})
+                ${unit}, ${round2(unit * (Number(l.quantity) || 0))}, ${servesToInt(l.serves)}, ${lineNote(l)})
       `)
     }
     await sql.transaction(stmts).catch(e => console.error('[orders/edit] items replace failed:', e))
@@ -639,7 +650,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
     const pending = {
       fmRef: ref, restaurantRef, orderType: base.orderType,
-      activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity, name: l.name, price: l.price })),
+      activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity, name: l.name, price: l.price, note: lineNote(l) ?? undefined })),
       orderDateIso: effDate, orderTime: effTime, tips: base.tipsRaw, tipsType: base.tipsType,
       newItems, newTotal, delta, editNumber: newEditNumber, editorEmail,
       origItems, origTotal: base.total, origDateIso: base.orderDateIso, origTime: base.orderTime,

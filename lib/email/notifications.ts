@@ -807,11 +807,11 @@ ${context}
 
 // ── Order editing (Disco-native edit flow) ───────────────────────────────────
 
-export interface EditItem { count: number; name: string; price: number }
+export interface EditItem { count: number; name: string; price: number; comment?: string }
 
 // "(qty) name — $total" rows for an edit's new item list.
 function renderEditItems(items: EditItem[]): string {
-  return renderLineItems((items || []).map(i => ({ count: i.count, name: i.name, price: i.price })))
+  return renderLineItems((items || []).map(i => ({ count: i.count, name: i.name, price: i.price, comment: i.comment || undefined })))
 }
 
 // One-line payment summary for an edit's delta.

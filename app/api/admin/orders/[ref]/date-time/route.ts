@@ -34,7 +34,7 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
     if (!o) return
 
     const lines = await loadOrderItemsWithAddOns(o.id).catch(() => [])
-    const items = lines.map(l => ({ count: l.quantity, name: l.name, price: l.pricePerUnit }))
+    const items = lines.map(l => ({ count: l.quantity, name: l.name, price: l.pricePerUnit, ...(l.notes ? { comment: l.notes } : {}) }))
     const dateStr = fmtDateHuman(orderDate)
     const timeStr = fmtTimeHuman(orderTime)
 

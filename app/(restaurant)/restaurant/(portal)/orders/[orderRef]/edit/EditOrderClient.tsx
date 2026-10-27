@@ -639,6 +639,10 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
           activeLines: activeLines.map(l => ({
             reference: l.reference, name: l.name, price: l.price, quantity: l.quantity, serves: l.serves ?? null,
             addOns: l.addOns.length ? l.addOns.map(a => ({ name: a.name, price: a.price, quantity: a.count })) : undefined,
+            // Per-item Special Instructions — both a note typed in this edit and
+            // one the customer left at checkout (loaded onto the line from the
+            // order's `comment`). Omitted, the server's item replace erased it.
+            note: l.note || undefined,
           })),
           orderDate: toIsoDateInput(orderDate),
           orderTime,
