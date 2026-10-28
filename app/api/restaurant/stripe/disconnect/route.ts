@@ -49,7 +49,24 @@ export async function DELETE(req: NextRequest) {
     }
   }
 
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE RESTAURANT, NOT ON HOW THE CALLER SIGNED IN (28 Oct 2026) — the
+  // same fix as stripe/connect. Branching on ctx.authType sent anyone on a
+  // FamilyMeal password (owners without a Disco password, our team on the master
+  // password) to FamilyMeal's disconnect even for a Disco location, whose
+  // connection FamilyMeal does not hold. A failed lookup fails here rather than
+  // reading as "not native" and reaching FamilyMeal.
+  let isNative: boolean
+  try {
+    const nativeRows = (await sql`
+      SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} AND is_disco_native = true LIMIT 1
+    `) as unknown[]
+    isNative = nativeRows.length > 0
+  } catch (e) {
+    console.error('[stripe/disconnect] native lookup failed:', ref, e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Unable to disconnect Stripe' }, { status: 500 })
+  }
+
+  if (isNative) {
     await runMigrations()
     await auditDisconnect()
     await sql`UPDATE disco_restaurant_overrides SET stripe_account_id = NULL, updated_at = NOW() WHERE restaurant_reference = ${ref}`
