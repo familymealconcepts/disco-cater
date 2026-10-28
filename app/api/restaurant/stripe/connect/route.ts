@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { createConnectAccount, createAccountLink } from '../../../../../lib/stripe-connect'
 import { sql, runMigrations } from '../../../../../lib/db'
@@ -21,8 +20,29 @@ export async function POST(req: NextRequest) {
   // Disco-native: start Stripe Connect onboarding via Disco's own Stripe. Reuses
   // the location's connected account if one exists, else creates it. Returns the
   // hosted onboarding link (stripeConnectUrl) the banking page redirects to.
-  const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  //
+  // KEYED ON THE RESTAURANT, NOT ON HOW THE CALLER SIGNED IN (28 Oct 2026). This
+  // used to branch on ctx.authType === 'disco', so anyone signed in with their
+  // FamilyMeal password — every owner without a Disco password, and our team on
+  // the master password — was sent through FamilyMeal's connect endpoint with a
+  // familymeal.com callback, even for a Disco location. Alex Karana (Stacks &
+  // Cordials, FM-password login) clicked Connect twice and landed on FamilyMeal.
+  // stripe-status already asks "is this restaurant native?"; this now asks the
+  // same question, so status and action can't disagree.
+  //
+  // Not the swallowing isDiscoNativeRestaurant(): a lookup failure there reads as
+  // "not native" and would route a Disco location to FamilyMeal. Here it fails.
+  let isNative: boolean
+  try {
+    const nativeRows = (await sql`
+      SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} AND is_disco_native = true LIMIT 1
+    `) as unknown[]
+    isNative = nativeRows.length > 0
+  } catch (e) {
+    console.error('[stripe/connect] native lookup failed:', ref, e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Unable to connect Stripe' }, { status: 500 })
+  }
+  if (isNative) {
     if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ error: 'Payments are not configured.' }, { status: 500 })
     try {
       await runMigrations()
