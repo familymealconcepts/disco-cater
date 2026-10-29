@@ -49,6 +49,12 @@ function fmtDate(v: unknown): string {
 const fmtTime = (t: string): string => formatTime12(t)
 
 export interface OrderPdfData {
+  /**
+   * A note printed in a highlighted box at the very top, for a one-off resend
+   * (e.g. "Third-party delivery: a courier will pick up from the Commissary.").
+   * Never stored and never set by the normal order emails.
+   */
+  notice?: string
   orderNumber: string
   reference: string
   restaurantName: string
@@ -321,6 +327,9 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
     y -= 32
   }
 
+  // ── A resend's note, above everything else ──
+  if (d.notice) fullBox([{ t: d.notice, b: true, s: 11 }], rgb(1, 0.95, 0.8))
+
   // ── Subject box + "Received on" ──
   const custName = (d.customerName && d.customerName !== '—') ? d.customerName : ''
   // Net of any refund, for the same reason the Total row below is — and to stay
@@ -466,7 +475,11 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 }
 
 // Convenience: load + render by reference. Returns null when the order isn't found.
-export async function buildOrderPdfByReference(orderRef: string): Promise<Uint8Array | null> {
+export async function buildOrderPdfByReference(orderRef: string, opts?: { notice?: string }): Promise<Uint8Array | null> {
+  if (opts?.notice) {
+    const data = await loadOrderPdfData(orderRef)
+    return data ? renderOrderPdf({ ...data, notice: opts.notice }) : null
+  }
   const built = await buildOrderPdfWithNamingByReference(orderRef)
   return built ? built.pdf : null
 }

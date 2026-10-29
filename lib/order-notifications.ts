@@ -404,7 +404,7 @@ function track(kind: DispatchOutcome['kind'], to: string, p: Promise<{ success: 
 export async function dispatchOrderConfirmations(
   orderId: number,
   source: string = 'STRIPE_WEBHOOK',
-  opts?: { force?: boolean; customerOnly?: boolean; resendTo?: { kind: 'customer' | 'restaurant'; to: string } },
+  opts?: { force?: boolean; customerOnly?: boolean; resendTo?: { kind: 'customer' | 'restaurant'; to: string; pdfNotice?: string } },
 ): Promise<void> {
   // Declared OUTSIDE the try so the finally below can always drain it. If the
   // body throws after a send has been started, that send is still in flight and
@@ -586,7 +586,8 @@ export async function dispatchOrderConfirmations(
     let pdfAttachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
     if (reference) {
       try {
-        const pdf = await buildOrderPdfByReference(reference)
+        // A resend may carry a one-off note at the top of its PDF.
+        const pdf = await buildOrderPdfByReference(reference, opts?.resendTo?.pdfNotice ? { notice: opts.resendTo.pdfNotice } : undefined)
         // Same helper the PDF route uses, so the attachment and a
         // browser-saved copy are named identically. Previously
         // `disco-cater-order-<number>.pdf`, which omitted the restaurant name —
