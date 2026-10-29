@@ -8,6 +8,7 @@ import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
 import { cancelCourierAndReport } from '../../../../lib/order/courier-sync'
 import { recordTransferReversed } from '../../../../lib/order/transfer-reversals'
+import { refreshStripeFactsForEvent } from '../../../../lib/order/stripe-facts'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -658,6 +659,11 @@ export async function POST(request: NextRequest) {
         break
       }
 
+      // ── charge.updated — only for the reports' Stripe facts (below): Stripe
+      // sends it when it attaches the charge's fee after the payment.
+      case 'charge.updated':
+        break
+
       default:
         console.log('[Webhook] Unhandled event:', event.type)
     }
@@ -674,6 +680,12 @@ export async function POST(request: NextRequest) {
       )
     }
   }
+
+  // ── THE REPORTS' STRIPE FACTS (Peter, 2026-10-29) ─────────────────────────
+  // After the event is handled (so its payment rows exist), refresh what Stripe
+  // actually did with the order's money: lib/order/stripe-facts.ts. In the
+  // background and never fatal — it cannot delay or fail the ack.
+  waitUntil(refreshStripeFactsForEvent(stripe, event))
 
   // Always 200 for verified events (including unhandled types and internal
   // errors) so Stripe does not retry indefinitely.

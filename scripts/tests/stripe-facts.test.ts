@@ -99,7 +99,17 @@ check('FamilyMeal-copied rows keep FM\'s formula and get no label', () => {
 const facts = read('lib/order/stripe-facts.ts')
 check('the facts sync never reads FamilyMeal-copied orders', () => {
   ok(/WHERE o\.reference = \$\{orderReference\}::uuid AND o\.fm_order_reference IS NULL/.test(facts), 'collect')
-  ok(/WHERE o\.fm_order_reference IS NULL AND o\.is_deleted = false/.test(facts), 'due list')
+  eq((facts.match(/WHERE o\.fm_order_reference IS NULL AND \(/g) ?? []).length, 2, 'payment-intent and invoice lookups')
+})
+check('refreshed by the webhook after each event is handled, never on a schedule', () => {
+  const wh = read('app/api/stripe/webhook/route.ts')
+  const at = wh.indexOf('waitUntil(refreshStripeFactsForEvent(stripe, event))')
+  ok(at > wh.indexOf("console.log('[Webhook] Unhandled event:'"), 'after the switch')
+  ok(!read('vercel.json').includes('stripe-facts') && !read('vercel.json').includes('stripe-fee-trueup'), 'no cron')
+})
+check('every event that moves an order\'s money refreshes it', () => {
+  for (const e of ['payment_intent.succeeded', 'charge.refunded', 'charge.updated', 'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed'])
+    ok(facts.includes(`'${e}'`), e)
 })
 check('refund-fee recoveries are not counted twice in the payout', () => ok(facts.includes("r.metadata?.kind !== REFUND_FEE_KIND"), 'excluded from facts'))
 const tu = read('lib/order/stripe-fee-trueup.ts')

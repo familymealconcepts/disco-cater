@@ -13,8 +13,8 @@
 // Decision 3: and Stripe's actual fee.
 //
 // Scheduled reports and exports read Neon, so this copies Stripe's facts for each
-// DISCO-PROCESSED order into disco_order_stripe_facts (migration 011). Read-only
-// against Stripe. FamilyMeal-copied orders are never synced — Peter: nothing
+// DISCO-PROCESSED order into disco_order_stripe_facts (migration 011), refreshed
+// by Stripe's webhook (below). Read-only against Stripe. FamilyMeal-copied orders are never synced — Peter: nothing
 // involving FamilyMeal-copied orders.
 //
 // Where the money is found (each verified in the audit):
@@ -169,28 +169,112 @@ export async function syncOrderStripeFacts(stripe: Stripe, orderReference: strin
   return true
 }
 
-/**
- * Which Disco-processed orders to (re)sync this run, most urgent first:
- *   1. never synced (the backfill, then each new order);
- *   2. something happened since the last sync — an order update or any event
- *      (a refund, a Stripe webhook, a transfer reversal, a fee true-up);
- *   3. a periodic refresh of the last 60 days, so a change Stripe never told
- *      Disco about (e.g. a dashboard refund with no webhook) still lands.
- */
-export async function ordersDueForStripeSync(limit: number): Promise<string[]> {
-  const rows = (await sql`
-    SELECT o.reference::text AS ref
-      FROM disco_orders o
-      LEFT JOIN disco_order_stripe_facts f ON f.order_reference = o.reference::text
-     WHERE o.fm_order_reference IS NULL AND o.is_deleted = false
-       AND (f.order_reference IS NULL
-            OR o.updated_at > f.synced_at
-            OR EXISTS (SELECT 1 FROM disco_order_events e WHERE e.order_reference = o.reference AND e.created_at > f.synced_at)
-            OR (o.order_date >= CURRENT_DATE - 60 AND f.synced_at < NOW() - INTERVAL '6 hours'))
-     ORDER BY (f.order_reference IS NULL) DESC, f.synced_at ASC NULLS FIRST, o.created_at DESC
-     LIMIT ${limit}
+// ── WHEN THE FACTS ARE REFRESHED (Peter, 2026-10-29) ─────────────────────────
+// From Stripe's webhook, never on a schedule: each event that can change an
+// order's money refreshes that order (refreshStripeFactsForEvent, called by
+// app/api/stripe/webhook/route.ts). Existing orders were filled once by
+// scripts/backfill-stripe-facts.ts.
+//
+// Events and what they change:
+//   payment_intent.succeeded           a charge (and, usually, its fee)
+//   charge.refunded                    a refund — made anywhere, Stripe dashboard included
+//   charge.updated                     the fee, when Stripe attaches it after the charge
+//   invoice.paid / payment_succeeded   an invoice payment and its payout
+//   transfer.reversed                  a payout taken back
+// FamilyMeal's payments reach the same endpoint (one platform account) and
+// match no Disco-processed order, so they are skipped.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function ordersForPaymentIntent(pi: string): Promise<string[]> {
+  const r = (await sql`
+    SELECT DISTINCT o.reference::text AS ref FROM disco_orders o
+     WHERE o.fm_order_reference IS NULL AND (
+           EXISTS (SELECT 1 FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.stripe_payment_intent_id = ${pi})
+        OR EXISTS (SELECT 1 FROM disco_sale_transactions t WHERE t.order_id = o.id AND t.stripe_payment_intent_id = ${pi})
+        OR EXISTS (SELECT 1 FROM disco_order_edits e WHERE e.fm_order_reference = o.reference AND e.stripe_payment_intent_id = ${pi}))
   `) as { ref: string }[]
-  return rows.map(r => r.ref)
+  return r.map(x => x.ref)
+}
+
+async function ordersForInvoice(inv: string): Promise<string[]> {
+  const r = (await sql`
+    SELECT DISTINCT o.reference::text AS ref FROM disco_orders o
+     WHERE o.fm_order_reference IS NULL AND (
+           o.stripe_invoice_id = ${inv} OR o.pending_stripe_invoice_id = ${inv}
+        OR EXISTS (SELECT 1 FROM disco_sale_transactions t WHERE t.order_id = o.id AND t.stripe_invoice_id = ${inv})
+        OR EXISTS (SELECT 1 FROM disco_order_edits e WHERE e.fm_order_reference = o.reference AND e.stripe_invoice_id = ${inv}))
+  `) as { ref: string }[]
+  return r.map(x => x.ref)
+}
+
+async function discoOrderExists(ref: string): Promise<boolean> {
+  if (!UUID_RE.test(ref)) return false
+  const r = (await sql`SELECT 1 FROM disco_orders WHERE reference = ${ref}::uuid AND fm_order_reference IS NULL LIMIT 1`) as unknown[]
+  return r.length > 0
+}
+
+/** The Disco-processed orders a Stripe event's money belongs to. Empty for anything else. */
+export async function ordersForStripeEvent(stripe: Stripe, event: Stripe.Event): Promise<string[]> {
+  const out = new Set<string>()
+  const obj = event.data.object as unknown as Record<string, unknown>
+  const metaRef = String((obj.metadata as Record<string, string> | undefined)?.orderReference ?? '')
+  if (metaRef && await discoOrderExists(metaRef)) out.add(metaRef.toLowerCase())
+  switch (event.type) {
+    case 'payment_intent.succeeded':
+      for (const r of await ordersForPaymentIntent(String(obj.id))) out.add(r)
+      break
+    case 'charge.refunded':
+    case 'charge.updated': {
+      const pi = idOf(obj.payment_intent)
+      if (pi) for (const r of await ordersForPaymentIntent(pi)) out.add(r)
+      const inv = idOf(obj.invoice)
+      if (inv) for (const r of await ordersForInvoice(inv)) out.add(r)
+      break
+    }
+    case 'invoice.paid':
+    case 'invoice.payment_succeeded':
+      for (const r of await ordersForInvoice(String(obj.id))) out.add(r)
+      break
+    case 'transfer.reversed': {
+      const { resolveTransferOrder } = await import('./transfer-reversals')
+      const direct = await resolveTransferOrder(String(obj.id), (obj.transfer_group as string | null) ?? null)
+      if (direct && await discoOrderExists(direct)) out.add(direct)
+      // A checkout payout's id is not stored: find it through the charge that funded it.
+      const src = idOf(obj.source_transaction)
+      if (src?.startsWith('ch_')) {
+        const ch = await stripe.charges.retrieve(src).catch(() => null)
+        const pi = idOf(ch?.payment_intent)
+        if (pi) for (const r of await ordersForPaymentIntent(pi)) out.add(r)
+      }
+      // A reversal made for another order (a refund's fee) is that order's too.
+      const revs = ((obj.reversals as { data?: Array<{ metadata?: Record<string, string> }> } | undefined)?.data) ?? []
+      for (const rv of revs) {
+        const ref = rv.metadata?.orderReference
+        if (ref && await discoOrderExists(ref)) out.add(ref.toLowerCase())
+      }
+      break
+    }
+  }
+  return [...out]
+}
+
+export const STRIPE_FACTS_EVENTS = new Set([
+  'payment_intent.succeeded', 'charge.refunded', 'charge.updated',
+  'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed',
+])
+
+/** Webhook entry point. Refreshes every order the event touches. Never throws. */
+export async function refreshStripeFactsForEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
+  if (!STRIPE_FACTS_EVENTS.has(event.type)) return
+  try {
+    for (const ref of await ordersForStripeEvent(stripe, event)) {
+      await syncOrderStripeFacts(stripe, ref).catch(e =>
+        console.error('[stripe-facts] refresh failed (non-fatal):', ref, event.type, e instanceof Error ? e.message : e))
+    }
+  } catch (e) {
+    console.error('[stripe-facts] could not resolve the order for', event.type, event.id, '(non-fatal):', e instanceof Error ? e.message : e)
+  }
 }
 
 // ── PAYMENT STATUS, IN WORDS (decision 1) ────────────────────────────────────
