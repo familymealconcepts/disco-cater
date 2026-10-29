@@ -2,7 +2,7 @@
 // 009_disco_money_failures.sql). Run: npx tsx scripts/tests/money-failures.test.ts
 //
 //   1. Stripe's error is stored as its message, at most 300 characters.
-//   2. Source guards: each of the five refund alerts in native-refund.ts is preceded by a
+//   2. Source guards: each of the six refund alerts in native-refund.ts is preceded by a
 //      recordMoneyFailure of the right kind, every refundNativeOrder caller says which it is, and the
 //      table's CHECKs match what the code writes. Each control-tested against a doctored copy.
 import { readFileSync } from 'node:fs'
@@ -28,7 +28,7 @@ const SRC = read('lib/order/native-refund.ts')
 const pairs: Array<[string, string, number]> = [
   ['alertRefundRefused(', "kind: 'refund_refused'", 1],
   ['alertRefundFromDiscoFunds(', "kind: 'refund_from_disco_funds'", 1],
-  ['alertRestaurantKeptPayout(', "kind: 'payout_not_reversed'", 2],
+  ['alertRestaurantKeptPayout(', "kind: 'payout_not_reversed'", 3],
 ]
 function recordedBeforeEachAlert(s: string): string | null {
   for (const [alert, kind, expected] of pairs) {
@@ -44,13 +44,13 @@ function recordedBeforeEachAlert(s: string): string | null {
   }
   return null
 }
-check('each of the five refund alerts is recorded first, with the matching kind', () => { const why = recordedBeforeEachAlert(SRC); ok(!why, why ?? '') })
+check('each of the six refund alerts is recorded first, with the matching kind', () => { const why = recordedBeforeEachAlert(SRC); ok(!why, why ?? '') })
 check('  control: dropping one record fails', () => {
   const doctored = SRC.replace("kind: 'payout_not_reversed', via, orderReference, refundAmount: amountDollars,", "via, orderReference, refundAmount: amountDollars,")
   ok(doctored !== SRC && recordedBeforeEachAlert(doctored), 'vacuous')
 })
-check('via reaches both reversal checks and the invoice path', () => {
-  ok((SRC.match(/refundAmount: `\$\$\{[^}]+\}`, via,/g) ?? []).length === 2, 'assertReversalIsFunded ctx carries via twice')
+check('via reaches all three reversal checks and the invoice path', () => {
+  ok((SRC.match(/refundAmount: `\$\$\{[^}]+\}`, via,/g) ?? []).length === 3, 'assertReversalIsFunded ctx carries via three times')
   ok(/refundNativeInvoiceOrder\(stripe, orderReference, amountDollars, via\)/.test(SRC), 'invoice path gets via')
 })
 const callers: Array<[string, string]> = [
