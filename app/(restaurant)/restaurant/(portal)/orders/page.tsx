@@ -79,6 +79,9 @@ interface Order {
   maxAllowedRefundAmount?: number
   /** What order edits refunded (inside both the lowered total and `refund`). */
   editRefunded?: number
+  /** Stripe fee on this order's refunds, taken from the restaurant's payouts / still to be taken. */
+  refundStripeFee?: number
+  refundStripeFeePending?: number
   // True only when a SUCCEEDED PaymentIntent exists for this order — see the orders
   // API. Distinguishes "cancelled and the customer is still holding a charge" from
   // "cancelled and nothing was ever taken".
@@ -957,6 +960,9 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             <DetailRow label="Date" value={fmtDate(order.orderDate)} />
             <DetailRow label="Time" value={fmtTime(order.orderTime)} />
             {(order.refund ?? 0) > 0 && <DetailRow label="Refund Amount" value={`-${fmt(order.refund ?? 0)}`} valueColor="#E53935" />}
+            {/* The restaurant bears the Stripe fee on a refund (lib/order/refund-stripe-fee.ts). */}
+            {(order.refundStripeFee ?? 0) > 0 && <DetailRow label="Stripe fee on refund (from your payout)" value={`-${fmt(order.refundStripeFee ?? 0)}`} valueColor="#E53935" />}
+            {(order.refundStripeFeePending ?? 0) > 0 && <DetailRow label="Stripe fee on refund (to be deducted)" value={`-${fmt(order.refundStripeFeePending ?? 0)}`} valueColor="#B26A00" />}
             {order.persons != null && <DetailRow label="Headcount" value={String(order.persons)} />}
             {order.orderCreatedDate && <DetailRow label="Order Placed" value={fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || order.restaurant?.timezone || undefined)} />}
             {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}

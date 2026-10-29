@@ -6,6 +6,7 @@ const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDE
 import { cents } from '../promo-pricing'
 import { alertRefundRefused, alertRefundFromDiscoFunds, alertRestaurantKeptPayout } from './money-alerts'
 import { recordMoneyFailure, type RefundVia } from './money-failures'
+import { recoverRefundStripeFee } from './refund-stripe-fee'
 
 // Issue a REAL Stripe refund for a Disco-native order against its original
 // PaymentIntent (from disco_stripe_payments). For a destination charge
@@ -276,6 +277,12 @@ async function refundNativeInvoiceOrder(
     await alertRefundFromDiscoFunds(orderReference, { refund: apply / 100, invoiceId })
   }
 
+  // The invoice's charge, read before the credit note, for the Stripe fee the
+  // restaurant bears on this refund (recovered after the credit note below).
+  const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
+  const invChargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
+  const invChargeBefore = invChargeId ? await stripe.charges.retrieve(invChargeId).catch(() => null) : null
+
   const creditNote = await stripe.creditNotes.create({
     invoice: invoiceId,
     amount: apply,
@@ -314,6 +321,13 @@ async function refundNativeInvoiceOrder(
   const pick = (v: string | { id?: string } | null | undefined) => (typeof v === 'string' ? v : v?.id)
   const refundId = pick(fromArray) || pick(fromFlat)
   const pi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+  if (invChargeBefore && refundId) {
+    const destTransfer = typeof invChargeBefore.transfer === 'string' ? invChargeBefore.transfer : invChargeBefore.transfer?.id ?? null
+    await recoverRefundStripeFee({
+      stripe, orderReference, chargeId: invChargeBefore.id, refundId, refundCents: apply,
+      refundedBeforeCents: invChargeBefore.amount_refunded ?? 0, ownTransferId: transferId || destTransfer, via,
+    })
+  }
   if (extraSlices.length) await executeRefundSlices(stripe, orderReference, extraSlices, via)
   return {
     refundId: refundId || creditNote.id,
@@ -341,6 +355,10 @@ interface RefundSlice {
   amount: number               // cents refunded from this payment
   reverseTransfer: boolean     // destination charge → Stripe reverses in the same call
   separate: { transferId: string; share: number } | null
+  // For the Stripe fee the restaurant bears on a refund (lib/order/refund-stripe-fee.ts).
+  chargeId: string
+  refundedBefore: number       // cents already refunded on this charge
+  ownTransferId: string | null // the transfer that paid this payment out; null = withheld
 }
 
 async function planRefundSlices(
@@ -394,7 +412,12 @@ async function planRefundSlices(
         separate = { transferId: separateId, share }
       }
     }
-    slices.push({ paymentIntentId: r.stripe_payment_intent_id, amount: take, reverseTransfer: hasTransfer, separate })
+    const destTransfer = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null
+    slices.push({
+      paymentIntentId: r.stripe_payment_intent_id, amount: take, reverseTransfer: hasTransfer, separate,
+      chargeId, refundedBefore: charge.amount_refunded ?? 0,
+      ownTransferId: hasTransfer ? destTransfer : (separateId ?? null),
+    })
     left -= take
   }
   if (left > 0) {
@@ -431,6 +454,12 @@ async function executeRefundSlices(
         await alertRestaurantKeptPayout(orderReference, { refund: s.amount / 100, transferId: s.separate.transferId, error: e })
       }
     }
+    // The restaurant bears the refunded share of the Stripe fee. After the
+    // customer's refund, never blocks or undoes it.
+    await recoverRefundStripeFee({
+      stripe, orderReference, chargeId: s.chargeId, refundId: refund.id, refundCents: s.amount,
+      refundedBeforeCents: s.refundedBefore, ownTransferId: s.ownTransferId, via,
+    })
     first ??= { refundId: refund.id, status: refund.status || 'unknown', paymentIntentId: s.paymentIntentId }
   }
   if (!first) throw new Error('Nothing to refund.')
@@ -498,9 +527,9 @@ export async function refundNativeOrder(
   // both halves in one call and fails the refund itself if the reversal cannot
   // be funded, which already leaves nothing moved.
   let exactReversal: { transferId: string; amount: number } | null = null
+  const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
+  const charge = chargeId ? await stripe.charges.retrieve(chargeId) : null
   if (useExactReversal && transferReversalDollars > 0) {
-    const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
-    const charge = chargeId ? await stripe.charges.retrieve(chargeId) : null
     const transferId = charge ? (typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id) : undefined
     if (!transferId) {
       throw new Error('The original payout transfer for this order could not be found, so the restaurant\'s share of this refund cannot be taken back. No money has moved.')
@@ -533,6 +562,17 @@ export async function refundNativeOrder(
       })
       await alertRestaurantKeptPayout(orderReference, { refund: amountDollars, transferId: exactReversal.transferId, error: e })
     }
+  }
+
+  // The restaurant bears the refunded share of the Stripe fee (an edit's
+  // transfer delta re-prices Disco's ESTIMATE of the fee, which Stripe never
+  // actually returns). Withheld payouts have no transfer and are skipped.
+  if (charge && hasTransfer) {
+    await recoverRefundStripeFee({
+      stripe, orderReference, chargeId: charge.id, refundId: refund.id, refundCents: cents(amountDollars),
+      refundedBeforeCents: charge.amount_refunded ?? 0,
+      ownTransferId: typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null, via,
+    })
   }
 
   return { refundId: refund.id, status: refund.status || 'unknown', paymentIntentId }

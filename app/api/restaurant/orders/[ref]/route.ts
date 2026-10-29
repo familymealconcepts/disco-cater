@@ -6,6 +6,7 @@ import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/orde
 import { displayEmail } from '../../../../../lib/customer-email-guard'
 import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../lib/order-items'
 import { editRefundedFor, refundableAmount } from '../../../../../lib/order/refundable'
+import { refundStripeFeeTotals } from '../../../../../lib/order/refund-stripe-fee'
 import { loadCurrentBreakdown } from '../../../../../lib/order/current-breakdown'
 import { loadMoneyLocation, moneyLocationNote } from '../../../../../lib/order/money-location'
 
@@ -311,6 +312,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // "Paid to West Village, prepared by LES" on a transferred order — its money
   // is reported under the location that was paid (lib/order/money-location.ts).
   base.moneyLocationNote = moneyLocationNote(await loadMoneyLocation(d.reference).catch(() => null))
+
+  // The Stripe fee on this order's refunds that came out of the restaurant's
+  // payouts (and any still to be collected) — lib/order/refund-stripe-fee.ts.
+  const refundFees = await refundStripeFeeTotals(d.reference).catch(() => ({ recovered: 0, uncollected: 0 }))
+  base.refundStripeFee = refundFees.recovered
+  base.refundStripeFeePending = refundFees.uncollected
 
   return NextResponse.json(base)
 }

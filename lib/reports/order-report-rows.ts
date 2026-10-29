@@ -106,6 +106,13 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   // placed, and a permanently-zero column is noise. AUTO-SHOWN the moment any row
   // is non-zero (see subsidyShouldShow) so the arithmetic is never invisible.
   { key: 'thirdPartySubsidy', label: 'Third-Party Subsidy (paid by restaurant)', financial: true, nativeOnly: true, hiddenByDefault: true },
+  // ── STRIPE FEE ON A REFUND ──────────────────────────────────────────────────
+  // Peter, 2026-10-29: the restaurant bears the Stripe fee on a refund. What was
+  // actually reversed from its payouts for this order's refunds
+  // (disco_refund_stripe_fees.recovered_amount, lib/order/refund-stripe-fee.ts).
+  // Subtracted from Total Distributed so the payout matches Stripe; shown only
+  // when non-zero (visible-columns), like the subsidy.
+  { key: 'refundStripeFee', label: 'Stripe Fee on Refund', financial: true, nativeOnly: true, hiddenByDefault: true },
   { key: 'totalDistributed', label: 'Total Distributed', financial: true },
 ]
 
@@ -136,6 +143,8 @@ export interface OrderReportRow {
   stripeFee: number
   refundAmount: number
   thirdPartySubsidy: number
+  /** Stripe fee on this order's refunds, taken back from the restaurant's payouts. */
+  refundStripeFee: number
   totalDistributed: number
   /**
    * The part of tipThirdPartyDelivery that went to the COURIER and so is not in
@@ -264,7 +273,10 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            -- inside the lowered total, so only the REST of o.refund is a refund.
            (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
               WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
-                AND e.payment_status = 'refunded' AND e.delta < 0) AS edit_refunded
+                AND e.payment_status = 'refunded' AND e.delta < 0) AS edit_refunded,
+           -- The Stripe fee on its refunds that the restaurant paid back (lib/order/refund-stripe-fee.ts).
+           (SELECT COALESCE(SUM(f.recovered_amount), 0) FROM disco_refund_stripe_fees f
+              WHERE f.order_reference = o.reference::text) AS refund_stripe_fee
       FROM disco_orders o
       -- Money belongs to the location whose Stripe account received it, not the
       -- one a transfer moved the order to (lib/order/money-location.ts).
@@ -340,7 +352,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       lead_gen_one_disco_fee: row.orig_lead_gen_one_disco_fee, lead_gen_two_disco_fee: row.orig_lead_gen_two_disco_fee,
     })
     const refundReversal = isNative && refund > 0 && origTotal > 0 ? r2(Math.min(refund / origTotal, 1) * origPayout) : 0
-    const totalDistributed = isNative ? r2(nativeTotalDistributed(row) - refundReversal) : fmTotalDistributed(row, refund)
+    const refundStripeFee = isNative ? n(row.refund_stripe_fee) : 0
+    const totalDistributed = isNative ? r2(nativeTotalDistributed(row) - refundReversal - refundStripeFee) : fmTotalDistributed(row, refund)
     return {
       // A transferred order is listed under the location that was paid, naming
       // the one that prepares it, so neither reads it as a mistake.
@@ -400,6 +413,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       stripeFee: n(row.stripe_fee),
       refundAmount: refund,
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),
+      refundStripeFee,
       totalDistributed,
       refundReversal,
       settlement: isNative ? 'native' : 'fm',
@@ -431,7 +445,7 @@ export function reconcileRow(r: OrderReportRow): { ok: boolean; expected: number
   const ownTip = r.tipPickup + r.tipSelfDelivery + r.tipThirdPartyDelivery - r.tipThirdPartyCourierPortion
   const expected = r.settlement === 'native'
     ? r2(r.netSales + ownTip + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
-        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal)
+        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal - r.refundStripeFee)
     : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + ownTip + r.serviceCharge + r.selfDeliveryFee)
         - (r.discount + r.stripeFee + r.leadGenOne + r.leadGenTwo + r.refundAmount))
   const delta = r2(Math.abs(expected - r.totalDistributed))
@@ -469,6 +483,7 @@ export function totalsRow(rows: OrderReportRow[]): Partial<OrderReportRow> {
     serviceCharge: sum(r => r.serviceCharge),
     discount: sum(r => r.discount), leadGenOne: sum(r => r.leadGenOne), leadGenTwo: sum(r => r.leadGenTwo),
     gross: sum(r => r.gross), stripeFee: sum(r => r.stripeFee), refundAmount: sum(r => r.refundAmount),
-    thirdPartySubsidy: sum(r => r.thirdPartySubsidy), totalDistributed: sum(r => r.totalDistributed),
+    thirdPartySubsidy: sum(r => r.thirdPartySubsidy), refundStripeFee: sum(r => r.refundStripeFee),
+    totalDistributed: sum(r => r.totalDistributed),
   }
 }

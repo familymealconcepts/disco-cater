@@ -49,7 +49,10 @@ async function fetchNativeOrders(fromIso: string | null, toIso: string | null): 
              -- Transferred order: "Paid to X, prepared by Y" (lib/order/money-location.ts).
              CASE WHEN m.paid_ref <> o.restaurant_reference
                THEN 'Paid to ' || COALESCE(pc.name, 'the original location') || ', prepared by ' || COALESCE(o.restaurant_name, rc.name, 'this location')
-             END AS "moneyLocationNote"
+             END AS "moneyLocationNote",
+             -- The Stripe fee on refunds: taken from the restaurant, and still owed (lib/order/refund-stripe-fee.ts).
+             (SELECT COALESCE(SUM(f.recovered_amount), 0)::float FROM disco_refund_stripe_fees f WHERE f.order_reference = o.reference::text) AS "refundFeeRecovered",
+             (SELECT COALESCE(SUM(f.fee_amount - f.recovered_amount), 0)::float FROM disco_refund_stripe_fees f WHERE f.order_reference = o.reference::text) AS "refundFeeUncollected"
       FROM disco_orders o
       CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
                                               WHERE te.order_reference = o.reference AND te.event_type = 'TRANSFERRED')

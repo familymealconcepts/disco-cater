@@ -254,7 +254,7 @@ const PDF_COL_WEIGHT: Record<string, number> = {
   selfDeliveryFee: 1, thirdPartyDeliveryFee: 1,
   tipPickup: 0.85, tipSelfDelivery: 0.95, tipThirdPartyDelivery: 1,
   serviceCharge: 0.95, discount: 0.85, leadGenOne: 0.9, leadGenTwo: 0.9,
-  gross: 0.95, stripeFee: 0.9, refundAmount: 0.9, thirdPartySubsidy: 1,
+  gross: 0.95, stripeFee: 0.9, refundAmount: 0.9, thirdPartySubsidy: 1, refundStripeFee: 0.95,
   totalDistributed: 1.1,
 }
 

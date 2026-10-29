@@ -26,6 +26,9 @@ interface Order {
   restaurantReference: string
   restaurantName: string
   moneyLocationNote?: string | null
+  /** Stripe fee on refunds taken from the restaurant / still owed (lib/order/refund-stripe-fee.ts). */
+  refundFeeRecovered?: number
+  refundFeeUncollected?: number
   restaurantTimezone?: string
   createdDate: string
   orderDate: string
@@ -360,6 +363,20 @@ function fmtDate(d?: string) {
 function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { order: Order; isSuperAdmin: boolean; onClose: () => void; onTransferred: () => void }) {
   const [transferOpen, setTransferOpen] = useState(false)
   const [refunding, setRefunding] = useState(false)
+  const [recoveringFee, setRecoveringFee] = useState(false)
+  // Takes a refund's uncovered Stripe fee from the restaurant's newest payout.
+  async function doRecoverFee() {
+    const owed = order.refundFeeUncollected ?? 0
+    if (!window.confirm(`Take the $${owed.toFixed(2)} Stripe fee on this order's refund back from ${order.restaurantName || 'the restaurant'}'s payouts? This reverses part of a Stripe transfer to the restaurant.`)) return
+    setRecoveringFee(true)
+    try {
+      const res = await fetch(`/api/admin/orders/${order.orderReference}/recover-refund-fee`, { method: 'POST' })
+      const d = await res.json().catch(() => ({}))
+      window.alert(d?.message || d?.error || (res.ok ? 'Done.' : 'Recovery failed.'))
+      if (res.ok) { onTransferred(); onClose() }
+    } catch { window.alert('Recovery failed.') }
+    finally { setRecoveringFee(false) }
+  }
 
   // Native orders only: a REAL Stripe refund via /api/admin/orders/{ref}/refund
   // (FM orders are refunded on FM's side, unchanged). Minimal prompt-based flow —
@@ -411,6 +428,8 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {order.orderType === 'DELIVERY' && order.deliveryInstructions && detailRow('Delivery instructions', order.deliveryInstructions)}
           {detailRow('Status', order.orderStatus || '—')}
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
+          {(order.refundFeeRecovered ?? 0) > 0 && detailRow('Stripe fee on refund (paid by restaurant)', fmtCurrency(order.refundFeeRecovered ?? 0))}
+          {(order.refundFeeUncollected ?? 0) > 0 && detailRow('Stripe fee on refund (Disco covering)', <span style={{ color: '#B26A00', fontWeight: 700 }}>{fmtCurrency(order.refundFeeUncollected ?? 0)}</span>)}
           {order.emailFailures?.length ? (
             <div style={{ marginTop: 14, padding: '10px 12px', background: '#FDECEA', border: '1px solid #F5C2C0', borderRadius: 8, fontSize: 13, color: '#7A1C1C' }}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Email not delivered — not resent</div>
@@ -434,6 +453,12 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
                 routes now write 'REFUND' to match FM; 'REFUNDED' is legacy
                 data and any writer that hasn't been migrated yet). Missing
                 either would let a fully-refunded order be refunded again. */}
+            {order.native && (order.refundFeeUncollected ?? 0) > 0 && (
+              <button onClick={doRecoverFee} disabled={recoveringFee}
+                style={{ width: '100%', padding: '11px 18px', border: '1px solid #E8C48A', borderRadius: 8, background: '#fff', color: '#8A5200', fontSize: 14, fontWeight: 700, cursor: recoveringFee ? 'wait' : 'pointer', opacity: recoveringFee ? 0.7 : 1, fontFamily: F }}>
+                {recoveringFee ? 'Recovering…' : `Recover Stripe fee (${fmtCurrency(order.refundFeeUncollected ?? 0)})`}
+              </button>
+            )}
             {order.native && order.orderStatus !== 'REFUND' && order.orderStatus !== 'REFUNDED' && (
               <button onClick={doRefund} disabled={refunding}
                 style={{ width: '100%', padding: '11px 18px', border: '1px solid #E7B4B6', borderRadius: 8, background: '#fff', color: '#C42A30', fontSize: 14, fontWeight: 700, cursor: refunding ? 'wait' : 'pointer', opacity: refunding ? 0.7 : 1, fontFamily: F }}>
