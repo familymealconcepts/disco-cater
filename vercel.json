@@ -117,14 +117,6 @@
     {
       "path": "/api/cron/fm-order-watch",
       "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-stripe-facts",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/stripe-fee-trueup",
-      "schedule": "7,22,37,52 * * * *"
     }
   ]
 }
