@@ -5,7 +5,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
 import { sql } from '../db'
 import { displayEmail } from '../customer-email-guard'
 import {
-  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
+  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow, TOTALS_LABEL,
   reconcileRow, type OrderReportRow,
 } from './order-report-rows'
 import { resolvePeriod, type PeriodSpec, type Frequency } from './report-period'
@@ -219,7 +219,7 @@ export async function generateReportCsv(
   // Totals row, as the download has and as FM does.
   const t = useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(totals, k)) : ''))
   const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))
-  if (labelAt >= 0) t[labelAt] = csvCell('TOTAL')
+  if (labelAt >= 0) t[labelAt] = csvCell(TOTALS_LABEL)
   // Trailing provenance — see lib/reports/report-provenance.ts. Without it this
   // file and an on-demand download of the same window can differ by thousands of
   // dollars with nothing on either explaining why.
@@ -335,7 +335,7 @@ export async function generateReportPdf(
     useCols.forEach((k, i) => {
       const isMoney = MONEY_KEYS.has(k)
       const v = cellOf(totals, k)
-      const raw = i === labelAt ? 'TOTAL' : isMoney ? (v == null ? '' : `$${Number(v).toFixed(2)}`) : ''
+      const raw = i === labelAt ? TOTALS_LABEL : isMoney ? (v == null ? '' : `$${Number(v).toFixed(2)}`) : ''
       cell(raw, i, y, { align: isMoney ? 'r' : 'l', font: bold })
     })
     y -= ROW_H

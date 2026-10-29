@@ -6,6 +6,7 @@ import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../../lib/restaurant-auth'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
+import { paymentLabel, PAID_LABELS } from '../../../../../lib/order/stripe-facts'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -96,8 +97,12 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   const rows = (await sql`
     SELECT
       COUNT(*)::int AS "totalOrdersCount",
-      COALESCE(SUM(o.subtotal), 0)::float8 AS "subtotalOrdersSum",
-      COALESCE(AVG(o.subtotal), 0)::float8 AS "subtotalOrdersAvg",
+      -- Disco-processed orders: the CURRENT PAID figures, exactly as the export
+      -- (lib/reports/order-report-rows.ts) — Peter, 2026-10-29, decision 2. The
+      -- order's own subtotal/total include an edit that has not been paid yet
+      -- (#900000272 +$19.62, #900000417 +$57.00). FamilyMeal-copied: unchanged.
+      COALESCE(SUM(CASE WHEN k.disco THEN COALESCE(st.subtotal, 0) ELSE o.subtotal END), 0)::float8 AS "subtotalOrdersSum",
+      COALESCE(AVG(CASE WHEN k.disco THEN COALESCE(st.subtotal, 0) ELSE o.subtotal END), 0)::float8 AS "subtotalOrdersAvg",
       -- "Total Amount" on the restaurant dashboard: what the restaurant actually
       -- receives. THREE things come out, and the same definition as
       -- lib/reports/order-report-rows.ts's Gross — the two must never disagree.
@@ -112,12 +117,14 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       -- transaction row from nulling the whole sum.
       -- Less real refunds (an edit's refund is already inside the lowered total —
       -- lib/order/refundable.ts).
-      COALESCE(SUM(o.total - GREATEST(0, COALESCE(o.refund, 0) - (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
-              WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
-                AND e.payment_status = 'refunded' AND e.delta < 0))), 0)::float8
-        - COALESCE(SUM(st.fee), 0)::float8
-        - COALESCE(SUM(st.third_party_delivery_fee), 0)::float8
-        - COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "totalOrdersSum",
+      -- Disco-processed: the export's Gross less real refunds, from the current
+      -- paid breakdown. FamilyMeal-copied: the order total less the same three.
+      COALESCE(SUM(CASE WHEN k.disco
+        THEN COALESCE(st.subtotal, 0) + COALESCE(st.state_tax, 0) + COALESCE(st.local_tax, 0) + COALESCE(st.other_tax, 0)
+           + COALESCE(st.own_delivery_fee, 0) + COALESCE(st.tips_in_price, 0) + COALESCE(st.service_charge, 0) - COALESCE(st.discount, 0)
+           - k.real_refund
+        ELSE o.total - k.real_refund - COALESCE(st.fee, 0) - COALESCE(st.third_party_delivery_fee, 0) - COALESCE(st.third_party_delivery_tips, 0)
+      END), 0)::float8 AS "totalOrdersSum",
       COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
       COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
       COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
@@ -129,7 +136,8 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       -- SUBTRACTED in the total identity:
       --   Total Amount = Net Sales + Tax + Service Charge + Self-Delivery + Own Tips - Discount
       COALESCE(SUM(st.discount), 0)::float8 AS "discountsSum",
-      COALESCE(SUM(st.stripe_fee), 0)::float8 AS "stripeFeeSum",
+      -- Stripe's actual fee once synced (decision 3), as in the export.
+      COALESCE(SUM(CASE WHEN k.disco AND sf.fee_known THEN sf.stripe_fee ELSE st.stripe_fee END), 0)::float8 AS "stripeFeeSum",
       COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_fee ELSE 0 END), 0)::float8 AS "doordashDeliveryFeeSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_fee END), 0)::float8 AS "thirdPartyDeliveryFeeSum",
@@ -157,6 +165,21 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
           o.restaurant_reference)
         ELSE o.restaurant_reference END AS paid_ref) m
     LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+    LEFT JOIN disco_order_stripe_facts sf ON sf.order_reference = o.reference::text AND o.fm_order_reference IS NULL
+    -- k.counted: does this order count as a sale? Disco-processed: paid and not
+    -- wholly refunded, per Stripe once synced (decision 2); unpaid ones are counted
+    -- separately below. FamilyMeal-copied: the status rule it always had.
+    CROSS JOIN LATERAL (SELECT
+        (o.fm_order_reference IS NULL) AS disco,
+        GREATEST(0, COALESCE(o.refund, 0) - (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
+              WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
+                AND e.payment_status = 'refunded' AND e.delta < 0)) AS real_refund,
+        CASE
+          WHEN o.fm_order_reference IS NOT NULL THEN o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND')
+          WHEN sf.order_reference IS NOT NULL THEN (sf.captured > 0 AND sf.refunded < sf.captured) OR (sf.captured = 0 AND sf.invoice_status = 'paid')
+          ELSE (EXISTS (SELECT 1 FROM disco_stripe_payments p WHERE p.order_reference = o.reference AND p.status = 'SUCCEEDED')
+                OR o.stripe_invoice_status = 'paid') AND o.order_status NOT IN ('REFUND','REFUNDED')
+        END AS counted) k
     LEFT JOIN LATERAL (
       -- The order's CURRENT figures: newest edit breakdown, else checkout (lib/order/
       -- current-breakdown.ts). Checkout only left paid edits out (#900000522 +$65.97).
@@ -171,7 +194,7 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       AND o.is_deleted = false
       -- A fully refunded order is not a sale: it used to count at its whole total
       -- (#900000499, $420.63). Partial refunds stay, net of the refund above.
-      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND')
+      AND k.counted
       AND (
         ${from}::date IS NULL OR
         (CASE WHEN ${byCreated}
@@ -188,7 +211,44 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       )
   `) as Record<string, unknown>[]
 
-  return NextResponse.json(rows[0] || {})
+  // ── UNPAID ORDERS STAY VISIBLE (decision 1) ─────────────────────────────────
+  // Not in the money cards above, but counted and labelled here so the dashboard
+  // shows them without anyone reading them as sales. Disco-processed only.
+  const unpaid = (await sql`
+    SELECT o.order_status, o.total, o.refund, sf.captured, sf.refunded, sf.invoice_status,
+           (sf.order_reference IS NOT NULL) AS has_facts,
+           (EXISTS (SELECT 1 FROM disco_stripe_payments p WHERE p.order_reference = o.reference AND p.status = 'SUCCEEDED')
+              OR o.stripe_invoice_status = 'paid') AS paid_in_disco
+      FROM disco_orders o
+      LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+      LEFT JOIN disco_order_stripe_facts sf ON sf.order_reference = o.reference::text
+     WHERE o.restaurant_reference = ANY(${refs}::uuid[])
+       AND o.is_deleted = false AND o.fm_order_reference IS NULL
+       AND NOT (COALESCE(sf.captured, 0) > 0)
+       AND (${from}::date IS NULL OR (CASE WHEN ${byCreated}
+             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+             ELSE o.order_date END) >= ${from}::date)
+       AND (${to}::date IS NULL OR (CASE WHEN ${byCreated}
+             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+             ELSE o.order_date END) <= ${to}::date)
+  `.catch(() => [])) as Array<Record<string, unknown>>
+  const unpaidByStatus: Record<string, number> = {}
+  let unpaidCount = 0, unpaidSum = 0
+  for (const u of unpaid) {
+    const label = paymentLabel({
+      orderStatus: String(u.order_status ?? ''),
+      captured: u.has_facts ? Math.round(Number(u.captured) * 100) : null,
+      refunded: u.has_facts ? Math.round(Number(u.refunded) * 100) : null,
+      invoiceStatus: u.has_facts ? (u.invoice_status as string | null) : null,
+      paidInDisco: u.paid_in_disco === true, refundInDisco: Number(u.refund) || 0, totalInDisco: Number(u.total) || 0,
+    })
+    if (PAID_LABELS.has(label)) continue
+    unpaidByStatus[label] = (unpaidByStatus[label] ?? 0) + 1
+    unpaidCount++
+    unpaidSum += Number(u.total) || 0
+  }
+
+  return NextResponse.json({ ...(rows[0] || {}), unpaidOrdersCount: unpaidCount, unpaidOrdersSum: Math.round(unpaidSum * 100) / 100, unpaidByStatus })
 }
 
 // FM's dashboard expects dates as DD.MM.YYYY (DateFormatService.formatDate,

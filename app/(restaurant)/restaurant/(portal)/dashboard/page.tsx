@@ -27,6 +27,11 @@ interface SaleStats {
   subtotalOrdersSum?: number
   totalOrdersCount?: number
   totalOrdersSum?: number
+  // Disco orders that were never paid — listed apart from the sales above,
+  // with each one's payment status (Peter, 2026-10-29, decision 1).
+  unpaidOrdersCount?: number
+  unpaidOrdersSum?: number
+  unpaidByStatus?: Record<string, number>
   // Everything below needs per-order transaction detail (tax breakdown,
   // delivery-fee split, tips split, stripe fee) that only exists for native-
   // checkout orders today — the API returns `null` (not 0) for these until the
@@ -626,6 +631,14 @@ export default function DashboardPage() {
         {hasDiscount && <Card title="Discount" value={-(saleStats.discountsSum ?? 0)} gray unavailableReason={NOT_AVAILABLE_REASON} />}
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray unavailableReason={NOT_AVAILABLE_REASON} />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
+        {/* Unpaid orders are not sales and are in none of the figures above; shown
+            here, by payment status, so they are visible without being mistaken
+            for paid orders. Only when there are any. */}
+        {(saleStats.unpaidOrdersCount ?? 0) > 0 && (
+          <Card title="Not paid (orders)" value={saleStats.unpaidOrdersCount} isCurrency={false} gray
+            tooltip={[...Object.entries(saleStats.unpaidByStatus ?? {}).map(([k, v]) => `${k}: ${v}`),
+              `Value: ${fmt(saleStats.unpaidOrdersSum ?? 0)} — not in Total Amount`].join('\n')} />
+        )}
       </div>
 
       {/* #20: export orders for a date range (order or created date) as CSV/Excel/PDF.

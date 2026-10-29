@@ -9,7 +9,7 @@ import { resolveDiscoGroupScope } from '../../../../../lib/restaurant-write-scop
 import { visibleReportColumns } from '../../../../../lib/reports/visible-columns'
 import { provenanceCsvRows, provenanceSummary, type ProvenanceFacts } from '../../../../../lib/reports/report-provenance'
 import {
-  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
+  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow, TOTALS_LABEL,
   reconcileRow, type OrderReportRow, type ReportColumnDef,
 } from '../../../../../lib/reports/order-report-rows'
 
@@ -64,7 +64,7 @@ function toCsv(rows: OrderReportRow[], cols: ReportColumnDef[], totals: Partial<
   // non-financial cell so the money lines up under its own column.
   const t = rowValues(totals, cols)
   const labelAt = cols.findIndex(c => !c.financial)
-  if (labelAt >= 0) t[labelAt] = 'TOTAL'
+  if (labelAt >= 0) t[labelAt] = TOTALS_LABEL
   lines.push(t.map(esc).join(','))
   // Trailing provenance, so this file and the weekly email can be told apart.
   // See lib/reports/report-provenance.ts for the reconciliation this fixes.
@@ -79,7 +79,7 @@ function toXls(rows: OrderReportRow[], title: string, cols: ReportColumnDef[], t
   const head = `<tr>${cols.map(c => `<th style="background:#EEF0FD;border:1px solid #ccc;padding:4px 8px;text-align:left">${esc(c.label)}</th>`).join('')}</tr>`
   const tv = rowValues(totals, cols)
   const labelAt = cols.findIndex(c => !c.financial)
-  if (labelAt >= 0) tv[labelAt] = 'TOTAL'
+  if (labelAt >= 0) tv[labelAt] = TOTALS_LABEL
   const foot = `<tr>${tv.map(v => `<td style="border:1px solid #ccc;padding:4px 8px;font-weight:700;background:#F7F7FB">${esc(v)}</td>`).join('')}</tr>`
   const body = rows.map(r => `<tr>${rowValues(r, cols).map(v => `<td style="border:1px solid #ddd;padding:4px 8px">${esc(v)}</td>`).join('')}</tr>`).join('') + foot
   return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>${esc(title)}</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body><table>${head}${body}</table></body></html>`
@@ -128,7 +128,7 @@ async function toPdf(rows: OrderReportRow[], title: string, sub: string, cols: R
   if (y < M + 26) { page = doc.addPage([W, H]); y = H - M; drawHeader() }
   const tv = rowValues(totals, cols)
   const labelAt = cols.findIndex(c => !c.financial)
-  if (labelAt >= 0) tv[labelAt] = 'TOTAL'
+  if (labelAt >= 0) tv[labelAt] = TOTALS_LABEL
   page.drawRectangle({ x: M, y: y - 18, width: totalW, height: 18, color: rgb(0.97, 0.97, 0.99) })
   let tx = M
   tv.forEach((v, i) => { page.drawText(trunc(String(v), 7.5, widths[i] - 6), { x: tx + 4, y: y - 13, size: 7.5, font: bold, color: DARK }); tx += widths[i] })

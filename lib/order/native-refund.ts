@@ -255,10 +255,15 @@ async function refundNativeInvoiceOrder(
   // operator can act on.
   const transferId = rows[0]?.stripe_transfer_id || (await findInvoicePayoutTransfer(stripe, orderReference))
   let pendingReversal: { transferId: string; share: number } | null = null
+  // What the proportional share would have been, had nothing else been reversed
+  // from the payout first — the rest is collected with the fee (refund-stripe-fee.ts).
+  let invShortfall = 0
   if (transferId) {
     const transfer = await stripe.transfers.retrieve(transferId)
     const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
-    const share = Math.min(remaining, Math.round(transfer.amount * (apply / amountPaid)))
+    const intended = Math.round(transfer.amount * (apply / amountPaid))
+    const share = Math.min(remaining, intended)
+    invShortfall = Math.max(0, intended - Math.max(0, share))
     if (share > 0) {
       // Throws when the restaurant cannot cover it — before the credit note.
       await assertReversalIsFunded(stripe, transfer.destination, share, {
@@ -326,6 +331,7 @@ async function refundNativeInvoiceOrder(
     await recoverRefundStripeFee({
       stripe, orderReference, chargeId: invChargeBefore.id, refundId, refundCents: apply,
       refundedBeforeCents: invChargeBefore.amount_refunded ?? 0, ownTransferId: transferId || destTransfer, via,
+      capShortfallCents: transferId ? invShortfall : undefined,
     })
   }
   if (extraSlices.length) await executeRefundSlices(stripe, orderReference, extraSlices, via)
@@ -359,6 +365,7 @@ interface RefundSlice {
   chargeId: string
   refundedBefore: number       // cents already refunded on this charge
   ownTransferId: string | null // the transfer that paid this payment out; null = withheld
+  capShortfall: number         // separate payout: intended share − what was left to take (cents)
 }
 
 async function planRefundSlices(
@@ -390,6 +397,7 @@ async function planRefundSlices(
     const take = Math.min(holds, left)
     const hasTransfer = !!intent.transfer_data
     let separate: RefundSlice['separate'] = null
+    let capShortfall = 0
     // A payment paid out by a SEPARATE transfer (an edit invoice) — its id is on
     // the payment row from now on; older ones are found by the charge they paid
     // out of (source_transaction), within the order's transfer group.
@@ -403,7 +411,9 @@ async function planRefundSlices(
     if (!hasTransfer && separateId) {
       const transfer = await stripe.transfers.retrieve(separateId)
       const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
-      const share = Math.min(remaining, Math.round(transfer.amount * (take / (charge.amount_captured ?? charge.amount))))
+      const intended = Math.round(transfer.amount * (take / (charge.amount_captured ?? charge.amount)))
+      const share = Math.min(remaining, intended)
+      capShortfall = Math.max(0, intended - Math.max(0, share))
       if (share > 0) {
         await assertReversalIsFunded(stripe, transfer.destination, share, {
           orderReference, paymentIntentId: r.stripe_payment_intent_id, transferId: separateId,
@@ -416,7 +426,7 @@ async function planRefundSlices(
     slices.push({
       paymentIntentId: r.stripe_payment_intent_id, amount: take, reverseTransfer: hasTransfer, separate,
       chargeId, refundedBefore: charge.amount_refunded ?? 0,
-      ownTransferId: hasTransfer ? destTransfer : (separateId ?? null),
+      ownTransferId: hasTransfer ? destTransfer : (separateId ?? null), capShortfall,
     })
     left -= take
   }
@@ -459,6 +469,8 @@ async function executeRefundSlices(
     await recoverRefundStripeFee({
       stripe, orderReference, chargeId: s.chargeId, refundId: refund.id, refundCents: s.amount,
       refundedBeforeCents: s.refundedBefore, ownTransferId: s.ownTransferId, via,
+      // reverse_transfer: read off Stripe's own reversal; separate payout: measured above.
+      capShortfallCents: s.reverseTransfer ? undefined : s.capShortfall,
     })
     first ??= { refundId: refund.id, status: refund.status || 'unknown', paymentIntentId: s.paymentIntentId }
   }
@@ -572,6 +584,8 @@ export async function refundNativeOrder(
       stripe, orderReference, chargeId: charge.id, refundId: refund.id, refundCents: cents(amountDollars),
       refundedBeforeCents: charge.amount_refunded ?? 0,
       ownTransferId: typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null, via,
+      // An edit's exact reversal is explicit and refuses rather than caps.
+      capShortfallCents: exactReversal ? 0 : undefined,
     })
   }
 

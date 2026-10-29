@@ -1,5 +1,7 @@
 import { sql } from '../db'
 import { expandFulfillmentFilter } from './fulfillment-filter'
+import { paymentLabel, PAID_LABELS } from '../order/stripe-facts'
+import { SHORTFALL_VIA } from '../order/refund-stripe-fee'
 
 /**
  * THE canonical order-money report: FamilyMeal's column set, with a payout figure
@@ -58,6 +60,12 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   // simply never re-listed when the column set was replaced. Without it the
   // migration would have had to drop a column those restaurants chose.
   { key: 'orderStatus', label: 'Status', financial: false },
+  // ── PAYMENT (Peter, 2026-10-29, decision 1) ─────────────────────────────────
+  // Unpaid orders stay in the report, labelled so nobody reads them as paid:
+  // Paid / Refunded / Partially refunded / Unpaid invoice / Abandoned checkout /
+  // Voided / Declined (lib/order/stripe-facts.ts paymentLabel). Disco-processed
+  // orders only — a FamilyMeal-copied row keeps FM's status and is left blank.
+  { key: 'paymentStatus', label: 'Payment', financial: false },
   { key: 'netSales', label: 'Net Sales', financial: true },
   { key: 'stateTax', label: 'Tax (State)', financial: true },
   { key: 'localTax', label: 'Tax (Local)', financial: true },
@@ -113,6 +121,14 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   // Subtracted from Total Distributed so the payout matches Stripe; shown only
   // when non-zero (visible-columns), like the subsidy.
   { key: 'refundStripeFee', label: 'Stripe Fee on Refund', financial: true, nativeOnly: true, hiddenByDefault: true },
+  // ── PAYOUT ADJUSTMENT (Peter, 2026-10-29, decision 4) ──────────────────────
+  // Total Distributed is what Stripe ACTUALLY transferred less what it reversed
+  // (disco_order_stripe_facts). Where that differs from what the order's own
+  // figures add up to, the difference is shown here so the sheet still adds up
+  // and nobody has to guess why: Stripe's fee above or below the estimate before
+  // it was settled, a refund made in the Stripe dashboard that reversed nothing,
+  // a payout that was never sent. Shown only when non-zero.
+  { key: 'payoutAdjustment', label: 'Payout Adjustment (Stripe)', financial: true, nativeOnly: true, hiddenByDefault: true },
   { key: 'totalDistributed', label: 'Total Distributed', financial: true },
 ]
 
@@ -145,7 +161,13 @@ export interface OrderReportRow {
   thirdPartySubsidy: number
   /** Stripe fee on this order's refunds, taken back from the restaurant's payouts. */
   refundStripeFee: number
+  /** Stripe's actual payout less what the order's figures add up to. */
+  payoutAdjustment: number
   totalDistributed: number
+  /** Payment in words (Disco-processed orders); '' for a FamilyMeal-copied row. */
+  paymentStatus: string
+  /** False for a Disco order that was never paid: no payout, left out of the totals row. */
+  paid: boolean
   /**
    * The part of tipThirdPartyDelivery that went to the COURIER and so is not in
    * Gross. Not a column — carried so reconcileGross/reconcileRow can check the
@@ -274,10 +296,21 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            (SELECT COALESCE(SUM(-e.delta), 0) FROM disco_order_edits e
               WHERE e.fm_order_reference IN (o.reference, o.fm_order_reference)
                 AND e.payment_status = 'refunded' AND e.delta < 0) AS edit_refunded,
-           -- The Stripe fee on its refunds that the restaurant paid back (lib/order/refund-stripe-fee.ts).
+           -- The Stripe fee on its refunds that the restaurant paid back (lib/order/refund-stripe-fee.ts),
+           -- and, separately, everything taken back for its refunds (fee + a capped reversal's shortfall).
            (SELECT COALESCE(SUM(f.recovered_amount), 0) FROM disco_refund_stripe_fees f
-              WHERE f.order_reference = o.reference::text) AS refund_stripe_fee
+              WHERE f.order_reference = o.reference::text AND f.via <> ${SHORTFALL_VIA}) AS refund_stripe_fee,
+           (SELECT COALESCE(SUM(f.recovered_amount), 0) FROM disco_refund_stripe_fees f
+              WHERE f.order_reference = o.reference::text) AS refund_taken_back,
+           -- What Stripe actually did (lib/order/stripe-facts.ts; Disco-processed orders only).
+           sf.order_reference IS NOT NULL AS has_facts, sf.captured AS sf_captured, sf.refunded AS sf_refunded,
+           sf.stripe_fee AS sf_stripe_fee, sf.fee_known AS sf_fee_known, sf.transferred AS sf_transferred,
+           sf.reversed AS sf_reversed, sf.invoice_status AS sf_invoice_status,
+           (o.fm_order_reference IS NULL) AS disco_processed,
+           (EXISTS (SELECT 1 FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED')
+              OR o.stripe_invoice_status = 'paid') AS paid_in_disco
       FROM disco_orders o
+      LEFT JOIN disco_order_stripe_facts sf ON sf.order_reference = o.reference::text AND o.fm_order_reference IS NULL
       -- Money belongs to the location whose Stripe account received it, not the
       -- one a transfer moved the order to (lib/order/money-location.ts).
       CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM disco_order_events te
@@ -310,11 +343,10 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       ) t ON true
      WHERE m.paid_ref = ANY(${opts.refs}::uuid[])
        AND o.is_deleted = false
-       -- A Disco order cancelled before anything was charged is not a sale
-       -- (#900000473: cancelled, never paid, printed as $372.63 of payout).
-       AND NOT (o.fm_order_reference IS NULL
-                AND o.order_status IN ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'EXPIRED', 'PAYMENT_FAILED')
-                AND NOT EXISTS (SELECT 1 FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED'))
+       -- Unpaid Disco orders are KEPT (Peter, 2026-10-29, decision 1) and labelled
+       -- in the Payment column, with no payout and out of the totals row. They used
+       -- to be dropped (#900000473: cancelled, never paid, printed as $372.63 of
+       -- payout) — the payout part of that is now prevented by the paid flag below.
        AND (
              (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
                BETWEEN ${opts.from}::date AND ${opts.to}::date
@@ -351,9 +383,32 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       discount: row.orig_discount, stripe_fee: row.orig_stripe_fee,
       lead_gen_one_disco_fee: row.orig_lead_gen_one_disco_fee, lead_gen_two_disco_fee: row.orig_lead_gen_two_disco_fee,
     })
-    const refundReversal = isNative && refund > 0 && origTotal > 0 ? r2(Math.min(refund / origTotal, 1) * origPayout) : 0
-    const refundStripeFee = isNative ? n(row.refund_stripe_fee) : 0
-    const totalDistributed = isNative ? r2(nativeTotalDistributed(row) - refundReversal - refundStripeFee) : fmTotalDistributed(row, refund)
+    // ── PAID OR NOT, IN WORDS (decision 1) ────────────────────────────────────
+    // Native rows only. Stripe's facts once synced; Disco's own payment record
+    // until then. A FamilyMeal-copied row is untouched: blank, counted as before.
+    const disco = row.disco_processed === true
+    const hasFacts = disco && row.has_facts === true
+    const paymentStatus = disco ? paymentLabel({
+      orderStatus: String(row.order_status ?? ''),
+      captured: hasFacts ? Math.round(n(row.sf_captured) * 100) : null,
+      refunded: hasFacts ? Math.round(n(row.sf_refunded) * 100) : null,
+      invoiceStatus: hasFacts ? (row.sf_invoice_status as string | null) : null,
+      paidInDisco: row.paid_in_disco === true, refundInDisco: n(row.refund), totalInDisco: n(row.order_total),
+    }) : ''
+    const paid = !disco || PAID_LABELS.has(paymentStatus as never)
+    // ── WHAT STRIPE ACTUALLY DID (decisions 3 and 4) ──────────────────────────
+    // Stripe's actual fee, and its actual transfers less reversals, once synced
+    // (lib/order/stripe-facts.ts). Before the first sync, the computed figures.
+    const actualFee = hasFacts && row.sf_fee_known === true ? n(row.sf_stripe_fee) : null
+    const stripeFee = !paid ? 0 : actualFee ?? n(row.stripe_fee)
+    const refundReversal = paid && isNative && refund > 0 && origTotal > 0 ? r2(Math.min(refund / origTotal, 1) * origPayout) : 0
+    const refundStripeFee = paid && isNative ? n(row.refund_stripe_fee) : 0
+    const computed = isNative ? r2(nativeTotalDistributed({ ...row, stripe_fee: stripeFee }) - refundReversal - refundStripeFee) : 0
+    const totalDistributed = !paid ? 0
+      : !isNative ? fmTotalDistributed(row, refund)
+      : hasFacts ? r2(n(row.sf_transferred) - n(row.sf_reversed) - n(row.refund_taken_back))
+      : computed
+    const payoutAdjustment = isNative && paid ? r2(totalDistributed - computed) : 0
     return {
       // A transferred order is listed under the location that was paid, naming
       // the one that prepares it, so neither reads it as a mistake.
@@ -410,11 +465,14 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
         + n(row.own_delivery_fee) + n(row.tips_in_price) + n(row.service_charge)
         - n(row.discount),
       ),
-      stripeFee: n(row.stripe_fee),
+      stripeFee: isNative ? stripeFee : n(row.stripe_fee),
       refundAmount: refund,
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),
       refundStripeFee,
+      payoutAdjustment,
       totalDistributed,
+      paymentStatus,
+      paid,
       refundReversal,
       settlement: isNative ? 'native' : 'fm',
       orderStatus: String(row.order_status ?? ''),
@@ -439,13 +497,16 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
  * so a caller can refuse to render rather than publish a wrong figure.
  */
 export function reconcileRow(r: OrderReportRow): { ok: boolean; expected: number; delta: number } {
+  // An unpaid Disco order has no payout to reconcile (decision 1).
+  if (r.paid === false) return { ok: r.totalDistributed === 0, expected: 0, delta: Math.abs(r.totalDistributed) }
   // The restaurant's own tip, wherever it was filed. Exactly one of the three is
   // non-zero for any row (they are keyed off the row's single service type), so
   // summing them is the same figure the old single tipRestaurant column held.
   const ownTip = r.tipPickup + r.tipSelfDelivery + r.tipThirdPartyDelivery - r.tipThirdPartyCourierPortion
   const expected = r.settlement === 'native'
     ? r2(r.netSales + ownTip + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
-        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal - r.refundStripeFee)
+        - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal - r.refundStripeFee
+        + (r.payoutAdjustment ?? 0))
     : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + ownTip + r.serviceCharge + r.selfDeliveryFee)
         - (r.discount + r.stripeFee + r.leadGenOne + r.leadGenTwo + r.refundAmount))
   const delta = r2(Math.abs(expected - r.totalDistributed))
@@ -470,8 +531,12 @@ export function reconcileGross(r: OrderReportRow): { ok: boolean; expected: numb
   return { ok: delta < 0.011, expected, delta }
 }
 
-/** Totals for FM's financial columns, plus the two native-only ones. */
-export function totalsRow(rows: OrderReportRow[]): Partial<OrderReportRow> {
+/** The totals row's label: unpaid Disco orders are listed but not summed (decision 1). */
+export const TOTALS_LABEL = 'TOTAL (paid orders)'
+
+/** Totals for FM's financial columns, plus the native-only ones. Paid orders only. */
+export function totalsRow(allRows: OrderReportRow[]): Partial<OrderReportRow> {
+  const rows = allRows.filter(r => r.paid !== false)
   const sum = (f: (r: OrderReportRow) => number) => r2(rows.reduce((a, r) => a + f(r), 0))
   return {
     netSales: sum(r => r.netSales), stateTax: sum(r => r.stateTax), localTax: sum(r => r.localTax),
@@ -484,6 +549,7 @@ export function totalsRow(rows: OrderReportRow[]): Partial<OrderReportRow> {
     discount: sum(r => r.discount), leadGenOne: sum(r => r.leadGenOne), leadGenTwo: sum(r => r.leadGenTwo),
     gross: sum(r => r.gross), stripeFee: sum(r => r.stripeFee), refundAmount: sum(r => r.refundAmount),
     thirdPartySubsidy: sum(r => r.thirdPartySubsidy), refundStripeFee: sum(r => r.refundStripeFee),
+    payoutAdjustment: sum(r => r.payoutAdjustment ?? 0),
     totalDistributed: sum(r => r.totalDistributed),
   }
 }

@@ -36,6 +36,7 @@ import { sql } from '../db'
 import { alertOps } from '../ops-alert'
 import { orderLink } from '../ops-alert-format'
 import type { RefundVia } from './money-failures'
+import { refundFeeBasisCents } from './stripe-fee-trueup'
 
 type Source = { transferId: string; reversalId: string; amount: number; how: 'own_payout' | 'other_payout'; manual?: boolean; by?: string | null; at: string }
 
@@ -51,6 +52,12 @@ export interface FeeRecoveryInput {
   /** The transfer that paid this payment out to the restaurant. Null → payouts were withheld; skipped. */
   ownTransferId: string | null
   via: RefundVia
+  /**
+   * For a payout reversed by an EXPLICIT reversal capped at what was left on the
+   * transfer (invoice and edit-payment refunds): intended − taken, in cents. Left
+   * out for reverse_transfer refunds, where it is read off Stripe's own reversal.
+   */
+  capShortfallCents?: number
 }
 
 export interface FeeRecoveryResult { feeCents: number; recoveredCents: number; uncollectedCents: number; sources: Source[] }
@@ -133,58 +140,113 @@ async function alertUncollected(orderReference: string, label: { number: string;
   }).catch(e => console.error('[refund-stripe-fee] alert failed (non-fatal):', e instanceof Error ? e.message : e))
 }
 
+/**
+ * What Stripe's proportional reversal on this refund should have taken but could
+ * not, in cents (Peter's decision 3, 29 Oct 2026).
+ *
+ * `reverse_transfer: true` reverses refund ÷ charge × the transfer's ORIGINAL
+ * amount — but never more than is left on the transfer, and Stripe caps it
+ * silently. Anything else already reversed from that transfer (a fee taken on an
+ * earlier partial refund, a Stripe-fee true-up, another order's fee) is therefore
+ * handed back to the restaurant by the refund that empties it. Measured in test
+ * mode: $100 charge, $90 transfer, 40% refund + $1.28 fee from the payout, then
+ * the other 60% reversed $52.72 instead of $54.00.
+ */
+export function capShortfallCents(transferAmount: number, refundCents: number, capturedCents: number, reversedByRefund: number): number {
+  if (capturedCents <= 0 || refundCents <= 0) return 0
+  const expected = Math.round(transferAmount * Math.min(1, refundCents / capturedCents))
+  const short = expected - reversedByRefund
+  return short > 1 ? short : 0   // a cent is Stripe's rounding, not a cap
+}
+
+/** The reverse_transfer reversal Stripe made for this refund, if any, in cents. */
+async function refundReversalCents(stripe: Stripe, refundId: string): Promise<number | null> {
+  if (!refundId.startsWith('re_')) return null
+  const r = await stripe.refunds.retrieve(refundId, { expand: ['transfer_reversal'] }).catch(() => null)
+  const rev = (r as unknown as { transfer_reversal?: Stripe.TransferReversal | string | null } | null)?.transfer_reversal
+  return rev && typeof rev === 'object' ? rev.amount : null
+}
+
+/**
+ * Claim, collect and record one amount the restaurant owes for a refund. The row
+ * key is the refund id (or `<refund>:shortfall`), so a retry never collects twice.
+ */
+async function takeBack(i: FeeRecoveryInput, acct: string, label: { number: string; restaurant: string; restaurantRef: string | null },
+  key: string, cents: number, via: string, what: string): Promise<{ recovered: number; uncollected: number; sources: Source[] } | null> {
+  const claimed = (await sql`
+    INSERT INTO disco_refund_stripe_fees
+      (order_reference, restaurant_reference, stripe_refund_id, stripe_charge_id, connected_account_id, via, refund_amount, fee_amount, status)
+    VALUES (${i.orderReference}, ${label.restaurantRef}, ${key}, ${i.chargeId}, ${acct}, ${via}, ${i.refundCents / 100}, ${cents / 100}, 'pending')
+    ON CONFLICT (stripe_refund_id) DO NOTHING
+    RETURNING id
+  `) as { id: number }[]
+  if (!claimed.length) return null
+
+  let sources: Source[] = []
+  let error: unknown = null
+  try { sources = await collect(i.stripe, acct, cents, key, i.orderReference, i.ownTransferId) } catch (e) { error = e }
+  const recovered = sources.reduce((t, s) => t + s.amount, 0)
+  const uncollected = cents - recovered
+  await sql`
+    UPDATE disco_refund_stripe_fees
+       SET recovered_amount = ${recovered / 100}, sources = ${JSON.stringify(sources)}::jsonb,
+           status = ${uncollected > 0 ? 'uncollected' : 'recovered'}, updated_at = NOW()
+     WHERE id = ${claimed[0].id}
+  `
+  await sql`
+    INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+    VALUES (${i.orderReference}::uuid, ${uncollected > 0 ? 'REFUND_STRIPE_FEE_UNCOLLECTED' : 'REFUND_STRIPE_FEE_RECOVERED'},
+            ${JSON.stringify({ refundId: i.refundId, what, amount: cents / 100, recovered: recovered / 100, uncollected: uncollected / 100, sources, ...(error ? { error: String(error instanceof Error ? error.message : error).slice(0, 300) } : {}) })}::jsonb,
+            'REFUND_STRIPE_FEE')
+  `.catch(e => console.error('[refund-stripe-fee] event (non-fatal):', e instanceof Error ? e.message : e))
+  if (uncollected > 0) {
+    const why = error ? `Stripe error: ${String(error instanceof Error ? error.message : error).slice(0, 120)}` : 'no payout or balance with room'
+    await alertUncollected(i.orderReference, label, uncollected, cents, why)
+  }
+  return { recovered, uncollected, sources }
+}
+
 /** After a refund: take the refunded share of the Stripe fee back from the restaurant. Never throws. */
 export async function recoverRefundStripeFee(i: FeeRecoveryInput): Promise<FeeRecoveryResult | null> {
   try {
     if (!i.ownTransferId || !i.chargeId || !i.refundId || i.refundCents <= 0) return null
     const charge = await i.stripe.charges.retrieve(i.chargeId, { expand: ['balance_transaction'] })
     const bt = charge.balance_transaction as Stripe.BalanceTransaction | string | null
-    const feeTotal = bt && typeof bt === 'object' ? bt.fee : (bt ? (await i.stripe.balanceTransactions.retrieve(bt)).fee : 0)
+    const feeActual = bt && typeof bt === 'object' ? bt.fee : (bt ? (await i.stripe.balanceTransactions.retrieve(bt)).fee : 0)
+    // After a true-up the restaurant has already paid Stripe's actual fee in full;
+    // the refunded share is then of the estimate (lib/order/stripe-fee-trueup.ts).
+    const feeTotal = await refundFeeBasisCents(i.chargeId, feeActual)
     const captured = charge.amount_captured || charge.amount
     const feeCents = refundFeeShare(feeTotal, captured, i.refundedBeforeCents, i.refundCents)
-    if (feeCents <= 0) return null
     const own = await i.stripe.transfers.retrieve(i.ownTransferId)
     const acct = idOf(own.destination)
     if (!acct) return null
+    // The part of this refund's payout reversal that Stripe could not take because
+    // the transfer was already emptied by earlier non-refund reversals.
+    let shortfall = i.capShortfallCents ?? 0
+    if (i.capShortfallCents == null) {
+      const rev = await refundReversalCents(i.stripe, i.refundId)
+      if (rev != null) shortfall = capShortfallCents(own.amount, i.refundCents, captured, rev)
+    }
+    if (feeCents <= 0 && shortfall <= 0) return null
     const label = await orderLabel(i.orderReference)
 
-    // Claim the refund first: a retry of the same refund finds the row and stops.
-    const claimed = (await sql`
-      INSERT INTO disco_refund_stripe_fees
-        (order_reference, restaurant_reference, stripe_refund_id, stripe_charge_id, connected_account_id, via, refund_amount, fee_amount, status)
-      VALUES (${i.orderReference}, ${label.restaurantRef}, ${i.refundId}, ${i.chargeId}, ${acct}, ${i.via}, ${i.refundCents / 100}, ${feeCents / 100}, 'pending')
-      ON CONFLICT (stripe_refund_id) DO NOTHING
-      RETURNING id
-    `) as { id: number }[]
-    if (!claimed.length) return null
-
-    let sources: Source[] = []
-    let error: unknown = null
-    try { sources = await collect(i.stripe, acct, feeCents, i.refundId, i.orderReference, i.ownTransferId) } catch (e) { error = e }
-    const recovered = sources.reduce((t, s) => t + s.amount, 0)
-    const uncollected = feeCents - recovered
-    await sql`
-      UPDATE disco_refund_stripe_fees
-         SET recovered_amount = ${recovered / 100}, sources = ${JSON.stringify(sources)}::jsonb,
-             status = ${uncollected > 0 ? 'uncollected' : 'recovered'}, updated_at = NOW()
-       WHERE id = ${claimed[0].id}
-    `
-    await sql`
-      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      VALUES (${i.orderReference}::uuid, ${uncollected > 0 ? 'REFUND_STRIPE_FEE_UNCOLLECTED' : 'REFUND_STRIPE_FEE_RECOVERED'},
-              ${JSON.stringify({ refundId: i.refundId, fee: feeCents / 100, recovered: recovered / 100, uncollected: uncollected / 100, sources, ...(error ? { error: String(error instanceof Error ? error.message : error).slice(0, 300) } : {}) })}::jsonb,
-              'REFUND_STRIPE_FEE')
-    `.catch(e => console.error('[refund-stripe-fee] event (non-fatal):', e instanceof Error ? e.message : e))
-    if (uncollected > 0) {
-      const why = error ? `Stripe error: ${String(error instanceof Error ? error.message : error).slice(0, 120)}` : 'no payout or balance with room'
-      await alertUncollected(i.orderReference, label, uncollected, feeCents, why)
+    const fee = feeCents > 0 ? await takeBack(i, acct, label, i.refundId, feeCents, i.via, 'stripe_fee') : null
+    const short = shortfall > 0 ? await takeBack(i, acct, label, `${i.refundId}:shortfall`, shortfall, SHORTFALL_VIA, 'payout_reversal_shortfall') : null
+    if (!fee && !short) return null
+    return {
+      feeCents, recoveredCents: (fee?.recovered ?? 0) + (short?.recovered ?? 0),
+      uncollectedCents: (fee?.uncollected ?? 0) + (short?.uncollected ?? 0),
+      sources: [...(fee?.sources ?? []), ...(short?.sources ?? [])],
     }
-    return { feeCents, recoveredCents: recovered, uncollectedCents: uncollected, sources }
   } catch (e) {
     console.error('[refund-stripe-fee] recovery failed (non-fatal — the customer refund stands):', i.orderReference, e instanceof Error ? e.message : e)
     return null
   }
 }
+
+/** `via` on a shortfall row: the restaurant's payout reversal Stripe capped, not a Stripe fee. */
+export const SHORTFALL_VIA = 'cap_shortfall'
 
 /**
  * Super Admin's "Recover Stripe fee": for every uncollected fee on the order,
