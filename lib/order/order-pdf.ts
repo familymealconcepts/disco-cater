@@ -55,6 +55,13 @@ export interface OrderPdfData {
    * Never stored and never set by the normal order emails.
    */
   notice?: string
+  /**
+   * Where a courier collects this order when it is NOT the store — recorded on the
+   * order as a COURIER_PICKUP_CHANGED event (e.g. Gracious Bakery's Commissary on
+   * #64707077, after Expedite's booking was changed). The Store block stays the
+   * restaurant; this is shown beside it. Absent for every other order.
+   */
+  courierPickup?: { name: string; address: string; time: string; dropoffTime?: string; notice?: string }
   orderNumber: string
   reference: string
   restaurantName: string
@@ -181,7 +188,21 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   // null renders as "Unavailable" below — an honest gap, not a guess.
   const taxes = hasTxn ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax) : null
 
+  // A courier pickup moved off the store for this order (COURIER_PICKUP_CHANGED),
+  // newest wins. Read from the order's own events so nothing else on the order
+  // changes and no sync can overwrite it.
+  const pickupEv = (await sql`
+    SELECT event_data FROM disco_order_events
+     WHERE order_reference = ${String(o.reference)}::uuid AND event_type = 'COURIER_PICKUP_CHANGED'
+     ORDER BY created_at DESC LIMIT 1
+  `.catch(() => [])) as { event_data: Record<string, string> }[]
+  const pe = pickupEv[0]?.event_data
+  const courierPickup = pe?.name && pe?.address && pe?.pickupTime
+    ? { name: pe.name, address: pe.address, time: pe.pickupTime, dropoffTime: pe.dropoffTime, notice: pe.notice }
+    : undefined
+
   return {
+    courierPickup,
     orderNumber: String(o.order_number ?? ''),
     reference: String(o.reference ?? ''),
     // Snapshot-first (frozen at order time → survives a deleted/renamed restaurant),
@@ -327,8 +348,9 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
     y -= 32
   }
 
-  // ── A resend's note, above everything else ──
-  if (d.notice) fullBox([{ t: d.notice, b: true, s: 11 }], rgb(1, 0.95, 0.8))
+  // ── A note above everything else: a resend's, else the courier pickup's ──
+  const topNotice = d.notice || d.courierPickup?.notice
+  if (topNotice) fullBox([{ t: topNotice, b: true, s: 11 }], rgb(1, 0.95, 0.8))
 
   // ── Subject box + "Received on" ──
   const custName = (d.customerName && d.customerName !== '—') ? d.customerName : ''
@@ -376,6 +398,13 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   if (d.customerEmail) custLines.push(secondaryLine(d.customerEmail))
   if (d.customerPhone) custLines.push(secondaryLine(d.customerPhone))
   splitBox(storeLines, custLines, 0.5)
+
+  // ── Courier pickup, when it is not the store ──
+  if (d.courierPickup) {
+    const cp = d.courierPickup
+    fullBox([labelLine('Courier Pickup:'), { t: cp.name, b: true, s: 11 }, secondaryLine(cp.address),
+      secondaryLine(`Pickup ${cp.time}${cp.dropoffTime ? ` · Drop-off ${cp.dropoffTime}` : ''}`)], rgb(1, 0.95, 0.8))
+  }
 
   // ── Note (general order note) ──
   if (d.note) fullBox([labelLine('Note:'), { t: d.note, s: 10 }])
