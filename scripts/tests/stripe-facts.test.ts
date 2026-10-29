@@ -6,6 +6,7 @@ import { paymentLabel, PAID_LABELS } from '../../lib/order/stripe-facts'
 import { trueupDelta, trueupEnabled } from '../../lib/order/stripe-fee-trueup'
 import { capShortfallCents } from '../../lib/order/refund-stripe-fee'
 import { reconcileRow, totalsRow, TOTALS_LABEL, ORDER_REPORT_COLUMNS, type OrderReportRow } from '../../lib/reports/order-report-rows'
+import { visibleReportColumns } from '../../lib/reports/visible-columns'
 
 let passed = 0
 const failures: string[] = []
@@ -62,11 +63,12 @@ check('capped reversal shortfall (measured in test mode: $52.08 due, $50.80 reve
 })
 
 console.log('\n=== the sheet (decision 4) ===')
+const rep0 = read('lib/reports/order-report-rows.ts')
 const row = (o: Partial<OrderReportRow>): OrderReportRow => ({
   location: 'X', orderId: '1', customerName: '', createdDate: '', serviceType: 'Pickup', orderDate: '', orderTime: '',
   netSales: 100, stateTax: 0, localTax: 0, otherTax: 0, selfDeliveryFee: 0, thirdPartyDeliveryFee: 0,
   tipPickup: 0, tipSelfDelivery: 0, tipThirdPartyDelivery: 0, tipThirdPartyCourierPortion: 0, serviceCharge: 0, discount: 0,
-  leadGenOne: 10, leadGenTwo: 0, gross: 100, stripeFee: 3.2, refundAmount: 0, thirdPartySubsidy: 0, refundStripeFee: 0,
+  leadGenOne: 10, leadGenTwo: 0, gross: 100, stripeFee: 3.2, refundAmount: 0, thirdPartySubsidy: 0, roundingAdjustment: 0, refundStripeFee: 0,
   payoutAdjustment: 0, totalDistributed: 86.8, paymentStatus: 'Paid', paid: true, refundReversal: 0, settlement: 'native',
   orderStatus: 'DUE', deliveryType: null, ...o,
 } as OrderReportRow)
@@ -82,6 +84,18 @@ check('the totals row sums paid orders only', () => {
   const t = totalsRow([row({}), row({ paid: false, paymentStatus: 'Abandoned checkout', totalDistributed: 0, netSales: 500, gross: 500 })])
   eq([t.netSales, t.gross, t.totalDistributed], [100, 100, 86.8], 'totals')
   ok(/paid/i.test(TOTALS_LABEL), 'label says so')
+})
+check('a rounding-bug cent shows as Rounding Adjustment, not as a subsidy', () => {
+  // #900000338-shaped: stored subsidy −$0.01, Stripe paid the cent.
+  const r = row({ thirdPartySubsidy: 0, roundingAdjustment: 0.01, totalDistributed: 86.81 })
+  ok(reconcileRow(r).ok, 'reconciles to what Stripe paid')
+  const cols = visibleReportColumns([r, row({})])
+  ok(!cols.includes('thirdPartySubsidy') && cols.includes('roundingAdjustment'), 'subsidy hidden, rounding shown')
+  eq(totalsRow([r, row({})]).roundingAdjustment, 0.01, 'totalled')
+})
+check('the stored −$0.01 becomes the adjustment for native rows only', () => {
+  ok(rep0.includes('const roundingCent = isNative && storedSubsidy < 0 && storedSubsidy >= -0.01'), 'native only, one cent')
+  ok(rep0.includes('thirdPartySubsidy: roundingCent ? 0 : storedSubsidy,'), 'subsidy zeroed')
 })
 check('Payment and Payout Adjustment are columns; adjustment sits before Total Distributed', () => {
   const keys = ORDER_REPORT_COLUMNS.map(c => c.key)

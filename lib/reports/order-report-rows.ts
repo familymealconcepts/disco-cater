@@ -114,6 +114,14 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   // placed, and a permanently-zero column is noise. AUTO-SHOWN the moment any row
   // is non-zero (see subsidyShouldShow) so the arithmetic is never invisible.
   { key: 'thirdPartySubsidy', label: 'Third-Party Subsidy (paid by restaurant)', financial: true, nativeOnly: true, hiddenByDefault: true },
+  // ── ROUNDING ADJUSTMENT (Peter, 2026-10-29) ─────────────────────────────────
+  // Seven native orders (#900000338 and six others, 30 Sep – 22 Oct) were placed
+  // under the 1¢ rounding bug (lib/menu-settings.ts computeThirdPartyDelivery)
+  // and store a subsidy of −$0.01 at restaurants that set no subsidy. Stripe paid
+  // them that cent. The subsidy column shows $0.00 for them and the cent is shown
+  // here instead, so Total Distributed still matches the transfer. Display only:
+  // the stored figure is left as settled. Shown only when non-zero.
+  { key: 'roundingAdjustment', label: 'Rounding Adjustment', financial: true, nativeOnly: true, hiddenByDefault: true },
   // ── STRIPE FEE ON A REFUND ──────────────────────────────────────────────────
   // Peter, 2026-10-29: the restaurant bears the Stripe fee on a refund. What was
   // actually reversed from its payouts for this order's refunds
@@ -159,6 +167,8 @@ export interface OrderReportRow {
   stripeFee: number
   refundAmount: number
   thirdPartySubsidy: number
+  /** The 1¢ a rounding-bug order paid the restaurant, shown apart from the subsidy. */
+  roundingAdjustment: number
   /** Stripe fee on this order's refunds, taken back from the restaurant's payouts. */
   refundStripeFee: number
   /** Stripe's actual payout less what the order's figures add up to. */
@@ -409,6 +419,11 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       : hasFacts ? r2(n(row.sf_transferred) - n(row.sf_reversed) - n(row.refund_taken_back))
       : computed
     const payoutAdjustment = isNative && paid ? r2(totalDistributed - computed) : 0
+    // A native subsidy is never negative (the restaurant covers part of the fee or
+    // none of it); a stored −$0.01 is the rounding bug's cent, not a subsidy. See
+    // the ROUNDING ADJUSTMENT note. FamilyMeal-copied rows keep their figures.
+    const storedSubsidy = n(row.third_party_delivery_subsiding)
+    const roundingCent = isNative && storedSubsidy < 0 && storedSubsidy >= -0.01
     return {
       // A transferred order is listed under the location that was paid, naming
       // the one that prepares it, so neither reads it as a mistake.
@@ -467,7 +482,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       ),
       stripeFee: isNative ? stripeFee : n(row.stripe_fee),
       refundAmount: refund,
-      thirdPartySubsidy: n(row.third_party_delivery_subsiding),
+      thirdPartySubsidy: roundingCent ? 0 : storedSubsidy,
+      roundingAdjustment: roundingCent && paid ? r2(-storedSubsidy) : 0,
       refundStripeFee,
       payoutAdjustment,
       totalDistributed,
@@ -506,7 +522,7 @@ export function reconcileRow(r: OrderReportRow): { ok: boolean; expected: number
   const expected = r.settlement === 'native'
     ? r2(r.netSales + ownTip + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
         - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo - r.refundReversal - r.refundStripeFee
-        + (r.payoutAdjustment ?? 0))
+        + (r.roundingAdjustment ?? 0) + (r.payoutAdjustment ?? 0))
     : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + ownTip + r.serviceCharge + r.selfDeliveryFee)
         - (r.discount + r.stripeFee + r.leadGenOne + r.leadGenTwo + r.refundAmount))
   const delta = r2(Math.abs(expected - r.totalDistributed))
@@ -548,7 +564,8 @@ export function totalsRow(allRows: OrderReportRow[]): Partial<OrderReportRow> {
     serviceCharge: sum(r => r.serviceCharge),
     discount: sum(r => r.discount), leadGenOne: sum(r => r.leadGenOne), leadGenTwo: sum(r => r.leadGenTwo),
     gross: sum(r => r.gross), stripeFee: sum(r => r.stripeFee), refundAmount: sum(r => r.refundAmount),
-    thirdPartySubsidy: sum(r => r.thirdPartySubsidy), refundStripeFee: sum(r => r.refundStripeFee),
+    thirdPartySubsidy: sum(r => r.thirdPartySubsidy), roundingAdjustment: sum(r => r.roundingAdjustment ?? 0),
+    refundStripeFee: sum(r => r.refundStripeFee),
     payoutAdjustment: sum(r => r.payoutAdjustment ?? 0),
     totalDistributed: sum(r => r.totalDistributed),
   }
