@@ -371,6 +371,54 @@ function track(kind: DispatchOutcome['kind'], to: string, p: Promise<{ success: 
   )
 }
 
+/** One email an order change sends: who, which email, and the call that sends it. */
+export type OrderUpdateEmail = {
+  kind: 'customer' | 'restaurant'
+  to: string
+  /** Which email it is, for the event (e.g. 'order_updated', 'refund_issued'). */
+  email: string
+  send: () => Promise<{ success: boolean; id?: string; error?: string }>
+}
+
+/**
+ * Send the emails for an order change (an edit, its invoice paid or failed), wait
+ * for every one, and record ORDER_UPDATE_EMAILS_SENT on the order with Mailgun's
+ * id per recipient. Never throws.
+ *
+ * THE CALLER MUST HAND THIS TO waitUntil() OR AWAIT IT. The edit route used to start
+ * these sends with `.catch(() => {})` and return, so Vercel froze the function with
+ * the Mailgun POSTs in flight. Order #900000628 (The Speakeatery, 2026-10-30): the
+ * edit saved at 18:58:20 UTC and both emails reached Mailgun at 19:00:22, when the
+ * instance next woke; an instance that is never woken loses them, silently, and the
+ * order's history said nothing either way. Same cause as dispatchOrderConfirmations'
+ * 900000094 above, and the same cure: concurrent sends, all awaited, the outcome
+ * written to the order.
+ *
+ * Its own event type, not ORDER_CONFIRMATIONS_SENT: that row is once-per-order
+ * (disco_order_events_once_uq), and an order can be changed many times.
+ */
+export async function sendOrderUpdateEmails(orderReference: string, source: string, emails: OrderUpdateEmail[]): Promise<void> {
+  if (!emails.length) return
+  const results = await Promise.all(emails.map(async (e) => ({
+    email: e.email,
+    ...(await track(e.kind, e.to, Promise.resolve().then(e.send))),
+  })))
+  if (!orderReference) return
+  try {
+    const payload = JSON.stringify({
+      completedAt: new Date().toISOString(),
+      sent: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      recipients: results,
+    })
+    await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      VALUES (${orderReference}::uuid, 'ORDER_UPDATE_EMAILS_SENT', ${payload}::jsonb, ${source})`
+  } catch (err) {
+    console.error('[order-notifications] could not record order update emails:', err instanceof Error ? err.message : err)
+  }
+}
+
 // Dispatch all confirmations for a paid order. Does its own fetching; never
 // throws. Sends at most once per order thanks to claimConfirmationSend.
 //

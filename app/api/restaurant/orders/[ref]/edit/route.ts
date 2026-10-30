@@ -18,6 +18,7 @@
 // So the asymmetry is the design, not an oversight. Confirmed intentional
 // 2026-08-27 when the minimum gates were added to the placement path.
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { getRestaurantEmail } from '../../../../../../lib/restaurant-auth'
 import { getAdminEmail } from '../../../../../../lib/admin-auth'
 import Stripe from 'stripe'
@@ -33,7 +34,7 @@ import {
   sendOrderUpdated, sendOrderUpdatedRestaurant, sendOrderEditRefundIssued,
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
-import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
+import { resolveRestaurantNotificationEmails, sendOrderUpdateEmails, type OrderUpdateEmail } from '../../../../../../lib/order-notifications'
 import { repriceEditLinesFromMenu, storedLinesIfUnchanged, remapLinesToRestaurant } from '../../../../../../lib/order/native-cart-reprice'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
@@ -439,6 +440,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const stripe = stripeClient(useTestStripe)
   let paymentAction: 'charge' | 'refund' | 'invoice' | 'void-reissue' | 'none' = 'none'
   let paymentStatus: 'succeeded' | 'refunded' | 'invoiced' | 'pending' | 'failed' | 'none' = 'none'
+  // Emails a payment branch decides on before confirmEdit (the reissued invoice);
+  // confirmEdit sends them with its own, so one edit is one recorded batch.
+  const earlyEmails: OrderUpdateEmail[] = []
   let stripePaymentIntentId = ''
   let stripeRefundId = ''
   let stripeInvoiceId = ''
@@ -628,8 +632,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
     const dateStr = fmtDate(effDate)
     const timeStr = fmtTime(effTime)
+    // Every email this edit sends, sent together under waitUntil below (see
+    // sendOrderUpdateEmails for why they are no longer fire-and-forget).
+    const emails: OrderUpdateEmail[] = [...earlyEmails]
     if (customerEmail) {
-      sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }).catch(() => {})
+      emails.push({ kind: 'customer', to: customerEmail, email: 'order_updated', send: () => sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
       // GATED ON paymentStatus, NOT paymentAction. This used to read
       // `paymentAction === 'refund'`, which is set BEFORE the refund is
       // attempted — so a refund that failed still told the customer their money
@@ -639,7 +646,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       // Roxana was emailed "A refund of $172.29 has been issued... allow 5-10
       // business days" against an invoice that had never been paid.
       if (paymentStatus === 'refunded' && delta < 0) {
-        sendOrderEditRefundIssued({ to: customerEmail, firstName, orderNumber, businessName, refundAmount: Math.abs(delta) }).catch(() => {})
+        emails.push({ kind: 'customer', to: customerEmail, email: 'refund_issued', send: () => sendOrderEditRefundIssued({ to: customerEmail, firstName, orderNumber, businessName, refundAmount: Math.abs(delta) }) })
       }
     }
     // EVERY configured recipient, not disco_orders.restaurant_email. That column
@@ -667,9 +674,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       for (const to of restaurantEmails) {
-        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }).catch(() => {})
+        emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
       }
     }
+    waitUntil(sendOrderUpdateEmails(discoOrder?.reference || ref, 'DISCO_EDIT', emails))
 
     // Expedite — push the updated date/time/items to the courier (best-effort).
     // Recorded on the order; a refusal alerts ops (lib/order/courier-sync.ts).
@@ -805,14 +813,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       )
     `.catch(e => console.error('[orders/edit] pending edit insert:', e))
 
-    if (customerEmail) sendOrderEditPaymentRequired({ to: customerEmail, firstName, orderNumber, businessName, amountDue: delta, invoiceUrl: invoiceUrl || undefined }).catch(() => {})
+    const pendingEmails: OrderUpdateEmail[] = []
+    if (customerEmail) pendingEmails.push({ kind: 'customer', to: customerEmail, email: 'payment_required', send: () => sendOrderEditPaymentRequired({ to: customerEmail, firstName, orderNumber, businessName, amountDue: delta, invoiceUrl: invoiceUrl || undefined }) })
     // Same resolver as the applied-edit tail above — see its comment.
     const pendingRestaurantEmails = await resolveRestaurantNotificationEmails(
       discoOrder?.restaurant_reference ?? null, discoOrder?.restaurant_email ?? null,
     )
     for (const to of pendingRestaurantEmails) {
-      sendOrderEditPendingRestaurant({ to, orderNumber, businessName, amountDue: delta }).catch(() => {})
+      pendingEmails.push({ kind: 'restaurant', to, email: 'edit_pending_payment', send: () => sendOrderEditPendingRestaurant({ to, orderNumber, businessName, amountDue: delta }) })
     }
+    waitUntil(sendOrderUpdateEmails(discoOrder?.reference || ref, 'DISCO_EDIT', pendingEmails))
 
     await alertFamilyMealDateChange()
     return NextResponse.json({ status: 'pending_payment', editType, delta, amountDue: delta, invoiceUrl, editNumber: newEditNumber })
@@ -931,10 +941,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       }
       // An updated-invoice email, never a refund email. Nothing was refunded.
       if (customerEmail && paymentStatus === 'invoiced') {
-        sendOrderEditPaymentRequired({
+        earlyEmails.push({ kind: 'customer', to: customerEmail, email: 'payment_required', send: () => sendOrderEditPaymentRequired({
           to: customerEmail, firstName, orderNumber, businessName,
           amountDue: newTotal, invoiceUrl: reissuedUrl,
-        }).catch(() => {})
+        }) })
       }
       return await confirmEdit()
     }

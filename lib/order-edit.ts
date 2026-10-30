@@ -5,7 +5,7 @@
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sendOrderEditPaymentConfirmed, sendOrderUpdatedRestaurant, type EditItem } from './email/notifications'
-import { resolveRestaurantNotificationEmails } from './order-notifications'
+import { resolveRestaurantNotificationEmails, sendOrderUpdateEmails, type OrderUpdateEmail } from './order-notifications'
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
 import { formatTime12 } from './utils/time'
 import { assertFiniteMoney } from './promo-pricing'
@@ -657,16 +657,19 @@ export async function applyPendingEdit(args: {
     VALUES (${orderReference}::uuid, 'ORDER_EDIT_CONFIRMED', ${JSON.stringify({ invoiceId, delta: p.delta, newTotal })}::jsonb, 'EDIT_APPLY')
   `.catch(e => console.error('[applyPendingEdit] event:', e))
 
-  // Confirmation email (best-effort).
+  // Confirmation email (best-effort). Collected with the restaurant's below and
+  // awaited together — both callers await this function, so awaiting here is what
+  // keeps the instance alive (see sendOrderUpdateEmails).
+  const emails: OrderUpdateEmail[] = []
   const customerEmail = String(p.customerEmail || '')
   if (customerEmail) {
-    sendOrderEditPaymentConfirmed({
+    emails.push({ kind: 'customer', to: customerEmail, email: 'edit_payment_confirmed', send: () => sendOrderEditPaymentConfirmed({
       to: customerEmail, firstName: String(p.firstName || ''),
       orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
       orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime), orderType: typeof p.orderType === 'string' ? p.orderType : null,
       items: Array.isArray(p.newItems) ? (p.newItems as EditItem[]) : undefined,
       newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
-    }).catch(err => console.error('[applyPendingEdit] email:', err))
+    }) })
   }
 
   // ── AND THE RESTAURANT ────────────────────────────────────────────────────
@@ -681,7 +684,7 @@ export async function applyPendingEdit(args: {
       console.warn('[applyPendingEdit] no restaurant recipient at any fallback level:', orderReference)
     }
     for (const to of restaurantEmails) {
-      sendOrderUpdatedRestaurant({
+      emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({
         to,
         orderNumber: String(p.orderNumber || ''),
         businessName: String(p.businessName || 'the restaurant'),
@@ -691,11 +694,12 @@ export async function applyPendingEdit(args: {
         delta: typeof p.delta === 'number' ? p.delta : 0,
         // The edit invoice was just paid — the difference really was collected.
         paymentOutcome: { action: 'charge', status: 'succeeded' },
-      }).catch(err => console.error('[applyPendingEdit] restaurant email:', err))
+      }) })
     }
   } catch (e) {
     console.error('[applyPendingEdit] restaurant notify failed (non-fatal):', e instanceof Error ? e.message : e)
   }
+  await sendOrderUpdateEmails(orderReference, 'EDIT_APPLY', emails)
 
   // Expedite — push the updated date/time/items to the courier (best-effort),
   // recorded on the order and alerted on failure (lib/order/courier-sync.ts;

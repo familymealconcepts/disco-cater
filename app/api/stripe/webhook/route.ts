@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
-import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification } from '../../../../lib/order-notifications'
+import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification, sendOrderUpdateEmails } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
@@ -552,12 +552,16 @@ export async function POST(request: NextRequest) {
           await recordEvent(pendingEdits[0].reference, 'ORDER_EDIT_PAYMENT_FAILED', { invoiceId: invoice.id }, 'STRIPE_WEBHOOK')
           const customerEmail = String(p.customerEmail || '')
           if (customerEmail) {
-            sendOrderEditPaymentFailed({
-              to: customerEmail, firstName: String(p.firstName || ''),
-              orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
-              amountDue: Number(p.delta) || 0,
-              updatePaymentUrl: (invoice.hosted_invoice_url as string) || undefined,
-            }).catch((err) => console.error('[Webhook] edit payment-failed email failed:', err))
+            // waitUntil + recorded, never fire-and-forget (see sendOrderUpdateEmails).
+            waitUntil(sendOrderUpdateEmails(pendingEdits[0].reference, 'STRIPE_WEBHOOK', [{
+              kind: 'customer', to: customerEmail, email: 'edit_payment_failed',
+              send: () => sendOrderEditPaymentFailed({
+                to: customerEmail, firstName: String(p.firstName || ''),
+                orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
+                amountDue: Number(p.delta) || 0,
+                updatePaymentUrl: (invoice.hosted_invoice_url as string) || undefined,
+              }),
+            }]))
           }
           break
         }
