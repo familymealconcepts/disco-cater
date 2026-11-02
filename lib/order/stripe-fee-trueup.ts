@@ -38,6 +38,7 @@ import type Stripe from 'stripe'
 import { sql } from '../db'
 import { alertOps } from '../ops-alert'
 import { orderLink } from '../ops-alert-format'
+import { RestaurantFunds } from './reversal-funding'
 
 export const TRUEUP_KIND = 'stripe_fee_trueup'
 const money = (c: number) => `$${(c / 100).toFixed(2)}`
@@ -56,11 +57,6 @@ export function trueupDelta(actualFee: number, estimatedFee: number, capturedCen
   return Math.round((actualFee - estimatedFee) * kept)
 }
 
-async function headroomCents(stripe: Stripe, acct: string): Promise<number> {
-  const b = await stripe.balance.retrieve({}, { stripeAccount: acct })
-  const sum = (l: Array<{ amount: number; currency: string }> | undefined) => (l ?? []).filter(x => x.currency === 'usd').reduce((t, x) => t + x.amount, 0)
-  return Math.max(0, sum(b.available) + sum(b.pending))
-}
 
 export interface SettleResult { settledCents: number; uncollectedCents: number; moveId: string | null; how: 'reversal' | 'topup' | 'none' }
 
@@ -88,9 +84,10 @@ export async function settleFeeDifference(stripe: Stripe, i: {
     }, { idempotencyKey: `fee-trueup:${i.chargeId}` })
     return { settledCents: -i.deltaCents, uncollectedCents: 0, moveId: tr.id, how: 'topup' }
   }
-  const left = t.amount - (t.amount_reversed ?? 0)
-  const room = await headroomCents(stripe, acct).catch(() => 0)
-  const take = Math.min(i.deltaCents, left, room)
+  // Never more than Stripe will actually reverse: the available balance, or this
+  // payout's own still-pending money (lib/order/reversal-funding.ts).
+  const room = await RestaurantFunds.read(stripe, acct).then(f => f.room(t)).catch(() => 0)
+  const take = Math.min(i.deltaCents, room)
   if (take <= 0) return { settledCents: 0, uncollectedCents: i.deltaCents, moveId: null, how: 'reversal' }
   const rev = await stripe.transfers.createReversal(t.id, {
     amount: take, description: `Stripe fee above estimate on ${i.chargeId}`, metadata,

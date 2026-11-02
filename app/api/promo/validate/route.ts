@@ -35,6 +35,9 @@ const n = (v: string | number | null | undefined): number | null => {
 // isFirstTimeUser is no longer read here — first_time_only is now resolved
 // server-side via countPriorPaidOrders (restaurant-scoped), not a client-supplied,
 // platform-wide boolean. A caller that still sends it is harmlessly ignored.
+/** Shown wherever a Disco-funded promo would have been refunded. */
+const DISCO_FUNDED_PROMO_MESSAGE = 'Contact Disco Cater to process this refund.'
+
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ valid: false, message: 'Invalid request.' }, { status: 400 }) }
@@ -42,7 +45,6 @@ export async function POST(req: NextRequest) {
   const code = String(body.code || '').trim()
   const restaurantRef = body.restaurantRef ? String(body.restaurantRef) : ''
   const orderSubtotal = n(body.orderSubtotal as number) ?? 0
-  const orderTotal = n(body.orderTotal as number) ?? 0
   const userEmail = String(body.userEmail || '').trim().toLowerCase()
 
   if (!code) return NextResponse.json({ valid: false, message: 'Enter a promo code.' }, { status: 400 })
@@ -170,30 +172,10 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // (10) DISCO-funded: knocks a flat amount off orderTotal at redemption time
-  // (post-charge, /api/promo/redeem) — a different mechanism from restaurant-funded's
-  // pre-charge subtotal recompute above, so it's intentionally not unified with
-  // resolveEffectiveDiscountPct (that function is specifically for the subtotal-based
-  // recompute pipeline).
-  const value = n(promo.discount_value) ?? 0
-  let discountAmount: number
-  if (promo.discount_type === 'flat') {
-    discountAmount = Math.min(value, orderTotal)
-  } else {
-    discountAmount = orderTotal * (value / 100)
-    const cap = n(promo.max_discount_cap)
-    if (cap != null) discountAmount = Math.min(discountAmount, cap)
-    discountAmount = Math.min(discountAmount, orderTotal)
-  }
-  discountAmount = Math.max(0, Math.round(discountAmount * 100) / 100)
-
-  return NextResponse.json({
-    valid: true,
-    fundedBy: 'DISCO',
-    discountAmount,
-    discountType: promo.discount_type,
-    discountValue: value,
-    code: promo.code,
-    message: `Promo applied — you save $${discountAmount.toFixed(2)}.`,
-  })
+  // (10) DISCO-funded: NOT HONOURED (Peter's standing rule, 2 Nov 2026 — every refund
+  // comes from the restaurant; Disco's code never funds one). A Disco-funded code was a
+  // discount Disco refunded off its own balance after the charge (/api/promo/redeem),
+  // so it is refused here, before checkout, with the reason — the customer is never
+  // shown a discount that would not arrive. Peter applies one by hand in Stripe.
+  return NextResponse.json({ valid: false, fundedBy: 'DISCO', code: promo.code, message: DISCO_FUNDED_PROMO_MESSAGE }, { status: 409 })
 }

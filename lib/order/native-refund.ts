@@ -6,7 +6,8 @@ const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDE
 import { cents } from '../promo-pricing'
 import { alertRefundRefused, alertRefundFromDiscoFunds, alertRestaurantKeptPayout } from './money-alerts'
 import { recordMoneyFailure, type RefundVia } from './money-failures'
-import { recoverRefundStripeFee } from './refund-stripe-fee'
+import { recoverRefundStripeFee, planRefundRecovery } from './refund-stripe-fee'
+import { RefundFundingPlan, money } from './reversal-funding'
 
 // Issue a REAL Stripe refund for a Disco-native order against its original
 // PaymentIntent (from disco_stripe_payments). For a destination charge
@@ -36,12 +37,13 @@ import { recoverRefundStripeFee } from './refund-stripe-fee'
 // NOT mark the order refunded (or email the customer) when this throws. Both
 // refund routes already honour that.
 //
-// DISCO DOES NOT SILENTLY COVER A REFUND ON A RESTAURANT'S BEHALF. Where the
-// restaurant's share has to be reversed SEPARATELY (an invoice credit note, or
-// an order-edit exact reversal), its balance is checked BEFORE the customer's
-// money moves and the whole refund is refused if it cannot cover the share — see
-// assertReversalIsFunded. Covering a refund is a deliberate decision made case by
-// case, never a default the system falls into.
+// EVERY REFUND COMES FROM THE RESTAURANT (Peter's standing rule, 2 Nov 2026).
+// On EVERY path — a reverse_transfer card refund, an invoice credit note, an
+// edit's exact reversal, a separate edit payout — everything the restaurant owes
+// for the refund is planned and checked BEFORE the customer's money moves, and the
+// whole refund is refused if it cannot be taken back — see
+// assertRestaurantFundsRefund. Disco's code never covers a refund; Peter does that
+// by hand in Stripe when he decides to.
 //
 // A reversal that fails AFTER that check has passed (the account drained in the
 // intervening moment) still does not throw: the customer's refund is real by then
@@ -49,117 +51,63 @@ import { recoverRefundStripeFee } from './refund-stripe-fee'
 // rare case rather than the ordinary one.
 
 /**
- * REFUSE A REFUND THE RESTAURANT CANNOT FUND.
- *
- * Disco does not silently cover a refund on a restaurant's behalf. Where Disco
- * does cover one, that is a deliberate, case-by-case decision — never a default
- * the system falls into because a reversal happened to fail after the customer's
- * money had already moved.
- *
- * ── WHY THIS IS A PRE-CHECK AND NOT A RETRY ─────────────────────────────────
- * Both halves of a refund are irreversible in opposite directions: once the
- * credit note (or refund) is issued the customer's money is GONE and must not be
- * un-refunded, while the reversal that was supposed to fund it can still fail.
- * There is no ordering of the two calls that is safe after the fact, and nothing
- * retries a failed reversal — so the only moment this can be decided is BEFORE
- * any money moves.
- *
- * This mirrors what a plain card refund already does by accident of atomicity:
- * `refunds.create({ reverse_transfer: true })` moves both halves in ONE Stripe
- * call, so an unfundable reversal fails the whole refund and the caller throws
- * with nothing moved. That is the behaviour being reproduced here for the two
- * paths that reverse SEPARATELY (invoice credit notes, and order-edit exact
- * reversals), which until now issued the customer's refund first and discovered
- * the shortfall afterwards.
- *
- * THROWS, deliberately. Both refund routes already catch a throw from
- * refundNativeOrder and return it to the operator verbatim without marking the
- * order refunded, writing an event, emailing the customer or standing down the
- * courier — so throwing is what makes "nothing moved" true.
- *
- * ── AVAILABLE *PLUS PENDING* IS THE HEADROOM (changed 21 Oct 2026) ─────────
- * This used to count only the AVAILABLE balance, on the stated belief that "a
- * pending balance cannot fund a reversal". THAT BELIEF WAS WRONG, and it was
- * measured wrong in two independent places:
- *
- *   - LIVE, order #900000448 (The Speakeatery, 20 Oct 2026): available $0.00,
- *     pending $1,967.25. A $22.76 reversal SUCCEEDED and came out of PENDING —
- *     pending fell to $1,944.49 and available never moved. No negative balance.
- *   - TEST MODE, same shape: available $0.00, pending $180.00, reverse $22.76 →
- *     OK, pending $157.24, available $0.00.
- *
- * The practical cost of being wrong was large: every restaurant on a daily
- * automatic payout sits at ~$0 available all day, because the day's takings are
- * swept the moment they clear. So the old rule refused almost every refund on
- * those accounts except inside a ~25-minute window each evening.
- *
- * ── BUT THE CHECK IS STILL LOAD-BEARING, AND STRIPE WILL NOT SAVE US ────────
- * Stripe does NOT refuse a reversal that overdraws the connected account. Also
- * measured in test mode: with available $0.00 AND pending $0.00, a $150.00
- * reversal against a transfer that still had headroom SUCCEEDED and left the
- * account at MINUS $150.00. Nothing errored.
- *
- * Who eats that negative balance depends on the account, and for 35 live
- * restaurants it is Disco:
- *
- *   425  Standard, controller.losses.payments = 'stripe'   → Stripe bears it
- *   129  Standard, classic (controller.type = 'account')   → the account bears it
- *    35  Express,  controller.losses.payments = 'application' → DISCO BEARS IT
- *
- * So the rule is: allow the reversal only when available + pending COVERS it,
- * which is exactly the case where Stripe draws from pending and the balance
- * never goes negative. Beyond that we refuse, and Disco still never silently
- * covers a refund — on any account type.
- *
- * Pending is not risk-free headroom (a pending charge can still be disputed or
- * fail, which would take the balance negative later), but that is a second-order
- * risk on funds that already exist, not the first-order one of overdrawing an
- * account that has nothing in it.
+ * A refund refused because the restaurant cannot give its share back. Nothing has
+ * moved. Callers that would otherwise save something on a failed refund (an order
+ * edit) refuse the whole action on this, and show its message.
  */
-async function assertReversalIsFunded(
-  stripe: Stripe,
-  destination: string | { id?: string } | null | undefined,
-  shareCents: number,
-  ctx: Record<string, unknown>,
+export class RefundRefusedError extends Error {
+  constructor(message: string) { super(message); this.name = 'RefundRefusedError' }
+}
+
+/**
+ * REFUSE A REFUND THE RESTAURANT CANNOT GIVE BACK — before any money moves.
+ *
+ * PETER'S STANDING RULE (2 Nov 2026): every refund comes from the restaurant. Disco's
+ * code never funds a refund or any part of one; Peter covers one by hand in Stripe if
+ * Disco is ever to. So every refund plans, BEFORE the customer's money moves, every
+ * cent the restaurant owes for it — the payout reversal (explicit, or the share
+ * Stripe's reverse_transfer will take), the refunded share of Stripe's fee, any
+ * shortfall — against a specific payout (RefundFundingPlan, lib/order/reversal-funding.ts),
+ * and this refuses the whole refund if any of it cannot be placed.
+ *
+ * WHAT CAN BE PLACED is what Stripe will actually reverse: the available balance, or a
+ * payout's OWN money while still pending — never other orders' pending money. The old
+ * check counted available + all pending, and passed #900000748 (Gracious Bakery –
+ * Garden District, 2 Nov 2026): $0.00 available, $109.48 pending from another order,
+ * $70.91 needed. The customer was refunded, the reversal failed, Disco covered $73.11.
+ * The measurements are in reversal-funding.ts.
+ *
+ * WHY A PRE-CHECK, NOT A RETRY: a refund and a reversal are irreversible in opposite
+ * directions. Once the customer is refunded it cannot be undone, so a reversal that
+ * fails afterwards is a loss Disco has already taken.
+ *
+ * What the check saw is recorded on the order either way (REFUND_FUNDING_CHECKED),
+ * so a refund can be explained from the order alone.
+ */
+async function assertRestaurantFundsRefund(
+  plan: RefundFundingPlan,
+  ctx: { orderReference: string; refundCents: number; via: RefundVia } & Record<string, unknown>,
 ): Promise<void> {
-  const acct = typeof destination === 'string' ? destination : destination?.id
-  if (!acct) {
-    throw new Error('The restaurant\'s Stripe account could not be identified, so this refund cannot be funded from its payout. No money has moved.')
-  }
+  const seen = { ok: plan.ok, needed: plan.neededCents / 100, unplaced: plan.unplacedCents / 100, accounts: plan.view(), lines: plan.lines, refund: ctx.refundCents / 100, via: ctx.via }
+  await sql`
+    INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+    VALUES (${ctx.orderReference}::uuid, 'REFUND_FUNDING_CHECKED', ${JSON.stringify(seen)}::jsonb, 'NATIVE_REFUND')
+  `.catch(e => console.error('[native-refund] funding-check event (non-fatal):', e instanceof Error ? e.message : e))
+  if (plan.ok) return
 
-  const balance = await stripe.balance.retrieve({}, { stripeAccount: acct })
-  const sum = (list: Array<{ amount: number; currency: string }> | undefined) =>
-    (list ?? []).filter(b => b.currency === 'usd').reduce((t, b) => t + b.amount, 0)
-  const available = sum(balance.available)
-  const pending = sum(balance.pending)
-  // Stripe draws from pending when available is short, so BOTH count as
-  // headroom. See the header for the two measurements behind this, and for why
-  // the check still refuses beyond it.
-  const headroom = available + pending
-  if (headroom >= shareCents) return
-
-  const money = (c: number) => `$${(c / 100).toFixed(2)}`
-  console.error('[native-refund] refund refused — reversal unfunded', {
-    ...ctx, connectedAccountId: acct, reversalNeeded: money(shareCents),
-    availableBalance: money(available), pendingBalance: money(pending), combined: money(headroom),
-  })
-  const refundDollars = Number(String(ctx.refundAmount ?? '').replace(/[$,]/g, '')) || 0
-  // Recorded for NM OS's ops watch (lib/order/money-failures.ts), beside the Slack alert.
+  const can = plan.neededCents - plan.unplacedCents
+  const acct = plan.view()[0]
+  console.error('[native-refund] refund refused — the restaurant cannot give its share back', { ...ctx, ...seen })
   await recordMoneyFailure({
-    kind: 'refund_refused', via: ctx.via as RefundVia | undefined, orderReference: String(ctx.orderReference ?? ''),
-    refundAmount: refundDollars, neededAmount: shareCents / 100, heldAmount: headroom / 100,
+    kind: 'refund_refused', via: ctx.via, orderReference: ctx.orderReference,
+    refundAmount: ctx.refundCents / 100, neededAmount: plan.neededCents / 100, heldAmount: can / 100,
   })
-  await alertRefundRefused(String(ctx.orderReference ?? ''), {
-    refund: refundDollars,
-    needed: shareCents / 100, holds: headroom / 100,
-  })
-  throw new Error(
-    `This refund needs ${money(shareCents)} back from the restaurant's Stripe balance, which holds ` +
-    `${money(available)} available plus ${money(pending)} pending — ${money(headroom)} in total, ` +
-    `${money(shareCents - headroom)} short. Nothing has been refunded and no money has moved. ` +
-    `Reversing more than the restaurant holds would put its Stripe balance into the negative, so this is refused ` +
-    `rather than covered. The balance usually recovers with the next day's orders — or Disco can choose to cover ` +
-    `this refund itself as a deliberate exception.`,
+  await alertRefundRefused(ctx.orderReference, { refund: ctx.refundCents / 100, needed: plan.neededCents / 100, holds: can / 100 })
+  throw new RefundRefusedError(
+    `This refund needs ${money(plan.neededCents)} back from the restaurant, but only ${money(can)} can be taken back right now` +
+    (acct ? ` (its Stripe balance has ${money(Math.round(acct.available * 100))} available; other orders' pending money cannot be used)` : '') +
+    `. Nothing has been refunded and no money has moved. Disco does not cover refunds — retry once the restaurant's balance has ` +
+    `the money, or Peter can cover it by hand in Stripe.`,
   )
 }
 
@@ -235,11 +183,17 @@ async function refundNativeInvoiceOrder(
   // could never be refunded). Planned now, before anything moves.
   const invPi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
   const invPiId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
-  const extraSlices = requested > apply ? await planRefundSlices(stripe, orderReference, requested - apply, via, invPiId) : []
+  // ONE funding plan for the whole refund — the credit note's share and any extra
+  // slices — checked once before anything moves (assertRestaurantFundsRefund).
+  const plan = new RefundFundingPlan(stripe)
+  const extraSlices = requested > apply ? await planRefundSlices(stripe, orderReference, requested - apply, via, invPiId, plan) : []
   if (apply <= 0 && !extraSlices.length) {
     throw new Error(`This invoice has already been credited in full (${(postCn / 100).toFixed(2)} of ${(amountPaid / 100).toFixed(2)}), so there is nothing left to refund.`)
   }
-  if (apply <= 0) return executeRefundSlices(stripe, orderReference, extraSlices, via)
+  if (apply <= 0) {
+    await assertRestaurantFundsRefund(plan, { orderReference, refundCents: requested, via, invoiceId })
+    return executeRefundSlices(stripe, orderReference, extraSlices, via)
+  }
 
   // ── DECIDE THE RESTAURANT'S SHARE BEFORE THE CUSTOMER'S MONEY MOVES ───────
   // This block used to sit AFTER creditNotes.create, which meant an unfundable
@@ -265,10 +219,7 @@ async function refundNativeInvoiceOrder(
     const share = Math.min(remaining, intended)
     invShortfall = Math.max(0, intended - Math.max(0, share))
     if (share > 0) {
-      // Throws when the restaurant cannot cover it — before the credit note.
-      await assertReversalIsFunded(stripe, transfer.destination, share, {
-        orderReference, invoiceId, transferId, refundAmount: `$${(apply / 100).toFixed(2)}`, via,
-      })
+      await plan.reverse(transfer, share, 'invoice payout reversal')
       pendingReversal = { transferId, share }
     }
   } else {
@@ -287,6 +238,15 @@ async function refundNativeInvoiceOrder(
   const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
   const invChargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
   const invChargeBefore = invChargeId ? await stripe.charges.retrieve(invChargeId).catch(() => null) : null
+  const invOwnTransferId = transferId || (invChargeBefore ? (typeof invChargeBefore.transfer === 'string' ? invChargeBefore.transfer : invChargeBefore.transfer?.id ?? null) : null)
+  if (invChargeBefore) {
+    await planRefundRecovery(plan, {
+      stripe, chargeId: invChargeBefore.id, refundCents: apply, refundedBeforeCents: invChargeBefore.amount_refunded ?? 0,
+      ownTransferId: invOwnTransferId, capShortfallCents: transferId ? invShortfall : undefined,
+    })
+  }
+  // Throws — before the credit note — when the restaurant cannot give all of it back.
+  await assertRestaurantFundsRefund(plan, { orderReference, refundCents: requested, via, invoiceId, transferId })
 
   const creditNote = await stripe.creditNotes.create({
     invoice: invoiceId,
@@ -327,10 +287,9 @@ async function refundNativeInvoiceOrder(
   const refundId = pick(fromArray) || pick(fromFlat)
   const pi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
   if (invChargeBefore && refundId) {
-    const destTransfer = typeof invChargeBefore.transfer === 'string' ? invChargeBefore.transfer : invChargeBefore.transfer?.id ?? null
     await recoverRefundStripeFee({
       stripe, orderReference, chargeId: invChargeBefore.id, refundId, refundCents: apply,
-      refundedBeforeCents: invChargeBefore.amount_refunded ?? 0, ownTransferId: transferId || destTransfer, via,
+      refundedBeforeCents: invChargeBefore.amount_refunded ?? 0, ownTransferId: invOwnTransferId, via,
       capShortfallCents: transferId ? invShortfall : undefined,
     })
   }
@@ -368,12 +327,94 @@ interface RefundSlice {
   capShortfall: number         // separate payout: intended share − what was left to take (cents)
 }
 
+/**
+ * One payment's slice of a refund, with everything the restaurant owes for it added to
+ * `plan` (the payout reversal and the fee share / shortfall collected after). Returns
+ * null when the payment holds nothing to refund.
+ *
+ * `requireTransfer`: refuse a payment that paid the restaurant nothing by a Stripe
+ * transfer. A native payment with no transfer is one whose payout Disco withheld, so
+ * Disco still holds that order's own money and refunding it costs Disco nothing; a
+ * FamilyMeal-processed payment with no transfer may have been paid out some other way,
+ * so its share cannot be shown to come back (Peter, 2 Nov 2026).
+ */
+async function planPaymentSlice(
+  stripe: Stripe,
+  orderReference: string,
+  paymentIntentId: string,
+  recordedTransferId: string | null,
+  wantCents: number,
+  plan: RefundFundingPlan,
+  opts: { requireTransfer?: boolean } = {},
+): Promise<{ slice: RefundSlice; holds: number } | null> {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
+  const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
+  if (!chargeId) return null
+  const charge = await stripe.charges.retrieve(chargeId)
+  const captured = charge.amount_captured ?? charge.amount
+  const holds = captured - (charge.amount_refunded ?? 0)
+  if (holds <= 0) return null
+  const take = Math.min(holds, wantCents)
+  const hasTransfer = !!intent.transfer_data
+  let separate: RefundSlice['separate'] = null
+  let capShortfall = 0
+  // A payment paid out by a SEPARATE transfer (an edit invoice) — its id is on
+  // the payment row from now on; older ones are found by the charge they paid
+  // out of (source_transaction), within the order's transfer group.
+  let separateId = recordedTransferId
+  if (!hasTransfer && !separateId) {
+    try {
+      const list = await stripe.transfers.list({ transfer_group: orderReference, limit: 20 })
+      separateId = list.data.find(t => (typeof t.source_transaction === 'string' ? t.source_transaction : t.source_transaction?.id) === chargeId)?.id ?? null
+    } catch { /* none found */ }
+  }
+  const destTransfer = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null
+  if (!hasTransfer && !separateId && opts.requireTransfer) {
+    throw new RefundRefusedError('This payment was not paid out to the restaurant by a Stripe transfer, so the restaurant\'s share of this refund cannot be taken back from it. Nothing has been refunded and no money has moved. Disco does not cover refunds — Peter can refund this by hand in Stripe.')
+  }
+  if (hasTransfer) {
+    // reverse_transfer: Stripe takes refund ÷ charge of the transfer's ORIGINAL amount,
+    // capped at what is left on it — planned here so it is checked before it happens.
+    const own = destTransfer ? await stripe.transfers.retrieve(destTransfer) : null
+    if (!own) {
+      throw new RefundRefusedError('This payment\'s payout to the restaurant could not be found, so its share of this refund cannot be taken back. Nothing has been refunded and no money has moved.')
+    }
+    const byRefund = Math.min(own.amount - (own.amount_reversed ?? 0), Math.round(own.amount * Math.min(1, take / captured)))
+    await plan.reverse(own, byRefund, 'payout reversal (with the refund)')
+    await planRefundRecovery(plan, { stripe, chargeId, refundCents: take, refundedBeforeCents: charge.amount_refunded ?? 0, ownTransferId: own.id, reversedByRefundCents: byRefund })
+  } else if (separateId) {
+    const transfer = await stripe.transfers.retrieve(separateId)
+    const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
+    const intended = Math.round(transfer.amount * (take / captured))
+    const share = Math.min(remaining, intended)
+    capShortfall = Math.max(0, intended - Math.max(0, share))
+    if (share > 0) {
+      await plan.reverse(transfer, share, 'separate payout reversal')
+      separate = { transferId: separateId, share }
+    }
+    await planRefundRecovery(plan, { stripe, chargeId, refundCents: take, refundedBeforeCents: charge.amount_refunded ?? 0, ownTransferId: separateId, capShortfallCents: capShortfall })
+  }
+  return {
+    holds,
+    slice: {
+      paymentIntentId, amount: take, reverseTransfer: hasTransfer, separate,
+      chargeId, refundedBefore: charge.amount_refunded ?? 0,
+      ownTransferId: hasTransfer ? destTransfer : (separateId ?? null), capShortfall,
+    },
+  }
+}
+
+/**
+ * Plan a refund across the order's payments. With `plan` given the caller checks it
+ * (the invoice path folds these slices into its own plan); without, it is checked here.
+ */
 async function planRefundSlices(
   stripe: Stripe,
   orderReference: string,
   wantCents: number,
   via: RefundVia,
   excludePaymentIntent?: string | null,
+  outerPlan?: RefundFundingPlan,
 ): Promise<RefundSlice[]> {
   const rows = (await sql`
     SELECT stripe_payment_intent_id, stripe_transfer_id FROM disco_stripe_payments
@@ -381,59 +422,49 @@ async function planRefundSlices(
        AND stripe_payment_intent_id LIKE 'pi_%'
      ORDER BY created_at ASC, id ASC
   `.catch(() => [])) as { stripe_payment_intent_id: string; stripe_transfer_id: string | null }[]
+  const plan = outerPlan ?? new RefundFundingPlan(stripe)
   const slices: RefundSlice[] = []
   let left = wantCents
   let capacity = 0
   for (const r of rows) {
     if (left <= 0) break
     if (excludePaymentIntent && r.stripe_payment_intent_id === excludePaymentIntent) continue
-    const intent = await stripe.paymentIntents.retrieve(r.stripe_payment_intent_id)
-    const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
-    if (!chargeId) continue
-    const charge = await stripe.charges.retrieve(chargeId)
-    const holds = (charge.amount_captured ?? charge.amount) - (charge.amount_refunded ?? 0)
-    if (holds <= 0) continue
-    capacity += holds
-    const take = Math.min(holds, left)
-    const hasTransfer = !!intent.transfer_data
-    let separate: RefundSlice['separate'] = null
-    let capShortfall = 0
-    // A payment paid out by a SEPARATE transfer (an edit invoice) — its id is on
-    // the payment row from now on; older ones are found by the charge they paid
-    // out of (source_transaction), within the order's transfer group.
-    let separateId = r.stripe_transfer_id
-    if (!hasTransfer && !separateId) {
-      try {
-        const list = await stripe.transfers.list({ transfer_group: orderReference, limit: 20 })
-        separateId = list.data.find(t => (typeof t.source_transaction === 'string' ? t.source_transaction : t.source_transaction?.id) === chargeId)?.id ?? null
-      } catch { /* none found — refunded from funds Disco holds, as before */ }
-    }
-    if (!hasTransfer && separateId) {
-      const transfer = await stripe.transfers.retrieve(separateId)
-      const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
-      const intended = Math.round(transfer.amount * (take / (charge.amount_captured ?? charge.amount)))
-      const share = Math.min(remaining, intended)
-      capShortfall = Math.max(0, intended - Math.max(0, share))
-      if (share > 0) {
-        await assertReversalIsFunded(stripe, transfer.destination, share, {
-          orderReference, paymentIntentId: r.stripe_payment_intent_id, transferId: separateId,
-          refundAmount: `$${(take / 100).toFixed(2)}`, via,
-        })
-        separate = { transferId: separateId, share }
-      }
-    }
-    const destTransfer = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null
-    slices.push({
-      paymentIntentId: r.stripe_payment_intent_id, amount: take, reverseTransfer: hasTransfer, separate,
-      chargeId, refundedBefore: charge.amount_refunded ?? 0,
-      ownTransferId: hasTransfer ? destTransfer : (separateId ?? null), capShortfall,
-    })
-    left -= take
+    const got = await planPaymentSlice(stripe, orderReference, r.stripe_payment_intent_id, r.stripe_transfer_id, left, plan)
+    if (!got) continue
+    capacity += got.holds
+    slices.push(got.slice)
+    left -= got.slice.amount
   }
   if (left > 0) {
     throw new Error(`Only $${((wantCents - left) / 100).toFixed(2)} of this order's payments can still be refunded${capacity ? '' : ' (no refundable payment is linked)'}. No money has moved.`)
   }
+  if (!outerPlan) await assertRestaurantFundsRefund(plan, { orderReference, refundCents: wantCents, via })
   return slices
+}
+
+/**
+ * REFUND A PAYMENT DISCO DID NOT CREATE — a FamilyMeal-processed order's PaymentIntent,
+ * refunded when the order is edited down in Disco (app/api/restaurant/orders/[ref]/edit).
+ * It used to be a plain refunds.create with nothing reversed, so Disco funded the whole
+ * refund. Now it is one slice of the same machinery: the restaurant's share comes back
+ * with the refund (reverse_transfer) and its fee share after, all planned and checked
+ * first; a payment with no Stripe transfer to reverse is refused.
+ */
+export async function refundPaymentFromRestaurant(
+  stripe: Stripe,
+  orderReference: string,
+  paymentIntentId: string,
+  amountDollars: number,
+  via: RefundVia,
+): Promise<{ refundId: string; status: string; paymentIntentId: string }> {
+  const want = cents(amountDollars)
+  const plan = new RefundFundingPlan(stripe)
+  const got = await planPaymentSlice(stripe, orderReference, paymentIntentId, null, want, plan, { requireTransfer: true })
+  if (!got || got.slice.amount < want) {
+    throw new Error(`Only $${(((got?.slice.amount) ?? 0) / 100).toFixed(2)} of this payment can still be refunded. No money has moved.`)
+  }
+  await assertRestaurantFundsRefund(plan, { orderReference, refundCents: want, via, paymentIntentId })
+  return executeRefundSlices(stripe, orderReference, [got.slice], via)
 }
 
 async function executeRefundSlices(
@@ -531,28 +562,33 @@ export async function refundNativeOrder(
   const hasTransfer = !!intent.transfer_data
   const useExactReversal = hasTransfer && transferReversalDollars != null
 
-  // ── THE SAME PRE-CHECK, FOR THE SAME REASON ───────────────────────────────
-  // An EXACT reversal is a separate transfers.createReversal AFTER the refund,
-  // so it carries the identical exposure the invoice path did: customer refunded,
-  // reversal rejected for insufficient funds, Disco absorbing the difference.
-  // The plain `reverse_transfer: true` branch below needs no check — Stripe moves
-  // both halves in one call and fails the refund itself if the reversal cannot
-  // be funded, which already leaves nothing moved.
+  // ── EVERYTHING THE RESTAURANT OWES, CHECKED BEFORE THE REFUND ─────────────
+  // An EXACT reversal is a separate transfers.createReversal AFTER the refund, so
+  // it is planned here with the refunded Stripe-fee share, and the whole refund is
+  // refused if the restaurant cannot give both back — #900000748 is the case this
+  // exists for (assertRestaurantFundsRefund). A payment with no transfer is one
+  // whose payout Disco withheld: Disco still holds that order's money, nothing to plan.
   let exactReversal: { transferId: string; amount: number } | null = null
   const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id
   const charge = chargeId ? await stripe.charges.retrieve(chargeId) : null
-  if (useExactReversal && transferReversalDollars > 0) {
+  const plan = new RefundFundingPlan(stripe)
+  if (hasTransfer) {
     const transferId = charge ? (typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id) : undefined
-    if (!transferId) {
-      throw new Error('The original payout transfer for this order could not be found, so the restaurant\'s share of this refund cannot be taken back. No money has moved.')
+    if (!transferId || !charge) {
+      throw new RefundRefusedError('The original payout transfer for this order could not be found, so the restaurant\'s share of this refund cannot be taken back. No money has moved.')
     }
     const transfer = await stripe.transfers.retrieve(transferId)
     const amount = cents(transferReversalDollars)
-    await assertReversalIsFunded(stripe, transfer.destination, amount, {
-      orderReference, paymentIntentId, transferId, refundAmount: `$${amountDollars.toFixed(2)}`, via,
+    if (useExactReversal && amount > 0) {
+      await plan.reverse(transfer, amount, 'edit payout reversal')
+      exactReversal = { transferId, amount }
+    }
+    await planRefundRecovery(plan, {
+      stripe, chargeId: charge.id, refundCents: cents(amountDollars), refundedBeforeCents: charge.amount_refunded ?? 0,
+      ownTransferId: transferId, capShortfallCents: 0,
     })
-    exactReversal = { transferId, amount }
   }
+  await assertRestaurantFundsRefund(plan, { orderReference, refundCents: cents(amountDollars), via, paymentIntentId })
 
   const refund = await stripe.refunds.create({
     payment_intent: paymentIntentId,

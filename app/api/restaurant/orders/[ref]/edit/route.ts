@@ -41,7 +41,7 @@ import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
 import { assertFiniteMoney } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
-import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
+import { refundNativeOrder, refundPaymentFromRestaurant, RefundRefusedError } from '../../../../../../lib/order/native-refund'
 import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
 import { alertEditVoidFailed, alertEditReissueFailed, alertEditRefundImpossible } from '../../../../../../lib/order/money-alerts'
 import { decideEditPaymentAction } from '../../../../../../lib/order/edit-payment-action'
@@ -963,14 +963,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.abs(nativeTransferDelta), { via: 'order_edit' })
         stripeRefundId = r.refundId; paymentStatus = 'refunded'
       } catch (e) {
+        // Refused because the restaurant cannot give its share back: nothing moved,
+        // so the edit is refused whole and its reason shown, rather than saved with
+        // the customer owed a refund nobody was told about.
+        if (e instanceof RefundRefusedError) return NextResponse.json({ error: e.message }, { status: 409 })
         console.error('[orders/edit] native refund failed:', e instanceof Error ? e.message : e)
         paymentStatus = 'failed'
       }
     } else if (stripe && originalPaymentIntentId) {
+      // A FamilyMeal-processed payment. This was a plain refunds.create with nothing
+      // reversed, so Disco funded the whole refund. Now the restaurant's share comes
+      // back the same way as a native refund, checked before anything moves, and a
+      // payment with no Stripe transfer to reverse is refused (Peter, 2 Nov 2026).
       try {
-        const refund = await stripe.refunds.create({ payment_intent: originalPaymentIntentId, amount: Math.round(Math.abs(delta) * 100) })
-        stripeRefundId = refund.id; paymentStatus = 'refunded'
+        const r = await refundPaymentFromRestaurant(stripe, discoOrder?.reference || ref, originalPaymentIntentId, Math.abs(delta), 'order_edit')
+        stripeRefundId = r.refundId; paymentStatus = 'refunded'
       } catch (e) {
+        if (e instanceof RefundRefusedError) return NextResponse.json({ error: e.message }, { status: 409 })
         console.error('[orders/edit] refund failed:', e instanceof Error ? e.message : e)
         paymentStatus = 'failed'
       }

@@ -18,14 +18,17 @@
 //      covers it until Super Admin's "Recover Stripe fee" takes it from a later
 //      payout (recoverOutstandingRefundFees).
 //
-// Never more than the restaurant's Stripe balance holds (available + pending),
-// for the same reason as assertReversalIsFunded in native-refund.ts: Stripe does
-// not refuse a reversal that overdraws an account, and for Express accounts Disco
-// bears a negative balance.
+// Never more than Stripe will actually reverse (lib/order/reversal-funding.ts): the
+// available balance, or a payout's own still-pending money — not other orders'
+// pending money. Stripe does not refuse a reversal that overdraws an account where
+// the platform bears losses, so the bound is ours to keep.
 //
-// RUNS AFTER THE CUSTOMER'S REFUND AND NEVER THROWS. The customer always gets back
-// exactly the refunded amount; collecting the fee can only succeed, fall short
-// (recorded + alerted), or fail (recorded + alerted). A payment with no payout to
+// PLANNED BEFORE THE REFUND (2 Nov 2026, Peter's rule: every refund comes from the
+// restaurant). planRefundRecovery adds this fee to the refund's funding plan, and the
+// refund is refused whole if the restaurant cannot give it back — so "Disco is
+// covering it for now" is no longer an outcome a refund can choose. The collection
+// below still RUNS AFTER THE CUSTOMER'S REFUND AND NEVER THROWS: a shortfall here now
+// means the account changed in the seconds since the check (recorded + alerted). A payment with no payout to
 // the restaurant (payouts withheld) is skipped: Disco is holding the restaurant's
 // money, so there is nothing to take the fee from.
 //
@@ -37,6 +40,7 @@ import { alertOps } from '../ops-alert'
 import { orderLink } from '../ops-alert-format'
 import type { RefundVia } from './money-failures'
 import { refundFeeBasisCents } from './stripe-fee-trueup'
+import { RestaurantFunds, type RefundFundingPlan } from './reversal-funding'
 
 type Source = { transferId: string; reversalId: string; amount: number; how: 'own_payout' | 'other_payout'; manual?: boolean; by?: string | null; at: string }
 
@@ -73,50 +77,58 @@ export function refundFeeShare(feeCents: number, capturedCents: number, refunded
   return Math.max(0, Math.round(feeCents * after / capturedCents) - Math.round(feeCents * before / capturedCents))
 }
 
-async function headroomCents(stripe: Stripe, acct: string): Promise<number> {
-  const b = await stripe.balance.retrieve({}, { stripeAccount: acct })
-  const sum = (l: Array<{ amount: number; currency: string }> | undefined) => (l ?? []).filter(x => x.currency === 'usd').reduce((t, x) => t + x.amount, 0)
-  return Math.max(0, sum(b.available) + sum(b.pending))
-}
-
 /**
  * Take up to `needCents` back from the restaurant: the order's own payout first
- * (when given), then its other recent payouts, newest first. Bounded by the
- * account's balance. Returns the reversals made.
+ * (when given), then its other recent payouts, newest first. Never more than Stripe
+ * will actually reverse (lib/order/reversal-funding.ts — available balance, or a
+ * payout's own still-pending money). Returns the reversals made.
  */
 async function collect(
   stripe: Stripe, acct: string, needCents: number, refundId: string, orderReference: string,
   ownTransferId: string | null, opts: { manual?: boolean; by?: string | null; keySuffix?: string } = {},
 ): Promise<Source[]> {
   const out: Source[] = []
-  let need = needCents
-  let room = await headroomCents(stripe, acct).catch(() => 0)
-  const reverse = async (t: Stripe.Transfer, how: Source['how']) => {
-    const left = t.amount - (t.amount_reversed ?? 0)
-    const take = Math.min(left, need, room)
-    if (take <= 0) return
+  const funds = await RestaurantFunds.read(stripe, acct)
+  const own = ownTransferId ? await stripe.transfers.retrieve(ownTransferId) : null
+  await funds.takeAnywhere(own, needCents, async (t, take) => {
     const rev = await stripe.transfers.createReversal(t.id, {
       amount: take,
       description: `Stripe fee on refund ${refundId}`,
       metadata: { kind: 'refund_stripe_fee', orderReference, refundId, ...(opts.manual ? { manual: '1' } : {}) },
     }, { idempotencyKey: `refund-fee:${refundId}:${t.id}${opts.keySuffix ?? ''}` })
-    out.push({ transferId: t.id, reversalId: rev.id, amount: take, how, ...(opts.manual ? { manual: true, by: opts.by ?? null } : {}), at: new Date().toISOString() })
-    need -= take
-    room -= take
-  }
-  if (ownTransferId && need > 0 && room > 0) {
-    await reverse(await stripe.transfers.retrieve(ownTransferId), 'own_payout')
-  }
-  if (need > 0 && room > 0) {
-    // The restaurant's recent payouts, newest first (Stripe lists newest first).
-    const recent = await stripe.transfers.list({ destination: acct, limit: 100 })
-    for (const t of recent.data) {
-      if (need <= 0 || room <= 0) break
-      if (t.id === ownTransferId || t.reversed) continue
-      await reverse(t, 'other_payout')
-    }
-  }
+    out.push({ transferId: t.id, reversalId: rev.id, amount: take, how: t.id === own?.id ? 'own_payout' : 'other_payout', ...(opts.manual ? { manual: true, by: opts.by ?? null } : {}), at: new Date().toISOString() })
+  })
   return out
+}
+
+/**
+ * BEFORE a refund: add what the restaurant will owe for it beyond the payout reversal
+ * itself — the refunded share of Stripe's fee, and any payout shortfall — to the
+ * refund's funding plan, so the refund is refused whole when the restaurant cannot
+ * give it back (Peter's rule: every refund comes from the restaurant). The same
+ * numbers recoverRefundStripeFee collects afterwards.
+ *
+ * `reversedByRefundCents`: for a reverse_transfer refund, what Stripe's reversal is
+ * planned to take from the own payout (its shortfall is the rest of the intended share).
+ */
+export async function planRefundRecovery(plan: RefundFundingPlan, i: {
+  stripe: Stripe; chargeId: string; refundCents: number; refundedBeforeCents: number
+  ownTransferId: string | null; capShortfallCents?: number; reversedByRefundCents?: number
+}): Promise<void> {
+  if (!i.ownTransferId || !i.chargeId || i.refundCents <= 0) return
+  const charge = await i.stripe.charges.retrieve(i.chargeId, { expand: ['balance_transaction'] })
+  const bt = charge.balance_transaction as Stripe.BalanceTransaction | string | null
+  const feeActual = bt && typeof bt === 'object' ? bt.fee : (bt ? (await i.stripe.balanceTransactions.retrieve(bt)).fee : 0)
+  const feeTotal = await refundFeeBasisCents(i.chargeId, feeActual)
+  const captured = charge.amount_captured || charge.amount
+  const feeCents = refundFeeShare(feeTotal, captured, i.refundedBeforeCents, i.refundCents)
+  const own = await i.stripe.transfers.retrieve(i.ownTransferId)
+  const acct = idOf(own.destination)
+  if (!acct) { await plan.owe('', own, feeCents, 'Stripe fee share (no restaurant account)'); return }
+  const shortfall = i.capShortfallCents
+    ?? (i.reversedByRefundCents != null ? capShortfallCents(own.amount, i.refundCents, captured, i.reversedByRefundCents) : 0)
+  await plan.owe(acct, own, feeCents, 'Stripe fee share')
+  await plan.owe(acct, own, shortfall, 'payout shortfall')
 }
 
 async function orderLabel(orderReference: string): Promise<{ number: string; restaurant: string; restaurantRef: string | null }> {

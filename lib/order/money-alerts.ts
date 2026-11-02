@@ -89,9 +89,9 @@ export async function alertRefundRefused(ref: string, info: { refund: number; ne
     headline: `Refund refused — order ${n}`,
     lines: [
       orderLine(f, { when: null, amount: info.refund, amountLabel: 'refund' }),
-      `It needs ${money(info.needed)} back from the restaurant's Stripe balance, which holds ${money(info.holds)} (${money(info.needed - info.holds)} short). Nothing was refunded.`,
+      `It needs ${money(info.needed)} back from the restaurant; only ${money(info.holds)} can be taken back right now (${money(info.needed - info.holds)} short). Nothing was refunded.`,
     ],
-    action: "retry after the restaurant's next orders land, or have Disco cover it as an exception.",
+    action: "retry once the restaurant's balance has the money. Disco's code never covers a refund; Peter can cover it by hand in Stripe.",
     context: { ref, ...info },
   }))
 }

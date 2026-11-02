@@ -49,9 +49,39 @@ check('  control: dropping one record fails', () => {
   const doctored = SRC.replace("kind: 'payout_not_reversed', via, orderReference, refundAmount: amountDollars,", "via, orderReference, refundAmount: amountDollars,")
   ok(doctored !== SRC && recordedBeforeEachAlert(doctored), 'vacuous')
 })
-check('via reaches all three reversal checks and the invoice path', () => {
-  ok((SRC.match(/refundAmount: `\$\$\{[^}]+\}`, via,/g) ?? []).length === 3, 'assertReversalIsFunded ctx carries via three times')
+// Every refund path checks the restaurant can give its share back (assertRestaurantFundsRefund):
+// the invoice path twice, the slices, the edit's exact reversal and a FamilyMeal-processed payment.
+const FUNDING_CHECK = /assertRestaurantFundsRefund\(plan, \{ orderReference, refundCents: [^,]+, via[,\s}]/g
+check('via reaches all five funding checks and the invoice path', () => {
+  eq((SRC.match(FUNDING_CHECK) ?? []).length, 5, 'assertRestaurantFundsRefund calls carrying via')
   ok(/refundNativeInvoiceOrder\(stripe, orderReference, amountDollars, via\)/.test(SRC), 'invoice path gets via')
+})
+check('  control: a funding check without via fails', () => {
+  const doctored = SRC.replace('assertRestaurantFundsRefund(plan, { orderReference, refundCents: want, via, paymentIntentId })', 'assertRestaurantFundsRefund(plan, { orderReference, refundCents: want, paymentIntentId } as never)')
+  ok(doctored !== SRC && (doctored.match(FUNDING_CHECK) ?? []).length === 4, 'vacuous')
+})
+
+// EVERY REFUND COMES FROM THE RESTAURANT (Peter, 2 Nov 2026). A Stripe refund or credit note issued
+// anywhere but lib/order/native-refund.ts skips the funding check — that is how the FamilyMeal-edit
+// refund and the Disco-funded promo refund paid customers out of Disco's balance. The admin test
+// runner is the one exception: it runs against Stripe TEST mode only.
+console.log('\n=== every refund comes from the restaurant ===')
+import { readdirSync, statSync } from 'node:fs'
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap(n => { const p = `${dir}/${n}`; return statSync(p).isDirectory() ? (n === 'node_modules' ? [] : walk(p)) : /\.(ts|tsx)$/.test(n) ? [p] : [] })
+}
+const REFUND_CALL = /\.(refunds\.create|creditNotes\.create)\(/
+const ALLOWED = new Set(['lib/order/native-refund.ts', 'app/api/admin/tests/run/route.ts'])
+function strayRefunds(files: Array<[string, string]>): string[] {
+  return files.filter(([p, s]) => !ALLOWED.has(p) && REFUND_CALL.test(s.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, ''))).map(([p]) => p)
+}
+const ALL = [...walk('app'), ...walk('lib')].map(p => [p, read(p)] as [string, string])
+check('no refund or credit note is issued outside lib/order/native-refund.ts', () => { const s = strayRefunds(ALL); ok(!s.length, s.join(', ')) })
+check('  control: a stray refunds.create is caught', () => {
+  ok(strayRefunds([['app/api/promo/redeem/route.ts', 'await stripe.refunds.create({ payment_intent: pi, amount: 1 })']]).length === 1, 'vacuous')
+})
+check('the FamilyMeal-processed edit refund goes through refundPaymentFromRestaurant', () => {
+  ok(/refundPaymentFromRestaurant\(stripe, .*'order_edit'\)/.test(read('app/api/restaurant/orders/[ref]/edit/route.ts')), 'edit route')
 })
 const callers: Array<[string, string]> = [
   ['app/api/admin/orders/[ref]/refund/route.ts', 'admin_refund'],

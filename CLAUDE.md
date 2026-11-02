@@ -49,6 +49,34 @@ Why this exists: during the Chubby Group onboarding, `brand`, `website` and
 the sheet had data Disco had nowhere to store. Peter had not asked for them, and
 they were removed — code, columns and data.
 
+## EVERY REFUND COMES FROM THE RESTAURANT. DISCO NEVER FUNDS ONE.
+
+Standing rule from Peter (2 Nov 2026):
+
+- **Every refund must come from the restaurant.** Disco never funds a refund, or any
+  part of one, through Disco's code.
+- **If Disco ever needs to cover a refund, Peter does it by hand in Stripe.** No code
+  path, flag, retry or fallback may do it instead.
+- **Claude must never move or spend Disco's money unless Peter explicitly says so for
+  that specific case.** An approval for one case does not carry to the next.
+
+In code this means: before a refund moves the customer's money, everything the
+restaurant owes for it (the payout reversal, the refunded share of Stripe's fee, any
+shortfall) is planned against a specific payout and checked against what Stripe will
+actually reverse, and the WHOLE refund is refused with a clear reason if any of it
+cannot be taken back. That lives in `lib/order/reversal-funding.ts` and
+`assertRestaurantFundsRefund` in `lib/order/native-refund.ts` — every refund path goes
+through them. A new refund, payout or transfer path must too; one that can't is the
+bug.
+
+**What Stripe will reverse** (measured live 2 Nov 2026, #900000448 vs #900000748): the
+available balance, or a payout's OWN money while it is still pending — never other
+orders' pending money. "Available + pending" was the old, wrong rule; it let #900000748
+refund the customer and then fail the reversal, and Disco covered $73.11.
+
+Disco-funded promo codes are refused for this reason (`/api/promo/validate`,
+`/api/promo/redeem`: "Contact Disco Cater to process this refund").
+
 ## NEVER WRITE TO FAMILYMEAL. READ ONLY.
 
 FM is a live platform with thousands of restaurants taking real orders. **A write there
