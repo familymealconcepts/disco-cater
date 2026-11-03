@@ -81,6 +81,9 @@ interface OverrideMeta {
   // DIRECT (promo gates test `=== 'FAMILY_MEAL'`; disco-native-orphans selects
   // COALESCE(money_flow,'DIRECT')).
   moneyFlow: string | null
+  // FamilyMeal's own Hold Payments value (admin-list cache), null when FM has no
+  // record. A converted restaurant's FM-processed charges follow THIS one.
+  fmMoneyFlow: string | null
   // FM-side menu drift (disco_menu_drift_snapshots) — set for Disco-native
   // restaurants whose FM menu has changed since the last import/verification.
   menuDriftDetected: boolean
@@ -102,7 +105,7 @@ interface OverrideMeta {
 function defaultOverrideMeta(isDiscoNative: boolean): OverrideMeta {
   return {
     visible: false, isTest: false, isPremium: false, orderUrl: '', menuUploadUrl: null,
-    isLive: false, isDiscoNative, onlineOrderingEnabled: null, moneyFlow: null,
+    isLive: false, isDiscoNative, onlineOrderingEnabled: null, moneyFlow: null, fmMoneyFlow: null,
     menuDriftDetected: false, menuDriftDetails: [], inviteExpired: false,
     archivedAt: null,
   }
@@ -174,6 +177,16 @@ function isOnlineWith(r: Restaurant, ov: OverrideMeta | undefined): boolean {
 function effectiveMoneyFlow(r: Restaurant, ov: OverrideMeta | undefined): 'DIRECT' | 'FAMILY_MEAL' {
   const v = ov?.moneyFlow ?? r.moneyFlow ?? null
   return v === 'FAMILY_MEAL' ? 'FAMILY_MEAL' : 'DIRECT'
+}
+
+// FamilyMeal's value when it DIFFERS from what the toggle shows, else null. For
+// a converted restaurant FM still processes some orders and holds or releases
+// them by its own setting — Colonial Ranch showed DIRECT here while FM held
+// every charge for a month — so a disagreement is shown, never hidden.
+function fmMoneyFlowMismatch(r: Restaurant, ov: OverrideMeta | undefined): 'DIRECT' | 'FAMILY_MEAL' | null {
+  const fm = ov?.fmMoneyFlow
+  if (fm !== 'DIRECT' && fm !== 'FAMILY_MEAL') return null
+  return fm === effectiveMoneyFlow(r, ov) ? null : fm
 }
 
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
@@ -502,8 +515,20 @@ export default function RestaurantsOrderingPage() {
     const next = held ? 'DIRECT' : 'FAMILY_MEAL'
     setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/money-flow?moneyFlow=${next}`, { method: 'PUT' })
-    if (!res.ok) setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: held ? 'FAMILY_MEAL' : 'DIRECT' } : x))
-    else showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
+    const body = await res.json().catch(() => null) as { error?: string; fmMoneyFlow?: string | null } | null
+    if (!res.ok) {
+      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: held ? 'FAMILY_MEAL' : 'DIRECT' } : x))
+      showToast(`${r.businessName}: ${body?.error || 'Hold Payments was not changed'}`)
+      return
+    }
+    // The toggle reads the override first, so it has to move too — and FM's
+    // value comes back from the route's read-back, not assumed.
+    setOverrideMap(prev => {
+      const cur = prev[r.reference]
+      if (!cur) return prev
+      return { ...prev, [r.reference]: { ...cur, moneyFlow: next, ...(body && 'fmMoneyFlow' in body && body.fmMoneyFlow ? { fmMoneyFlow: body.fmMoneyFlow } : {}) } }
+    })
+    showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
   }
 
   // Archive (Disco-native only) replaces the old hard delete: reversible via
@@ -944,7 +969,7 @@ export default function RestaurantsOrderingPage() {
         visible?: boolean; isTest?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
-        moneyFlow?: string | null
+        moneyFlow?: string | null; fmMoneyFlow?: string | null
         menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
         inviteExpired?: boolean; archivedAt?: string | null
       }[]) {
@@ -955,6 +980,7 @@ export default function RestaurantsOrderingPage() {
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
           moneyFlow: o.moneyFlow ?? null,
+          fmMoneyFlow: o.fmMoneyFlow ?? null,
           menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
           inviteExpired: !!o.inviteExpired,
           archivedAt: o.archivedAt ?? null,
@@ -1419,7 +1445,18 @@ export default function RestaurantsOrderingPage() {
                     })()}
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
-                  <td style={cell}><Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
+                  <td style={cell}>
+                    <Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" />
+                    {(() => {
+                      const fm = fmMoneyFlowMismatch(r, ov)
+                      return fm ? (
+                        <div title="FamilyMeal's own Hold Payments setting differs from Disco's. Orders FamilyMeal processes follow FamilyMeal's setting. Toggling here sets both."
+                          style={{ fontSize: 11, color: '#E53935', fontWeight: 600, marginTop: 4, whiteSpace: 'nowrap' }}>
+                          FamilyMeal: {fm === 'FAMILY_MEAL' ? 'held' : 'released'}
+                        </div>
+                      ) : null
+                    })()}
+                  </td>
                   <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1, minWidth: 120, background: '#fff', borderLeft: '1px solid #f0f0f0' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>

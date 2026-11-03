@@ -39,7 +39,13 @@ export async function GET(req: NextRequest) {
                -- issued but its window has passed with nobody ever accepting it
                -- (acceptInvite nulls the token on success, so a non-null token
                -- past expiry means it's still sitting there, unusable).
-               inv.invite_expired
+               inv.invite_expired,
+               -- FamilyMeal's own Hold Payments value, from the 15-minute admin-list
+               -- cache. A converted restaurant's FM-processed orders follow THIS,
+               -- not Disco's money_flow, so the ordering page shows it when they
+               -- differ (Colonial Ranch Market, Oct 2026). A native restaurant
+               -- rebuilt under a new reference is looked up by its FM one.
+               fmc.fm_money_flow
         FROM disco_restaurant_overrides o
         FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
         LEFT JOIN LATERAL (
@@ -57,13 +63,22 @@ export async function GET(req: NextRequest) {
           ORDER BY a3.created_at ASC LIMIT 1
         ) inv ON true
         LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = COALESCE(o.restaurant_reference, c.restaurant_reference)
+        LEFT JOIN LATERAL (
+          SELECT l.raw->>'moneyFlow' AS fm_money_flow FROM disco_restaurant_admin_list_cache l
+          WHERE l.restaurant_reference = COALESCE(
+            (SELECT a4.fm_restaurant_reference FROM disco_restaurant_accounts a4
+             WHERE a4.restaurant_reference = COALESCE(o.restaurant_reference, c.restaurant_reference)
+               AND a4.fm_restaurant_reference IS NOT NULL LIMIT 1),
+            COALESCE(o.restaurant_reference, c.restaurant_reference))
+          LIMIT 1
+        ) fmc ON true
       `) as {
         restaurant_reference: string; is_premium: boolean | null; visible: boolean | null; is_test: boolean | null
         stripe_connected: boolean | null; stripe_checked_at: string | null
         order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
-        archived_at: string | null
+        archived_at: string | null; fm_money_flow: string | null
       }[]
 
       // Disco-native restaurants connect Stripe under their Disco reference, which
@@ -85,7 +100,7 @@ export async function GET(req: NextRequest) {
         stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null; moneyFlow: string | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
         menuDriftDetected: boolean; menuDriftDetails: unknown[]; inviteExpired: boolean
-        archivedAt: string | null
+        archivedAt: string | null; fmMoneyFlow: string | null
       }
       const byRef = new Map<string, OverrideDto>()
       for (const r of rows) {
@@ -112,6 +127,7 @@ export async function GET(req: NextRequest) {
           menuDriftDetails: (r.menu_drift_details as unknown[]) ?? [],
           inviteExpired: (r.is_disco_native ?? false) && (r.invite_expired ?? false),
           archivedAt: r.archived_at,
+          fmMoneyFlow: r.fm_money_flow,
         })
       }
 
@@ -128,18 +144,20 @@ export async function GET(req: NextRequest) {
                o.online_ordering_enabled, o.money_flow, c.menu_upload_url, c.is_live, o.archived_at,
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
                d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
-               (a.invite_token IS NOT NULL AND a.invite_token_expires_at < NOW()) AS invite_expired
+               (a.invite_token IS NOT NULL AND a.invite_token_expires_at < NOW()) AS invite_expired,
+               l.raw->>'moneyFlow' AS fm_money_flow
         FROM disco_restaurant_accounts a
         JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference AND c.is_disco_native = true
         LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
         LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = a.restaurant_reference
+        LEFT JOIN disco_restaurant_admin_list_cache l ON l.restaurant_reference = a.fm_restaurant_reference
         WHERE a.is_disco_native = true AND a.fm_restaurant_reference IS NOT NULL
       `) as {
         fm_ref: string; is_premium: boolean | null; visible: boolean | null; is_test: boolean | null; stripe_connected: boolean | null
         stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
-        archived_at: string | null
+        archived_at: string | null; fm_money_flow: string | null
       }[]
       for (const n of nativeRows) {
         if (!n.fm_ref) continue
@@ -161,6 +179,7 @@ export async function GET(req: NextRequest) {
           menuDriftDetails: (n.menu_drift_details as unknown[]) ?? [],
           inviteExpired: n.invite_expired ?? false,
           archivedAt: n.archived_at,
+          fmMoneyFlow: n.fm_money_flow,
         })
       }
 
