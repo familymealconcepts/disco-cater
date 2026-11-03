@@ -29,7 +29,7 @@ interface ReportRow {
   frequency: string; time: string; timezone: string; file_type: string
   weekday: number | null; day_of_month: string | null
   range_type: string | null; range_days: number | null
-  auto_tidy: boolean; fan_out: boolean
+  auto_tidy: boolean; fan_out: boolean; fixed_columns: boolean; cc_recipients: unknown
   columns: unknown; recipients: unknown; owner_references: unknown; filter: unknown
   last_run_at: string | null
 }
@@ -44,12 +44,12 @@ async function runGet(req: NextRequest) {
   const reports = (forceRef
     ? await sql`
         SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
-               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
+               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out, fixed_columns, cc_recipients,
                columns, recipients, owner_references, filter, last_run_at::text AS last_run_at
         FROM disco_scheduled_reports WHERE active = true AND reference = ${forceRef}::uuid`
     : await sql`
         SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
-               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out,
+               weekday, day_of_month, range_type, range_days, auto_tidy, fan_out, fixed_columns, cc_recipients,
                columns, recipients, owner_references, filter, last_run_at::text AS last_run_at
         FROM disco_scheduled_reports WHERE active = true`) as ReportRow[]
 
@@ -65,6 +65,7 @@ async function runGet(req: NextRequest) {
       weekday: r.weekday, dayOfMonth: r.day_of_month,
       rangeType: r.range_type, rangeDays: r.range_days,
       autoTidy: r.auto_tidy === true,
+      fixedColumns: r.fixed_columns === true,
       // ── LATE ARRIVALS ──────────────────────────────────────────────────
       // Sweep up orders dated before this window that only reached Neon since
       // the previous run. An FM-mirrored order carries its real placement time
@@ -82,6 +83,7 @@ async function runGet(req: NextRequest) {
       filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
     }
     const recipients = (Array.isArray(r.recipients) ? (r.recipients as string[]) : []).filter(Boolean)
+    const cc = (Array.isArray(r.cc_recipients) ? (r.cc_recipients as string[]) : []).filter(Boolean)
     let status = 'SUCCESS'
     let rowCount = 0
     let lateRows = 0
@@ -138,6 +140,7 @@ async function runGet(req: NextRequest) {
         const many = attachments.length > 1
         const res = await sendEmail({
           to: recipients.join(','),
+          ...(cc.length ? { cc: cc.join(',') } : {}),
           subject: `${r.name} — ${period.from} to ${period.to} | Disco Cater`,
           // layout() like every other transactional email — this was the one
           // sender passing bare HTML, so the report arrived with no Disco Cater

@@ -868,6 +868,13 @@ ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS auto_tidy BOOLEAN N
 -- One report per location instead of a single combined one. Default false =
 -- combined, matching every existing report.
 ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS fan_out BOOLEAN NOT NULL DEFAULT false;
+-- A report read by a machine (EggBred's importer, 2026-11-02): every column in the
+-- catalogue, in catalogue order, on every send — never the non-zero-only set —
+-- and no totals or provenance rows under the data. Default false = every other
+-- report keeps lib/reports/visible-columns.ts.
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS fixed_columns BOOLEAN NOT NULL DEFAULT false;
+-- Copied (Cc) recipients, alongside `recipients` (To).
+ALTER TABLE disco_scheduled_reports ADD COLUMN IF NOT EXISTS cc_recipients JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- ── Does this account have a Disco password of its own? ─────────────────────
 -- Conversion inserts a SENTINEL hash (bcrypt of a random UUID) so the row can

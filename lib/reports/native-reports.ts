@@ -10,7 +10,7 @@ import {
 } from './order-report-rows'
 import { resolvePeriod, type PeriodSpec, type Frequency } from './report-period'
 import { provenanceCsvRows, provenanceSummary } from './report-provenance'
-import { visibleReportColumns, rowsSpanLocations } from './visible-columns'
+import { visibleReportColumns, rowsSpanLocations, NEVER_SHOWN_COLUMNS } from './visible-columns'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
 
@@ -41,6 +41,13 @@ export const REPORT_COLUMNS: ReportColumn[] = [
 // just fixed. It is force-appended to whatever the picker stores, so an old
 // saved config or a hand-edited payload cannot produce a report without it.
 const ALWAYS_INCLUDED = 'totalDistributed'
+
+/**
+ * Every column, in catalogue order — what a fixed-columns report always carries,
+ * so an importer never sees one appear or disappear. Location is always first,
+ * even for one location. The FamilyMeal fee is never a column.
+ */
+export const FIXED_REPORT_COLUMNS: string[] = REPORT_COLUMNS.map(c => c.key).filter(k => !NEVER_SHOWN_COLUMNS.has(k))
 
 const COLUMN_LABEL: Record<string, string> = Object.fromEntries(REPORT_COLUMNS.map(c => [c.key, c.displayLabel]))
 
@@ -79,6 +86,13 @@ export interface ScheduledReportConfig {
    * on its own is the flicker this feature was asked to avoid.
    */
   autoTidy?: boolean
+  /**
+   * A report read by a machine: FIXED_REPORT_COLUMNS on every send, whatever the
+   * period holds, and only the header and order rows in a CSV (no totals or
+   * provenance rows beneath). Set per report (disco_scheduled_reports.fixed_columns);
+   * every other report keeps the non-zero-only rule in visible-columns.ts.
+   */
+  fixedColumns?: boolean
   /**
    * Sweep up orders dated before this window that only synced after the given
    * timestamp — normally the report's own previous run. See
@@ -156,7 +170,7 @@ async function fetchReportRows(
   const invalidColumns = requested.filter(k => !COLUMN_LABEL[k])
 
   if (!scopeRefs.length) {
-    return { rows: [], useCols: visibleReportColumns([], { multiLocation: scopeRefs.length > 1 }), totals: {}, invalidColumns }
+    return { rows: [], useCols: cfg.fixedColumns ? FIXED_REPORT_COLUMNS : visibleReportColumns([], { multiLocation: scopeRefs.length > 1 }), totals: {}, invalidColumns }
   }
 
   const rows = await buildOrderReportRows({
@@ -178,7 +192,9 @@ async function fetchReportRows(
   // The subsidy needs no special case any more: it appears exactly when an order
   // carries one, like every other column. auto_tidy is gone for the same reason —
   // it was a toggle between this rule and not-this-rule.
-  const useCols = visibleReportColumns(rows, { multiLocation: scopeRefs.length > 1 || rowsSpanLocations(rows) })
+  const useCols = cfg.fixedColumns
+    ? FIXED_REPORT_COLUMNS
+    : visibleReportColumns(rows, { multiLocation: scopeRefs.length > 1 || rowsSpanLocations(rows) })
 
   return { rows, useCols, totals: totalsRow(rows), invalidColumns }
 }
@@ -216,6 +232,8 @@ export async function generateReportCsv(
   assertReconciled(rows)
   const header = useCols.map(k => csvCell(COLUMN_LABEL[k])).join(',')
   const lines = rows.map(r => useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(r, k)) : cellOf(r, k))).join(','))
+  // An importer reads every line under the header as an order.
+  if (cfg.fixedColumns) return { csv: [header, ...lines].join('\n'), rowCount: rows.length, invalidColumns, rows }
   // Totals row, as the download has and as FM does.
   const t = useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(totals, k)) : ''))
   const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))

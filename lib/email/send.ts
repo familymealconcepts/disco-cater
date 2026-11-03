@@ -21,6 +21,8 @@ export interface SendEmailParams {
   /** Defaults to "Disco Cater <orders@discocater.com>". */
   from?: string
   replyTo?: string
+  /** Comma-separated Cc recipients. */
+  cc?: string
   bcc?: string
   /** Optional file attachments (e.g. a scheduled-report CSV or the order PDF).
    *  content may be a string (text/CSV) or binary bytes (PDF). */
@@ -248,6 +250,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     const form = new FormData()
     form.append('from', from)
     form.append('to', params.to)
+    if (params.cc) form.append('cc', params.cc)
     form.append('subject', params.subject)
     form.append('html', params.html)
     form.append('text', text)

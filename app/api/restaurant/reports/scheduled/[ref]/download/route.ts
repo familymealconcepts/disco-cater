@@ -22,13 +22,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (!scope) return NextResponse.json({ error: 'Report not found' }, { status: 404 })
   const rows = (await sql`
     SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
-           columns, filter
+           columns, filter, fixed_columns
     FROM disco_scheduled_reports
     WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid
     LIMIT 1
   `) as Array<{
     restaurant_reference: string; name: string; frequency: string; time: string; timezone: string; file_type: string
-    columns: unknown; filter: unknown
+    columns: unknown; filter: unknown; fixed_columns: boolean
   }>
   if (!rows.length) return NextResponse.json({ error: 'Report not found' }, { status: 404 })
   const r = rows[0]
@@ -38,6 +38,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     frequency: r.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY',
     time: r.time, timezone: r.timezone,
     columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
+    fixedColumns: r.fixed_columns === true,
     restaurantReference: r.restaurant_reference,
     filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
   }
