@@ -115,8 +115,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const isAdminEdit = access.isAdmin
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
-  let body: { activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string }
+  let body: { activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string; tip?: { type?: string; value?: unknown } }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 }) }
+
+  // ── A NEW TIP (Peter, 2026-11-02) ─────────────────────────────────────────
+  // Optional. A dollar amount, or a percentage of the order's discounted
+  // subtotal — the base checkout prices a percentage tip on (computeBreakdown).
+  // Absent means the tip is kept exactly as it is, as every edit did before.
+  const tipReq = body.tip && typeof body.tip === 'object'
+    ? { type: String(body.tip.type || '').toUpperCase(), value: Number(body.tip.value) }
+    : null
+  if (tipReq) {
+    if ((tipReq.type !== 'AMOUNT' && tipReq.type !== 'PERCENTAGE') || !Number.isFinite(tipReq.value) || tipReq.value < 0
+      || (tipReq.type === 'PERCENTAGE' && tipReq.value > 100) || (tipReq.type === 'AMOUNT' && tipReq.value > 10000)) {
+      return NextResponse.json({ error: 'Enter a tip of $0 or more, or a percentage from 0 to 100.' }, { status: 400 })
+    }
+  }
 
   const activeLines: ActiveLine[] = Array.isArray(body.activeLines) ? body.activeLines : []
   const orderDate = String(body.orderDate || '').slice(0, 10) // YYYY-MM-DD
@@ -192,7 +206,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   let itemsChanged = origMap.size !== newMap.size
   if (!itemsChanged) for (const [k, v] of newMap) if (origMap.get(k) !== v) { itemsChanged = true; break }
   const dateChanged = (!!orderDate && orderDate !== base.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (base.orderTime || '').slice(0, 5))
-  const editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
+  // TIP is set below, once the new tip is priced: a tip-only edit.
+  let editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' | 'TIP' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
 
   // ── A SAVE THAT CHANGES NOTHING IS NOT AN EDIT ────────────────────────────
   // editType fell back to RESCHEDULE when nothing differed, so pressing Save
@@ -200,6 +215,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // the order's 3 edits: #13539753's 2nd and 3rd saves were identical and left
   // it locked. Same items, quantities, options and item notes, same date and
   // time → nothing is written or sent.
+  // A tip request that names the same dollar tip is not a change; a percentage
+  // is compared after pricing, below.
+  const tipMaybeChanged = !!tipReq && !(tipReq.type === 'AMOUNT' && Math.abs(round2(tipReq.value) - round2(Number(discoOrder?.tips) || 0)) < 0.005)
+  const NOTHING_CHANGED = { success: true, noChange: true, message: 'Nothing changed, so the order was not updated.' }
+  let linesAndNotesSame = false
   if (!dateChanged && discoOrder) {
     const same = await storedLinesIfUnchanged(discoOrder.id, activeLines).catch(() => null)
     if (same) {
@@ -207,9 +227,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         .catch(() => [])) as { ref: string | null; notes: string | null }[])
         .map(r => `${r.ref || ''}|${(r.notes || '').trim()}`).sort().join('\n')
       const postedNotes = activeLines.map(l => `${l.reference || ''}|${lineNote(l) || ''}`).sort().join('\n')
-      if (storedNotes === postedNotes) {
-        return NextResponse.json({ success: true, noChange: true, message: 'Nothing changed, so the order was not updated.' })
-      }
+      linesAndNotesSame = storedNotes === postedNotes
+      if (linesAndNotesSame && !tipMaybeChanged) return NextResponse.json(NOTHING_CHANGED)
     }
   }
 
@@ -220,6 +239,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
   const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx?.restaurantReference || ''
   const isNative = restaurantRef ? await isDiscoNativeRestaurant(restaurantRef) : false
+
+  // A tip is changed only on an order Disco took the payment for: its tip is in
+  // Disco's own breakdown and payout. A FamilyMeal-processed order's tip was
+  // charged and paid out by FamilyMeal.
+  if (tipMaybeChanged && (!isNative || !discoOrder || discoOrder.fm_order_reference)) {
+    return NextResponse.json({ error: "This order's payment was taken by FamilyMeal, so its tip can't be changed here. Contact Disco Cater to change it." }, { status: 409 })
+  }
 
   // ── PRICES COME FROM THE MENU, NOT FROM THE REQUEST ───────────────────────
   // Same weakness native checkout had: every figure below — the new subtotal,
@@ -307,6 +333,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   let nativePay: RestaurantPayoutConfig | null = null
   let nativeCtx: FrozenEditContext | null = null
   let nativeLeadGenTier: 1 | 2 | 0 = 0
+  // The order's tip before and after this edit, in dollars (native orders).
+  const oldTipDollars = round2(Number(discoOrder?.tips) || 0)
+  let newTipDollars = oldTipDollars
+  let tipChanged = false
+  // Lowering a third-party delivery tip: that tip went to the courier through
+  // Disco, never to the restaurant, so refunding it would spend Disco's money.
+  let courierTipLowered = false
 
   if (isNative && discoOrder) {
     const [delRows, origRows] = await Promise.all([
@@ -360,9 +393,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       // it on an order the customer is exempt on.
       taxExempt: !!(discoOrder as { tax_exempt_id?: string | null }).tax_exempt_id,
     }
-    nativeCtx = editCtx
+    if (tipReq) {
+      newTipDollars = tipReq.type === 'AMOUNT'
+        ? round2(tipReq.value)
+        : round2((newSubtotal - round2(newSubtotal * discountPct / 100)) * tipReq.value / 100)
+      tipChanged = Math.abs(newTipDollars - oldTipDollars) >= 0.005
+      courierTipLowered = tipChanged && newTipDollars < oldTipDollars && fulfillment === 'THIRD_PARTY_DELIVERY'
+    }
+    const newCtx: FrozenEditContext = { ...editCtx, tipDollars: newTipDollars }
+    nativeCtx = newCtx
     const oldB = await priceNativeOrderAtSubtotal(restaurantRef, base.subtotal, editCtx)
-    const newB = await priceNativeOrderAtSubtotal(restaurantRef, newSubtotal, editCtx)
+    const newB = await priceNativeOrderAtSubtotal(restaurantRef, newSubtotal, newCtx)
     // Same guard as the FM-backed branch below (#61848359's fix, mirrored): a
     // native restaurant with no real tax rate on file would otherwise recompute
     // this edit's charge/refund delta at a fabricated 0% tax.
@@ -371,6 +412,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         error: "Can't recalculate this order's tax right now — no real tax rate is on file for this restaurant. Contact support if this persists.",
       }, { status: 409 })
     }
+    // A percentage that prices to the tip the order already has changes nothing.
+    if (linesAndNotesSame && !tipChanged) return NextResponse.json(NOTHING_CHANGED)
+    if (tipChanged && !itemsChanged && !dateChanged) editType = 'TIP'
     newTaxes = round2(newB.stateTax + newB.localTax + newB.otherTax)
     newFee = newB.familyMealFee
     newTotal = newB.total
@@ -529,6 +573,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     await sql`
       UPDATE disco_orders SET
         subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
+        -- The tip in dollars, as native checkout stores it (CUSTOM).
+        tips = CASE WHEN ${tipChanged} THEN ${newTipDollars} ELSE tips END,
+        tips_type = CASE WHEN ${tipChanged} THEN 'CUSTOM' ELSE tips_type END,
         -- A moved order gets a fresh restaurant reminder (lib/order/order-reminders.ts).
         admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM ${effDate}::date OR order_time IS DISTINCT FROM ${effTime}::time
           THEN false ELSE admin_reminder_sent END,
@@ -612,7 +659,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         fm_order_reference, edit_number, editor_email, edited_by, edit_type,
         original_items, new_items, original_total, previous_total, new_total, delta,
         original_date, previous_date, new_date, original_time, new_time,
-        payment_action, payment_status, stripe_payment_intent_id, stripe_invoice_id, stripe_refund_id
+        payment_action, payment_status, stripe_payment_intent_id, stripe_invoice_id, stripe_refund_id,
+        previous_tip, new_tip
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
@@ -620,14 +668,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         ${base.orderDateIso || null}::date, ${base.orderDateIso || null}::date, ${effDate || null}::date,
         ${base.orderTime || null}::time, ${effTime || null}::time,
         ${paymentAction}, ${paymentStatus},
-        ${stripePaymentIntentId || null}, ${stripeInvoiceId || null}, ${stripeRefundId || null}
+        ${stripePaymentIntentId || null}, ${stripeInvoiceId || null}, ${stripeRefundId || null},
+        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null}
       )
     `.catch(e => console.error('[orders/edit] disco_order_edits insert:', e))
 
     await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${discoOrder?.reference || ref}::uuid, 'ORDER_EDITED',
-              ${JSON.stringify({ editNumber: newEditNumber, editType, delta, newTotal, paymentAction, paymentStatus })}::jsonb, 'DISCO_EDIT')
+              ${JSON.stringify({ editNumber: newEditNumber, editType, delta, newTotal, paymentAction, paymentStatus, ...(tipChanged ? { previousTip: oldTipDollars, newTip: newTipDollars } : {}) })}::jsonb, 'DISCO_EDIT')
     `.catch(e => console.error('[orders/edit] event insert:', e))
 
     const dateStr = fmtDate(effDate)
@@ -772,7 +821,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         leadGenOne: nativeLeadGenTier === 1 ? nativeBreakdown.leadGen : 0,
         leadGenTwo: nativeLeadGenTier === 2 ? nativeBreakdown.leadGen : 0,
       } : null,
-      orderDateIso: effDate, orderTime: effTime, tips: base.tipsRaw, tipsType: base.tipsType,
+      orderDateIso: effDate, orderTime: effTime,
+      tips: tipChanged ? newTipDollars : base.tipsRaw, tipsType: tipChanged ? 'CUSTOM' : base.tipsType,
       newItems, newTotal, delta, editNumber: newEditNumber, editorEmail,
       origItems, origTotal: base.total, origDateIso: base.orderDateIso, origTime: base.orderTime,
       customerEmail, firstName, orderNumber, businessName,
@@ -788,6 +838,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       await sql`
         UPDATE disco_orders
         SET subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
+            tips = CASE WHEN ${tipChanged} THEN ${newTipDollars} ELSE tips END,
+            tips_type = CASE WHEN ${tipChanged} THEN 'CUSTOM' ELSE tips_type END,
             -- A moved order gets a fresh restaurant reminder (lib/order/order-reminders.ts).
             admin_reminder_sent = CASE WHEN order_date IS DISTINCT FROM ${effDate}::date OR order_time IS DISTINCT FROM ${effTime}::time
               THEN false ELSE admin_reminder_sent END,
@@ -802,14 +854,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         fm_order_reference, edit_number, editor_email, edited_by, edit_type,
         original_items, new_items, original_total, previous_total, new_total, delta,
         original_date, previous_date, new_date, original_time, new_time,
-        payment_action, payment_status, stripe_invoice_id
+        payment_action, payment_status, stripe_invoice_id, previous_tip, new_tip
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
         ${base.total}, ${base.total}, ${newTotal}, ${delta},
         ${base.orderDateIso || null}::date, ${base.orderDateIso || null}::date, ${effDate || null}::date,
         ${base.orderTime || null}::time, ${effTime || null}::time,
-        'invoice', 'pending', ${stripeInvoiceId || null}
+        'invoice', 'pending', ${stripeInvoiceId || null},
+        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null}
       )
     `.catch(e => console.error('[orders/edit] pending edit insert:', e))
 
@@ -953,6 +1006,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // refundNativeOrder (the same helper the dedicated full-refund routes use) so
     // a transfer_data-backed charge gets reverse_transfer:true — the restaurant's
     // payout shrinks proportionally instead of Disco absorbing the whole refund.
+    // A LOWER COURIER TIP IS NOT REFUNDED HERE. It went to the courier through
+    // Disco, so the restaurant has none of it to give back, and Disco's money
+    // moves only with Peter's explicit OK (CLAUDE.md). Refused before anything
+    // moves; the edit is refused whole.
+    if (courierTipLowered) {
+      return NextResponse.json({ error: "Contact Disco Cater to lower this order's tip. It is a courier tip held by Disco Cater, so it can't be refunded from here. Nothing was changed." }, { status: 409 })
+    }
     paymentAction = 'refund'
     if (stripe && isNative && discoOrder) {
       try {

@@ -223,6 +223,9 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // FamilyMeal nor the courier, so it is warned about before saving.
   const [dateChangeWarning, setDateChangeWarning] = useState('')
   const [editReason, setEditReason] = useState('')
+  // A new tip (Peter, 2026-11-02): null = keep the order's tip. A dollar amount,
+  // or a percentage of the discounted subtotal, as checkout prices it.
+  const [tipEdit, setTipEdit] = useState<{ type: 'AMOUNT' | 'PERCENTAGE'; input: string } | null>(null)
 
   // ─── Commit / discard / UI ────────────────────────────────────────────────
   const [committing, setCommitting] = useState(false)
@@ -490,7 +493,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   }, [showAllTimes, scheduleSlots, draftTime, orderTime])
 
   const rescheduled = toIsoDateInput(orderDate) !== origDt.current.date || (orderTime || '').slice(0, 5) !== origDt.current.time
-  const changed = cartChanged || rescheduled
+  const changedItemsOrDate = cartChanged || rescheduled
 
   // (The Disco-native edit POST sends activeLines/date/time directly — no FM
   // checkout payload is built client-side anymore.)
@@ -515,9 +518,19 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const newSubtotal = cartEmpty ? 0 : cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
   const taxesFees = cartEmpty ? 0 : Math.round(newSubtotal * taxRate * 100) / 100
   const delivery = cartEmpty ? 0 : origDeliveryFee
-  const tip = cartEmpty ? 0 : origTip
+  // The tip: the order's own, or the new one being entered. A percentage is of
+  // the discounted subtotal, the same base checkout and the server use.
+  const tipValue = tipEdit ? Number(tipEdit.input) : NaN
+  const tipValid = !tipEdit || (tipEdit.input.trim() !== '' && Number.isFinite(tipValue) && tipValue >= 0 && (tipEdit.type === 'AMOUNT' || tipValue <= 100))
+  const discountRatio = origSubtotal > 0 ? origMoney.discount / origSubtotal : 0
+  const enteredTip = tipEdit && tipValid
+    ? (tipEdit.type === 'AMOUNT' ? round2(tipValue) : round2(round2(newSubtotal - round2(newSubtotal * discountRatio)) * tipValue / 100))
+    : origTip
+  const tipChanged = !!tipEdit && tipValid && Math.abs(enteredTip - round2(origTip)) >= 0.005
+  const tip = cartEmpty ? 0 : (tipChanged ? enteredTip : origTip)
   const newTotal = cartEmpty ? 0 : newSubtotal + taxesFees + delivery + tip
   const delta = newTotal - origTotal
+  const changed = changedItemsOrDate || tipChanged
 
   // Break `taxesFees` back out into the lines the receipt shows (Taxes /
   // Platform Fee / Service Charge) instead of one bucketed row. Display only:
@@ -627,6 +640,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
     // client-side; the server enforces the same limit.
     if (editCount >= 3) { setCommitError('Maximum edits reached for this order.'); return }
     if (!canEdit) return
+    if (!tipValid) { setCommitError('Enter a tip of $0 or more, or a percentage from 0 to 100.'); return }
     setCommitError(null)
     setCommitting(true)
     try {
@@ -651,6 +665,8 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
           orderDate: toIsoDateInput(orderDate),
           orderTime,
           editorEmail,
+          // Only when the tip actually changes; absent keeps the order's tip.
+          ...(tipChanged && tipEdit ? { tip: { type: tipEdit.type, value: Number(tipEdit.input) } } : {}),
         }),
       })
       const data = (await res.json().catch(() => ({}))) as AnyRec
@@ -897,7 +913,43 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
               <Row label="Taxes & Fees" value={formatCurrency(taxesFees)} />
             )}
             {delivery > 0 && <Row label="Delivery Fee" value={formatCurrency(delivery)} />}
-            <Row label="Tip" value={formatCurrency(tip)} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1 }}><Row label="Tip" value={formatCurrency(tip)} /></div>
+              {!tipEdit && (
+                <button type="button" onClick={() => setTipEdit({ type: 'AMOUNT', input: round2(origTip).toFixed(2) })}
+                  style={{ background: 'none', border: 'none', color: BLUE, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                  Change
+                </button>
+              )}
+            </div>
+            {tipEdit && (
+              <div style={{ margin: '6px 0 10px', padding: '10px 12px', border: `1px solid ${BLUE}`, borderRadius: 10, background: 'rgba(91,111,232,0.06)' }}>
+                <div style={{ fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>New tip</div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {(['AMOUNT', 'PERCENTAGE'] as const).map(t => (
+                    <button key={t} type="button" onClick={() => setTipEdit({ type: t, input: t === tipEdit.type ? tipEdit.input : '' })}
+                      style={{ border: `1px solid ${BLUE}`, background: tipEdit.type === t ? BLUE : '#fff', color: tipEdit.type === t ? '#fff' : BLUE, borderRadius: 999, padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                      {t === 'AMOUNT' ? '$' : '%'}
+                    </button>
+                  ))}
+                  <input type="number" inputMode="decimal" min={0} max={tipEdit.type === 'PERCENTAGE' ? 100 : undefined} step={tipEdit.type === 'PERCENTAGE' ? 1 : 0.01}
+                    aria-label={tipEdit.type === 'AMOUNT' ? 'Tip in dollars' : 'Tip as a percentage'}
+                    value={tipEdit.input} onChange={e => setTipEdit({ ...tipEdit, input: e.target.value })}
+                    style={{ flex: 1, minWidth: 0, border: '1px solid #ddd', borderRadius: 8, padding: '6px 8px', fontSize: 13, fontFamily: F }} />
+                  <button type="button" onClick={() => setTipEdit(null)}
+                    style={{ background: 'none', border: 'none', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                    Keep original
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: tipValid ? '#888' : RED, marginTop: 6, lineHeight: 1.4 }}>
+                  {!tipValid
+                    ? 'Enter a tip of $0 or more, or a percentage from 0 to 100.'
+                    : tipChanged
+                      ? `Tip ${formatCurrency(origTip)} → ${formatCurrency(enteredTip)}${tipEdit.type === 'PERCENTAGE' ? ` (${tipValue}% of the subtotal)` : ''}`
+                      : 'Same as the current tip.'}
+                </div>
+              </div>
+            )}
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
             <Row label="Total" value={formatCurrency(newTotal)} bold />
 

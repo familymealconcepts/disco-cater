@@ -519,6 +519,15 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
           </div>
         )}
 
+        {typeof e.previousTip === 'number' && typeof e.newTip === 'number' && e.previousTip !== e.newTip && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#555' }}>
+            <div style={{ fontWeight: 600, color: DARK, marginBottom: 4 }}>Tip Change</div>
+            <span style={{ color: '#E76F51', textDecoration: 'line-through' }}>{fmt(e.previousTip)}</span>
+            <span style={{ margin: '0 6px', color: '#aaa' }}>→</span>
+            <span style={{ color: '#2E9E5B', fontWeight: 600 }}>{fmt(e.newTip)}</span>
+          </div>
+        )}
+
         {Array.isArray(itemChanges) && itemChanges.length > 0 && (
           <div style={{ marginTop: 10, fontSize: 12, color: '#555' }}>
             <div style={{ fontWeight: 600, color: DARK, marginBottom: 4 }}>Item Changes</div>

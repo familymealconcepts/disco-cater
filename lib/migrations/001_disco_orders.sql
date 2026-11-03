@@ -422,6 +422,10 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edit_type VARCHAR(20);
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_total NUMERIC;
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
+-- The tip in dollars before and after an edit that changed it; NULL when the
+-- edit left the tip alone (2026-11-02).
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_tip NUMERIC;
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS new_tip NUMERIC;
 
 -- Allow PAYMENT_FAILED (checkout payment failure, set by the Stripe webhook) and
 -- REOPEN/CANCELLED (FM history statuses pulled in by the FM→Neon orders sync).

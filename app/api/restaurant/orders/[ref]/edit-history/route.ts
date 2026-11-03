@@ -44,7 +44,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
                to_char(original_date, 'YYYY-MM-DD') AS "originalDate",
                to_char(new_date, 'YYYY-MM-DD') AS "newDate",
                payment_action AS "paymentAction",
-               payment_status AS "paymentStatus"
+               payment_status AS "paymentStatus",
+               previous_tip::float8 AS "previousTip",
+               new_tip::float8 AS "newTip"
         FROM disco_order_edits
         WHERE fm_order_reference = ${ref}::uuid
         ORDER BY edit_number ASC
