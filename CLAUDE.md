@@ -77,6 +77,22 @@ refund the customer and then fail the reversal, and Disco covered $73.11.
 Disco-funded promo codes are refused for this reason (`/api/promo/validate`,
 `/api/promo/redeem`: "Contact Disco Cater to process this refund").
 
+## NEVER CHANGE HOLD PAYMENTS OR MOVE HELD MONEY WITHOUT PETER'S OK FOR THAT RESTAURANT
+
+Standing rule from Peter (3 Nov 2026). **Withholding is a deliberate part of the business,
+not a fault.** The team covers customer refunds by hand and withholds them from the
+restaurant's next payout, managed manually. A restaurant whose payments are held, or
+whose charges are not transferring, is not a bug to fix.
+
+- **Never change any restaurant's Hold Payments setting** (Disco's `money_flow` or
+  FamilyMeal's `moneyFlow`), in either direction.
+- **Never release, transfer or move held money.**
+- Either one needs **Peter's explicit OK for that specific restaurant.** An OK for one
+  restaurant does not carry to another, or to a later change at the same one.
+
+Reading the setting and reporting what is held is fine. Proposing a change is fine.
+Making it is not, without that OK.
+
 ## NEVER WRITE TO FAMILYMEAL. READ ONLY.
 
 FM is a live platform with thousands of restaurants taking real orders. **A write there
