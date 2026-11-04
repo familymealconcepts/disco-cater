@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { isFmSystemHolidayName } from '../../../../../lib/holidays'
 import { suggestEmailCorrection, emailDomainOf } from '../../../../../lib/email-typo'
+import { MoreInfoField } from '../../../../components/MoreInfo'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -141,6 +142,9 @@ export default function OrderSettingsPage() {
   const [newPhone, setNewPhone] = useState('')
   const [announcement, setAnnouncement] = useState('')
   const [announcementDirty, setAnnouncementDirty] = useState(false)
+  const [moreInfo, setMoreInfo] = useState('')
+  const [moreInfoRef, setMoreInfoRef] = useState<string | null>(null)
+  const [moreInfoDirty, setMoreInfoDirty] = useState(false)
   const [urlSlug, setUrlSlug] = useState('')
   const [urlSlugDirty, setUrlSlugDirty] = useState(false)
   const [urlSlugError, setUrlSlugError] = useState<string | null>(null)
@@ -190,6 +194,11 @@ export default function OrderSettingsPage() {
     setFeesAndTips(effectiveFees)
     setClosedDays(Array.isArray(closed) ? closed : [])
     if (effectiveFees?.announcement) setAnnouncement(effectiveFees.announcement)
+    // More Info is Disco-only for every restaurant (lib/more-info.ts), so it is read from Disco
+    // here even when FamilyMeal owns the rest of this page.
+    fetch('/api/restaurant/more-info').then(r => r.ok ? r.json() : null).then(d => {
+      setMoreInfo(d?.moreInfo || ''); setMoreInfoRef(d?.restaurant_reference || null); setMoreInfoDirty(false)
+    }).catch(() => {})
     if (effectiveFees?.businessNameWithoutSpaces) setUrlSlug(effectiveFees.businessNameWithoutSpaces)
 
     if (rest?.reference) {
@@ -249,6 +258,16 @@ export default function OrderSettingsPage() {
         })).ok
     setFeesAndTips(merged)
     showToast(ok ? 'Saved' : 'Could not save — please try again')
+  }
+
+  async function saveMoreInfo() {
+    // restaurant_reference captured from this page's own load — never the live selection.
+    const res = await fetch('/api/restaurant/more-info', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restaurant_reference: moreInfoRef, moreInfo }),
+    })
+    if (res.ok) setMoreInfoDirty(false)
+    showToast(res.ok ? 'Saved' : 'Could not save — please try again')
   }
 
   async function toggleOnlineOrdering(val: boolean) {
@@ -556,6 +575,19 @@ export default function OrderSettingsPage() {
             </button>
           )}
         </div>
+      </Section>
+
+      {/* More Info (directly below the Announcement Banner) */}
+      <Section title="More Info">
+        <MoreInfoField value={moreInfo} onChange={v => { setMoreInfo(v); setMoreInfoDirty(true) }} inputStyle={inputStyle} />
+        {moreInfoDirty && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <button onClick={saveMoreInfo}
+              style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+              Save
+            </button>
+          </div>
+        )}
       </Section>
 
       {/* Scheduling Override */}

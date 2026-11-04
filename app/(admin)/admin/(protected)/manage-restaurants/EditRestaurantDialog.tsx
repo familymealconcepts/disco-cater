@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
+import { MoreInfoField } from '../../../../components/MoreInfo'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -102,6 +103,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [newCuisine, setNewCuisine] = useState('')
   const [addCuisineBusy, setAddCuisineBusy] = useState(false)
   const [description, setDescription] = useState('')
+  const [moreInfo, setMoreInfo] = useState('')
+  const [moreInfoLoaded, setMoreInfoLoaded] = useState(false)
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
@@ -176,8 +179,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       fetch(`/api/admin/restaurants/${restaurantRef}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/admin/restaurant-cache?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`/api/admin/restaurant-overrides?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([fm, cache, ov]: [FmRestaurant | null, CacheRow | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string; stripeConnected?: boolean } | null]) => {
+      fetch(`/api/admin/restaurants/${restaurantRef}/more-info`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([fm, cache, ov, mi]: [FmRestaurant | null, CacheRow | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string; stripeConnected?: boolean } | null, { moreInfo?: string } | null]) => {
       if (cancel) return
+      // Saved only when it loaded, so a failed read can never be written back as empty.
+      setMoreInfo(mi?.moreInfo || ''); setMoreInfoLoaded(mi !== null)
       if (fm) {
         setExisting(fm)
         setFirstName(fm.admin?.firstName || '')
@@ -485,6 +491,16 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       })
       if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium override failed to save')
 
+      // 2b) More Info → Neon (Disco-only, lib/more-info.ts).
+      if (moreInfoLoaded) {
+        const miRes = await fetch(`/api/admin/restaurants/${restaurantRef}/more-info`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ moreInfo }),
+        })
+        if (!miRes.ok) throw new Error('Saved restaurant, but More Info failed to save')
+      }
+
       // 3) Push the new map image to FM's marketplace logo too (FM side still needs it).
       if (imageFile) {
         const fd = new FormData(); fd.append('file', imageFile)
@@ -607,6 +623,12 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <div><label style={label}>State</label><input style={input} value={stateVal} onChange={e => setStateVal(e.target.value)} maxLength={2} /></div>
                   <div><label style={label}>Zip</label><input style={input} value={zipcode} onChange={e => setZipcode(e.target.value)} /></div>
                 </div>
+              </div>
+
+              {/* More Info — shown to diners behind a button under the address (Neon) */}
+              <div style={section}>
+                <div style={sTitle}>More Info</div>
+                <MoreInfoField value={moreInfo} onChange={setMoreInfo} inputStyle={input} />
               </div>
 
               {/* Map listing (Neon disco_restaurant_cache) */}

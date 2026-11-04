@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { HOLIDAYS } from '../../../../../../lib/holidays'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
+import { MoreInfoField } from '../../../../../components/MoreInfo'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -45,6 +46,7 @@ export default function RestaurantSettingsPage() {
   const [enableMenuSearch, setEnableMenuSearch] = useState(false)
   const [deliveryWindow, setDeliveryWindow] = useState<'exact' | '15_min' | '30_min' | '1_hour'>('exact')
   const [announcement, setAnnouncement] = useState('')
+  const [moreInfo, setMoreInfo] = useState('')
 
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
   const [holidays, setHolidays] = useState<Set<string>>(new Set())
@@ -58,11 +60,12 @@ export default function RestaurantSettingsPage() {
   async function load() {
     setLoading(true)
     try {
-      const [s, c, st, mv] = await Promise.all([
+      const [s, c, st, mv, mi] = await Promise.all([
         fetch('/api/restaurant/disco-settings').then(r => r.json()),
         fetch('/api/restaurant/disco-closed-days').then(r => r.json()),
         fetch('/api/restaurant/stripe-status').then(r => r.ok ? r.json() : { connected: false }).catch(() => ({ connected: false })),
         fetch('/api/restaurant/marketplace-visibility').then(r => r.ok ? r.json() : { visible: false }).catch(() => ({ visible: false })),
+        fetch('/api/restaurant/more-info').then(r => r.ok ? r.json() : { moreInfo: '' }).catch(() => ({ moreInfo: '' })),
       ])
       const set = s.settings || {}
       setSlug(s.slug || null); setUrlSlug(s.slug || ''); setUrlError('')
@@ -78,6 +81,7 @@ export default function RestaurantSettingsPage() {
       setEnableMenuSearch(set.enable_menu_search === true)
       setDeliveryWindow(set.delivery_order_time_windows || 'exact')
       setAnnouncement(set.announcement || '')
+      setMoreInfo(mi.moreInfo || '')
       setClosedDays(Array.isArray(c.closedDays) ? c.closedDays : [])
       const hol = new Set<string>(Array.isArray(c.holidays) ? c.holidays : [])
       setHolidays(hol)
@@ -122,6 +126,17 @@ export default function RestaurantSettingsPage() {
         // the form re-points at whatever location is actually selected now.
         setSaveError(d?.error || 'Failed to save. Please try again.')
         if (res.status === 400 || res.status === 403 || res.status === 409) load()
+        return
+      }
+      // More Info has its own route (lib/more-info.ts) with the same write check, saved with
+      // the rest of the form to the same restaurant_reference.
+      const miRes = await fetch('/api/restaurant/more-info', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_reference: restaurantRef, moreInfo }),
+      })
+      if (!miRes.ok) {
+        const d = await miRes.json().catch(() => null)
+        setSaveError(d?.error || 'Saved settings, but More Info failed to save. Please try again.')
         return
       }
       // Persist holiday checkbox changes (edited in-memory since load) by diffing
@@ -337,6 +352,12 @@ export default function RestaurantSettingsPage() {
         <div style={h2}>Announcement Banner</div>
         <textarea value={announcement} onChange={e => setAnnouncement(e.target.value)} maxLength={500} rows={3} placeholder="Show a message to customers on your menu page…" style={{ ...input, width: '100%', resize: 'vertical' }} />
         <div style={{ fontSize: 11, color: '#bbb', marginTop: 6 }}>{announcement.length}/500</div>
+      </div>
+
+      {/* 10b — More Info (directly below the Announcement Banner) */}
+      <div style={card}>
+        <div style={h2}>More Info</div>
+        <MoreInfoField value={moreInfo} onChange={setMoreInfo} inputStyle={input} />
       </div>
 
       {/* 11 — Schedule Override (Closed Days) */}

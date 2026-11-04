@@ -255,6 +255,9 @@ export async function runMigrations(): Promise<void> {
     // (mirrors FM's phoneNotificationType). All default off/empty → no visible change.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS enable_menu_search BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS announcement TEXT`,
+    // "More Info" (2026-11-04): optional plain-text note for diners, shown behind a button under
+    // the address on the ordering page. Disco-only for native and FM-backed alike. lib/more-info.ts.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS more_info TEXT`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS text_notifications_enabled BOOLEAN NOT NULL DEFAULT false`,
     // Disco-side mirror of FM's per-restaurant `moneyFlow` (DIRECT | FAMILY_MEAL),
     // written alongside the FM money-flow PUT.

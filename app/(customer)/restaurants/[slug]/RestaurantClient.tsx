@@ -22,6 +22,7 @@ import { categoryLeadTimeHours, isCategoryLeadSatisfied, categoryLeadNotice } fr
 import { trackEvent } from '../../../../lib/analytics'
 import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
+import { MoreInfoButton } from '../../../components/MoreInfo'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
@@ -328,7 +329,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // onlineOrderingAllowed=false → the restaurant has paused online ordering; the
   // checkout CTA is disabled and a notice is shown (the server also hard-gates it).
   restaurantSettings?: {
-    enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string
+    enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string; moreInfo?: string
     /**
      * Replaces the default "not accepting online orders" line when ordering is
      * off for a reason that needs its own wording. Customer-facing, so it must
@@ -2276,6 +2277,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               )}
               <h1 style={{ fontSize: 24, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>{restaurant.name}</h1>
               <div style={{ fontSize: 13, color: '#585786', marginBottom: 6 }}>📍 {restaurant.address || restaurant.location}</div>
+              {/* "More Info" (lib/more-info.ts): a small text button under the address, only when
+                  the restaurant has written something. */}
+              <MoreInfoButton restaurantName={restaurant.name} text={restaurantSettings?.moreInfo} />
               {/* Cuisine tags are a BROWSE filter — they exist so someone scanning the
                   marketplace can tell one restaurant from the next. A customer who
                   followed the restaurant's own link already knows what it serves. 3P only. */}

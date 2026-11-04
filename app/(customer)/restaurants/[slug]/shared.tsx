@@ -196,6 +196,20 @@ const fetchFmRestaurantByRef = cache(async (ref: string): Promise<FmRestaurantLo
 // checked on Apollo Bagels - FiDi, where both report deliveryOrderTimeWindows
 // '30_min'. Reading them twice would just be a second source to drift.
 interface FmFeesAndTips { announcement?: string | null }
+
+// "More Info" for an FM-backed restaurant (lib/more-info.ts). FamilyMeal has no such field; the
+// portal saves it on the FM reference's disco_restaurant_overrides row, so it is read from there.
+// Fails soft: a lookup error only hides the button.
+const fetchDiscoMoreInfo = cache(async (ref: string): Promise<string | null> => {
+  try {
+    const rows = (await withDiscoTables(() => sql`
+      SELECT more_info FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
+    `, runMigrations)) as { more_info: string | null }[]
+    return (rows[0]?.more_info || '').trim() || null
+  } catch {
+    return null
+  }
+})
 const fetchFmAnnouncement = cache(async (ref: string): Promise<string | null> => {
   try {
     const res = await fetch(`${FM}/public-api/restaurants/${ref}/feesAndTips`, {
@@ -442,12 +456,12 @@ async function loadDiscoNativeRestaurant(slug: string) {
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
              COALESCE(o.is_premium, false) AS is_premium,
-             o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
+             o.announcement, o.more_info, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true
       LIMIT 1
-    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; more_info: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
@@ -663,6 +677,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       enableMenuSearch: r.enable_menu_search === true,
       deliveryOrderTimeWindows: r.delivery_order_time_windows || 'exact',
       announcement: (r.announcement || '').trim() || null,
+      moreInfo: (r.more_info || '').trim() || null,
     }
   } catch (err) {
     console.error('[shared] loadDiscoNativeRestaurant failed:', err instanceof Error ? err.message : err)
@@ -822,7 +837,8 @@ export async function RestaurantView({
           restaurantSettings={{
             onlineOrderingAllowed: native.acceptingOrders && !paymentRestricted,
             ...(paymentRestricted ? { orderingUnavailableMessage: ORDERING_UNAVAILABLE_MESSAGE } : {}),
-            enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined }}
+            enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined,
+            moreInfo: native.moreInfo ?? undefined }}
         />
       </>
     )
@@ -850,6 +866,7 @@ export async function RestaurantView({
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
   const fmAnnouncement = await fetchFmAnnouncement(fmRestaurant.reference)
+  const fmMoreInfo = await fetchDiscoMoreInfo(fmRestaurant.reference)
   const fmFullAddress = formatFullAddress(fmDetail?.address)
   const rawMenuData = await fetchMenuData(fmRestaurant.reference)
   // FM-BACKED RESTAURANTS GET THE SAME TREATMENT AS NATIVE ONES. Disco does not
@@ -909,6 +926,8 @@ export async function RestaurantView({
           // See fetchFmAnnouncement — the FM branch never read this, so an
           // FM-backed restaurant's ordering constraints were invisible on Disco.
           announcement: fmAnnouncement ?? undefined,
+          // Disco-only, for FM-backed restaurants too: stored on the FM ref's overrides row.
+          moreInfo: fmMoreInfo ?? undefined,
         }}
       />
     </>
