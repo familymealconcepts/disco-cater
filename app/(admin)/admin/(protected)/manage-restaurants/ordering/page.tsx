@@ -508,11 +508,19 @@ export default function RestaurantsOrderingPage() {
     if (!res.ok) setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, shipdayEnabled: !next } : x))
   }
 
-  // "Hold Payments on FamilyMeal": ON = moneyFlow FAMILY_MEAL (held),
-  // OFF = DIRECT (released). FM restaurant-table.component.ts:387-400.
-  async function toggleMoneyFlow(r: Restaurant) {
+  // "Hold Payments": ON = moneyFlow FAMILY_MEAL (held), OFF = DIRECT (released), in BOTH Disco
+  // and FamilyMeal (lib/money-flow-sync.ts). FM restaurant-table.component.ts:387-400.
+  //
+  // WHEN THE TWO ALREADY DIFFER, the toggle is not offered: "flip it" has no single meaning when
+  // Disco says one thing and FamilyMeal the other (flipping Disco's held could release FamilyMeal,
+  // or the reverse). The row shows both values and two explicit buttons instead.
+  function toggleMoneyFlow(r: Restaurant) {
     const held = effectiveMoneyFlow(r, overrideMap[r.reference]) === 'FAMILY_MEAL'
-    const next = held ? 'DIRECT' : 'FAMILY_MEAL'
+    return setMoneyFlow(r, held ? 'DIRECT' : 'FAMILY_MEAL')
+  }
+
+  async function setMoneyFlow(r: Restaurant, next: 'DIRECT' | 'FAMILY_MEAL') {
+    const held = effectiveMoneyFlow(r, overrideMap[r.reference]) === 'FAMILY_MEAL'
     setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/money-flow?moneyFlow=${next}`, { method: 'PUT' })
     const body = await res.json().catch(() => null) as { error?: string; fmMoneyFlow?: string | null } | null
@@ -526,9 +534,10 @@ export default function RestaurantsOrderingPage() {
     setOverrideMap(prev => {
       const cur = prev[r.reference]
       if (!cur) return prev
-      return { ...prev, [r.reference]: { ...cur, moneyFlow: next, ...(body && 'fmMoneyFlow' in body && body.fmMoneyFlow ? { fmMoneyFlow: body.fmMoneyFlow } : {}) } }
+      // FamilyMeal's value is what the route READ BACK; with no FM record it is null (no label).
+      return { ...prev, [r.reference]: { ...cur, moneyFlow: next, fmMoneyFlow: body?.fmMoneyFlow ?? null } }
     })
-    showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
+    showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'} in Disco${body?.fmMoneyFlow ? ' and FamilyMeal' : ''}`)
   }
 
   // Archive (Disco-native only) replaces the old hard delete: reversible via
@@ -1446,15 +1455,29 @@ export default function RestaurantsOrderingPage() {
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
                   <td style={cell}>
-                    <Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" />
                     {(() => {
                       const fm = fmMoneyFlowMismatch(r, ov)
-                      return fm ? (
-                        <div title="FamilyMeal's own Hold Payments setting differs from Disco's. Orders FamilyMeal processes follow FamilyMeal's setting. Toggling here sets both."
-                          style={{ fontSize: 11, color: '#E53935', fontWeight: 600, marginTop: 4, whiteSpace: 'nowrap' }}>
-                          FamilyMeal: {fm === 'FAMILY_MEAL' ? 'held' : 'released'}
+                      if (!fm) return <Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" />
+                      const disco = effectiveMoneyFlow(r, ov)
+                      const pill = (target: 'FAMILY_MEAL' | 'DIRECT', text: string) => (
+                        <button type="button" onClick={() => setMoneyFlow(r, target)}
+                          style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6, border: '1px solid #E53935', background: '#fff', color: '#B71C1C', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+                          {text}
+                        </button>
+                      )
+                      return (
+                        <div data-testid="money-flow-mismatch"
+                          title="Disco and FamilyMeal disagree. Orders each system processes follow that system's setting. Choose one to set both."
+                          style={{ fontSize: 11, color: '#E53935', fontWeight: 600, lineHeight: 1.35 }}>
+                          <div style={{ whiteSpace: 'nowrap' }}>Out of sync</div>
+                          <div style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>Disco: {disco === 'FAMILY_MEAL' ? 'held' : 'released'}</div>
+                          <div style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>FamilyMeal: {fm === 'FAMILY_MEAL' ? 'held' : 'released'}</div>
+                          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                            {pill('FAMILY_MEAL', 'Hold both')}
+                            {pill('DIRECT', 'Release both')}
+                          </div>
                         </div>
-                      ) : null
+                      )
                     })()}
                   </td>
                   <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>

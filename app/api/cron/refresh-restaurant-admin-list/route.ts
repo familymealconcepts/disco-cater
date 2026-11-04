@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { refreshRestaurantAdminListCache } from '../../../../lib/restaurant-admin-list-cache'
 import { withCronRun } from '../../../../lib/cron-runs'
+import { alertMoneyFlowMismatches } from '../../../../lib/money-flow-sync-server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,7 +33,18 @@ function hasCronSecret(req: NextRequest): boolean {
 async function handle(): Promise<NextResponse> {
   const result = await refreshRestaurantAdminListCache()
   console.log('[refresh-restaurant-admin-list] done:', JSON.stringify(result))
-  return NextResponse.json(result, { status: result.ok ? 200 : 500 })
+  // With FamilyMeal's values fresh, report any restaurant whose Hold Payments differs between Disco
+  // and FamilyMeal (lib/money-flow-sync-server.ts). Report only, never a write; and best-effort, so
+  // the refresh's own result is never affected by it.
+  let moneyFlowMismatches: number | null = null
+  if (result.ok) {
+    try {
+      moneyFlowMismatches = (await alertMoneyFlowMismatches()).length
+    } catch (e) {
+      console.error('[refresh-restaurant-admin-list] Hold Payments mismatch check failed:', e instanceof Error ? e.message : e)
+    }
+  }
+  return NextResponse.json({ ...result, moneyFlowMismatches }, { status: result.ok ? 200 : 500 })
 }
 
 async function runGet(req: NextRequest) {

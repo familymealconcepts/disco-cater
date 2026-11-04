@@ -32,6 +32,9 @@ export type AdminAuditAction =
   | 'online_ordering_update' | 'marketplace_visibility_update' | 'stripe_disconnect'
   // admin portal — settings
   | 'money_flow_update' | 'payout_schedule_update'
+  // A Hold Payments change that did not complete (lib/money-flow-sync.ts): FamilyMeal refused,
+  // read back a different value, or Disco's write failed. Logged so a partial change is visible.
+  | 'money_flow_update_failed'
   | 'admin_overrides_update' | 'admin_cache_update'
   // the marketplace switch (disco_restaurant_overrides.visible), written ONLY by
   // lib/marketplace-switch.ts. marketplace_switch_update is the change itself,
