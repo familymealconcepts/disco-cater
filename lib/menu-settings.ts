@@ -76,6 +76,10 @@ export interface ItemFields {
   // Max Inventory Per Day — NULL = unlimited (default, existing behavior
   // unaffected). See lib/order/native-inventory.ts for enforcement.
   maxInventoryPerDay: number | null
+  // "Show remaining count to customers" — the red "Only X left for this date".
+  // Undefined when the request did not send it: an update then keeps the stored
+  // value (COALESCE), so a save from an older editor never switches it off.
+  showRemainingCount: boolean | null
 }
 export function parseItemFields(body: Record<string, unknown>): ItemFields {
   const mq = body?.minQuantity
@@ -90,6 +94,7 @@ export function parseItemFields(body: Record<string, unknown>): ItemFields {
     vegan: body?.vegan === true,
     dairyFree: body?.dairyFree === true,
     maxInventoryPerDay: mip == null || mip === '' ? null : Math.max(1, Math.trunc(Number(mip)) || 1),
+    showRemainingCount: typeof body?.showRemainingCount === 'boolean' ? body.showRemainingCount : null,
   }
 }
 

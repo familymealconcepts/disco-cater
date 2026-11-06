@@ -31,12 +31,12 @@ export async function POST(req: NextRequest) {
       INSERT INTO disco_menu_items (
         restaurant_reference, category_reference, name, description, price, serves, image_url, visible,
         display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, dairy_free,
-        max_inventory_per_day, position)
+        max_inventory_per_day, show_remaining_count, position)
       VALUES (${scopeRef}::uuid, ${categoryReference}::uuid, ${name},
               ${String(body?.description || '') || null}, ${num(body?.price)}, ${String(body?.serves || '') || null},
               ${String(body?.imageUrl || '') || null}, ${body?.visible === false ? false : true},
               ${f.displayPrice}, ${f.minQuantity}, ${f.allowSpecialInstructions}, ${f.vegetarian}, ${f.containsNuts}, ${f.glutenFree}, ${f.vegan}, ${f.dairyFree},
-              ${f.maxInventoryPerDay},
+              ${f.maxInventoryPerDay}, ${f.showRemainingCount ?? false},
               (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${categoryReference}::uuid))
       RETURNING reference
     `) as { reference: string }[]

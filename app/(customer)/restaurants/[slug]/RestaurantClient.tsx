@@ -90,6 +90,10 @@ interface FmPackage {
   // Disco-native "Max Inventory Per Day" cap. null/undefined = unlimited —
   // no live-cap logic below ever runs for it. See lib/order/native-inventory.ts.
   maxInventoryPerDay?: number | null
+  // Whether the customer sees how many are left ("Only X left for this date"). The
+  // restaurant's choice per item; OFF hides only the count — the cap above is still
+  // enforced in full (quantity limited, "Sold out for this date" at 0).
+  showRemainingCount?: boolean
   // FM `mealPackage.minQuantity` — the fewest units the restaurant will make
   // ("Minimum 4 people" on a Side, 10 on a breakfast tray, 30 on a holiday
   // package). Present on BOTH paths: FM sends it, and shared.tsx's toPkg maps
@@ -2467,7 +2471,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                               flags — no empty container, which would imply the
                               question had been asked. */}
                           <DietaryBadges pkg={pkg} />
-                          {remainingCap != null && remainingCap > 0 && (
+                          {remainingCap != null && remainingCap > 0 && pkg.showRemainingCount === true && (
                             <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, marginTop: 3 }}>Only {remainingCap} left for this date</div>
                           )}
                           {soldOutToday && (
@@ -2905,7 +2909,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#727272' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                   )
                 })()}
-                {maxAddOnsQty() != null && (
+                {maxAddOnsQty() != null && addOnsPkg?.showRemainingCount === true && (
                   <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{maxAddOnsQty()} left for this date</span>
                 )}
               </div>
@@ -2917,7 +2921,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {minAddOnsQty() > 1 && (
                 <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#727272', marginTop: 6 }}>
                   {minExceedsRemaining()
-                    ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
+                    ? addOnsPkg?.showRemainingCount === true
+                      ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
+                      : `Not enough left for this date — this item needs at least ${minAddOnsQty()}.`
                     : `Select ${minAddOnsQty()}+`}
                 </div>
               )}

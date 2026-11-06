@@ -186,8 +186,11 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // decrement at payment success (lib/order/native-inventory.ts).
   const capCheck = await checkItemInventoryAvailability(items, orderDate)
   if (!capCheck.ok) {
+    // The count only where the restaurant shows it on the menu ("Show remaining count to customers").
     const msg = capCheck.remaining > 0
-      ? `Only ${capCheck.remaining} left of "${capCheck.itemName}" for ${orderDate} — please reduce the quantity.`
+      ? capCheck.showRemaining
+        ? `Only ${capCheck.remaining} left of "${capCheck.itemName}" for ${orderDate} — please reduce the quantity.`
+        : `Not enough "${capCheck.itemName}" left for ${orderDate} — please reduce the quantity.`
       : `"${capCheck.itemName}" is no longer available for ${orderDate}.`
     return { ok: false, status: 409, error: msg }
   }

@@ -479,20 +479,23 @@ async function loadDiscoNativeRestaurant(slug: string) {
       -- rarely fire — but when it fires it makes the editor a liar.
       ORDER BY position, name
     `, runDiscoMenuMigrations)) as { reference: string; name: string; description: string | null; menu_reference: string | null }[]
-    const items = (await sql`
+    // Wrapped like the categories read above: it names show_remaining_count, which a
+    // lambda that has not run the menu suite yet must migrate-and-retry for.
+    const items = (await withDiscoTables(() => sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,
              vegetarian, contains_nuts, gluten_free, vegan, dairy_free, max_inventory_per_day,
-             image_url
+             show_remaining_count, image_url
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, name
-    `) as {
+    `, runDiscoMenuMigrations)) as {
       reference: string; category_reference: string | null; name: string; description: string | null
       price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
       allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean; dairy_free: boolean
       image_url: string | null
       max_inventory_per_day: number | null
+      show_remaining_count: boolean | null
     }[]
 
     // Attached modifier groups per item (Stage 4 consumption). Shaped into the
@@ -556,6 +559,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       vegetarian: it.vegetarian === true, containsNuts: it.contains_nuts === true,
       glutenFree: it.gluten_free === true, vegan: it.vegan === true, dairyFree: it.dairy_free === true,
       maxInventoryPerDay: it.max_inventory_per_day ?? null,
+      showRemainingCount: it.show_remaining_count === true,
       extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })
 

@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
     for (const r of refs) {
       // COPY (FM semantics) — restaurant-scoped source, appended to the category.
       const res = (await sql`
-        INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible, position)
-        SELECT ${scopeRef}::uuid, ${categoryReference}::uuid, name, description, price, serves, image_url, visible,
+        INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible, show_remaining_count, position)
+        SELECT ${scopeRef}::uuid, ${categoryReference}::uuid, name, description, price, serves, image_url, visible, show_remaining_count,
                (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${categoryReference}::uuid)
         FROM disco_menu_items
         WHERE reference = ${r}::uuid AND restaurant_reference = ${scopeRef}::uuid

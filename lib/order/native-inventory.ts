@@ -32,12 +32,12 @@
 //      pass; only a pair landing within the same few milliseconds could.
 //   The order-edit route deliberately runs neither (the restaurant may take an
 //   order past its own cap) — see app/api/restaurant/orders/[ref]/edit/route.ts.
-import { sql } from '../db'
+import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
 
 export interface CapCheckItem { reference?: string | null; quantity: number }
 export type CapCheckResult =
   | { ok: true }
-  | { ok: false; itemName: string; remaining: number; requested: number }
+  | { ok: false; itemName: string; remaining: number; requested: number; showRemaining: boolean }
 
 // Statuses whose orders do NOT use up stock. Everything else on the order's
 // date counts (DUE, COMPLETED, PAID, UNPAID invoices, PARTIAL_REFUND, REOPEN).
@@ -81,14 +81,15 @@ export async function orderedQtyByItem(
   return out
 }
 
-async function capsFor(refs: string[]): Promise<{ reference: string; name: string; cap: number }[]> {
+async function capsFor(refs: string[]): Promise<{ reference: string; name: string; cap: number; showRemaining: boolean }[]> {
   const unique = Array.from(new Set(refs.filter(Boolean)))
   if (unique.length === 0) return []
-  return (await sql`
-    SELECT mi.reference::text AS reference, mi.name, mi.max_inventory_per_day AS cap
+  return (await withDiscoTables(() => sql`
+    SELECT mi.reference::text AS reference, mi.name, mi.max_inventory_per_day AS cap,
+           mi.show_remaining_count = true AS "showRemaining"
     FROM disco_menu_items mi
     WHERE mi.reference::text = ANY(${unique.map(r => r.toLowerCase())}::text[]) AND mi.max_inventory_per_day IS NOT NULL
-  `) as { reference: string; name: string; cap: number }[]
+  `, runDiscoMenuMigrations)) as { reference: string; name: string; cap: number; showRemaining: boolean }[]
 }
 
 // Pre-payment check at placement. Only inspects cart items that carry a
@@ -126,7 +127,7 @@ export async function checkItemInventoryAvailability(items: CapCheckItem[], orde
     const c = capByRef.get(ref)!
     const remaining = c.cap - (ordered.get(ref) || 0)
     if (requested > remaining) {
-      return { ok: false, itemName: c.name, remaining: Math.max(0, remaining), requested }
+      return { ok: false, itemName: c.name, remaining: Math.max(0, remaining), requested, showRemaining: c.showRemaining }
     }
   }
   return { ok: true }

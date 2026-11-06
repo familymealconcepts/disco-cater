@@ -495,6 +495,11 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   // Max Inventory Per Day — optional, nullable. Blank = no cap (existing
   // unrestricted-ordering behavior), unaffected.
   const [maxInventoryPerDay, setMaxInventoryPerDay] = useState(ex.max_inventory_per_day != null ? String(ex.max_inventory_per_day) : '')
+  // "Show remaining count to customers" — the red "Only X left for this date" on the
+  // ordering page. Off by default; only meaningful with a max inventory, so it is
+  // greyed out while that field is blank (its stored value is kept either way).
+  const [showRemainingCount, setShowRemainingCount] = useState(ex.show_remaining_count === true)
+  const hasDailyCap = maxInventoryPerDay.trim() !== ''
   // Collapsed by default regardless of whether a value is already set — the
   // field's own state above (not this) is what save() reads, so collapsing
   // never affects what gets submitted.
@@ -554,6 +559,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         displayPrice, minQuantity: minQuantity.trim() === '' ? null : parseInt(minQuantity, 10) || 1,
         allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan, dairyFree,
         maxInventoryPerDay: maxInventoryPerDay.trim() === '' ? null : parseInt(maxInventoryPerDay, 10) || 1,
+        showRemainingCount,
       }),
     })
     if (!res.ok) { setSaving(false); const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item'); return }
@@ -707,15 +713,32 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           {additionalSettingsOpen && (
             <div style={{ marginTop: 10 }}>
               <label style={dlgLabel}>Max Inventory Per Day (optional)</label>
-              <input
-                value={maxInventoryPerDay}
-                onChange={e => setMaxInventoryPerDay(e.target.value)}
-                inputMode="numeric"
-                placeholder="No limit"
-                style={{ ...dlgInput, maxWidth: 160 }}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <input
+                  value={maxInventoryPerDay}
+                  onChange={e => setMaxInventoryPerDay(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="No limit"
+                  aria-label="Max Inventory Per Day"
+                  style={{ ...dlgInput, maxWidth: 160 }}
+                />
+                <label
+                  title={hasDailyCap ? undefined : 'Set a Max Inventory Per Day first'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: hasDailyCap ? DARK : '#bbb', cursor: hasDailyCap ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={showRemainingCount}
+                    disabled={!hasDailyCap}
+                    onChange={e => setShowRemainingCount(e.target.checked)}
+                    style={{ accentColor: BLUE }}
+                  />
+                  Show remaining count to customers
+                </label>
+              </div>
               <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
                 Caps total units of this item ordered across all orders for a single delivery/pickup day. Leave blank for no limit.
+                {' '}With the box ticked, customers see &ldquo;Only X left for this date&rdquo;; unticked, the limit still applies but the count is hidden.
               </div>
             </div>
           )}

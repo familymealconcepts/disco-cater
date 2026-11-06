@@ -238,3 +238,21 @@ CREATE TABLE IF NOT EXISTS disco_menu_item_daily_inventory (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (menu_item_reference, order_date)
 );
+
+-- "Show remaining count to customers" (Peter, 2026-11-06). Only meaningful with a
+-- max_inventory_per_day: ON shows the red "Only X left for this date" on the
+-- ordering page, OFF hides the count while the cap is enforced exactly as before
+-- (sold out at 0, quantity limited). Default OFF.
+--
+-- ONE-TIME BACKFILL WITHOUT A DO BLOCK (this file is split on semicolons): the
+-- column is added with no default, so only rows that existed before this
+-- migration are NULL. The Speakeatery's capped items (a964a352-...) keep showing
+-- the count; every other row, Benchmark Breads included, starts OFF. The UPDATE
+-- touches only NULLs, so a re-run never undoes a restaurant's later choice, and
+-- the column is NOT NULL DEFAULT false from then on.
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS show_remaining_count BOOLEAN;
+UPDATE disco_menu_items
+   SET show_remaining_count = (restaurant_reference = 'a964a352-2e98-440e-8cd3-8af7a72ab39b'::uuid AND max_inventory_per_day IS NOT NULL)
+ WHERE show_remaining_count IS NULL;
+ALTER TABLE disco_menu_items ALTER COLUMN show_remaining_count SET DEFAULT false;
+ALTER TABLE disco_menu_items ALTER COLUMN show_remaining_count SET NOT NULL;
