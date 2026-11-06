@@ -910,7 +910,7 @@ async function nextNativeOrderNumber(): Promise<number> {
   return Number(rows[0].n)
 }
 
-function fulfillmentToTypes(f: Fulfillment): { orderType: 'PICKUP' | 'DELIVERY'; deliveryType: string | null } {
+export function fulfillmentToTypes(f: Fulfillment): { orderType: 'PICKUP' | 'DELIVERY'; deliveryType: string | null } {
   if (f === 'PICKUP') return { orderType: 'PICKUP', deliveryType: 'PICKUP' }
   if (f === 'OWN_DELIVERY') return { orderType: 'DELIVERY', deliveryType: 'OWN_DELIVERY' }
   return { orderType: 'DELIVERY', deliveryType: 'THIRD_PARTY_DELIVERY' }

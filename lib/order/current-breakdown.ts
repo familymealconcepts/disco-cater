@@ -27,6 +27,7 @@ export interface BreakdownRow {
   third_party_delivery_tips: string | number | null
   own_delivery_fee: string | number | null
   third_party_delivery_fee: string | number | null
+  third_party_delivery_subsiding: string | number | null
   discount: string | number | null
   lead_gen_one_disco_fee: string | number | null
   lead_gen_two_disco_fee: string | number | null
@@ -37,7 +38,7 @@ export interface BreakdownRow {
 export async function loadCurrentBreakdown(orderId: number): Promise<{ row: BreakdownRow | null; edited: boolean }> {
   const rows = (await sql`
     SELECT transaction_type, subtotal, total, fee, service_charge, stripe_fee, state_tax, local_tax, other_tax,
-           tips_in_price, third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee,
+           tips_in_price, third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding,
            discount, lead_gen_one_disco_fee, lead_gen_two_disco_fee
     FROM disco_sale_transactions
     WHERE order_id = ${orderId}

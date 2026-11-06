@@ -426,6 +426,12 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
 -- edit left the tip alone (2026-11-02).
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_tip NUMERIC;
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS new_tip NUMERIC;
+-- A pickup <-> delivery switch (2026-11-06): the fulfillment before and after
+-- (PICKUP / OWN_DELIVERY / THIRD_PARTY_DELIVERY) and, onto delivery, the address,
+-- instructions and checked distance. NULL when the edit kept the fulfillment.
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_fulfillment VARCHAR(30);
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS new_fulfillment VARCHAR(30);
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS delivery_address JSONB;
 
 -- Allow PAYMENT_FAILED (checkout payment failure, set by the Stripe webhook) and
 -- REOPEN/CANCELLED (FM history statuses pulled in by the FM→Neon orders sync).

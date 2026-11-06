@@ -38,8 +38,8 @@ import { resolveRestaurantNotificationEmails, sendOrderUpdateEmails, type OrderU
 import { repriceEditLinesFromMenu, storedLinesIfUnchanged, remapLinesToRestaurant } from '../../../../../../lib/order/native-cart-reprice'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
-import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
-import { assertFiniteMoney } from '../../../../../../lib/promo-pricing'
+import { fulfillmentToTypes, isDiscoNativeRestaurant, loadDeliveryTimeWindow, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
+import { assertFiniteMoney, discountedBase } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder, refundPaymentFromRestaurant, RefundRefusedError } from '../../../../../../lib/order/native-refund'
 import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
@@ -47,10 +47,13 @@ import { alertEditVoidFailed, alertEditReissueFailed, alertEditRefundImpossible 
 import { decideEditPaymentAction } from '../../../../../../lib/order/edit-payment-action'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
-import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
+import { cancelCourierAndReport, syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { alertOps } from '../../../../../../lib/ops-alert'
 import { orderLink } from '../../../../../../lib/ops-alert-format'
 import { fulfillmentLabel } from '../../../../../../lib/order/fulfillment-label'
+import { validateNativeDelivery } from '../../../../../../lib/order/native-delivery'
+import { loadCurrentBreakdown } from '../../../../../../lib/order/current-breakdown'
+import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../../lib/expedite'
 import { formatTime12 } from '../../../../../../lib/utils/time'
 import { cartSubtotal } from '../../../../../../lib/pricing/cart'
 
@@ -115,7 +118,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const isAdminEdit = access.isAdmin
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
-  let body: { activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string; tip?: { type?: string; value?: unknown } }
+  let body: {
+    activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string; tip?: { type?: string; value?: unknown }
+    fulfillment?: { type?: string; address?: { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zip?: string }; instructions?: string }
+  }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 }) }
 
   // ── A NEW TIP (Peter, 2026-11-02) ─────────────────────────────────────────
@@ -130,6 +136,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       || (tipReq.type === 'PERCENTAGE' && tipReq.value > 100) || (tipReq.type === 'AMOUNT' && tipReq.value > 10000)) {
       return NextResponse.json({ error: 'Enter a tip of $0 or more, or a percentage from 0 to 100.' }, { status: 400 })
     }
+  }
+
+  // ── PICKUP ↔ DELIVERY (Peter, 2026-11-06) ────────────────────────────────
+  // Optional. Switches the order's fulfillment the way checkout would set it:
+  // delivery needs an address checkout's own range check accepts, and takes the
+  // menu's delivery fee (and minimum); going back to pickup drops the delivery fee
+  // and, for a courier delivery, the courier tip. Absent keeps the fulfillment.
+  const fulReq = body.fulfillment && typeof body.fulfillment === 'object'
+    ? {
+        type: String(body.fulfillment.type || '').toUpperCase(),
+        address: {
+          addressLine1: String(body.fulfillment.address?.addressLine1 || '').trim(),
+          addressLine2: String(body.fulfillment.address?.addressLine2 || '').trim(),
+          city: String(body.fulfillment.address?.city || '').trim(),
+          state: String(body.fulfillment.address?.state || '').trim(),
+          zip: String(body.fulfillment.address?.zip || '').trim(),
+        },
+        instructions: String(body.fulfillment.instructions || '').trim().slice(0, 1000),
+      }
+    : null
+  if (fulReq && fulReq.type !== 'PICKUP' && fulReq.type !== 'DELIVERY') {
+    return NextResponse.json({ error: 'Choose pickup or delivery.' }, { status: 400 })
+  }
+  if (fulReq?.type === 'DELIVERY' && (!fulReq.address.addressLine1 || !fulReq.address.city || !fulReq.address.state || !fulReq.address.zip)) {
+    return NextResponse.json({ error: 'Enter the delivery address: street, city, state and ZIP.' }, { status: 400 })
   }
 
   const activeLines: ActiveLine[] = Array.isArray(body.activeLines) ? body.activeLines : []
@@ -207,7 +238,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   if (!itemsChanged) for (const [k, v] of newMap) if (origMap.get(k) !== v) { itemsChanged = true; break }
   const dateChanged = (!!orderDate && orderDate !== base.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (base.orderTime || '').slice(0, 5))
   // TIP is set below, once the new tip is priced: a tip-only edit.
-  let editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' | 'TIP' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
+  let editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' | 'TIP' | 'FULFILLMENT' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
 
   // ── A SAVE THAT CHANGES NOTHING IS NOT AN EDIT ────────────────────────────
   // editType fell back to RESCHEDULE when nothing differed, so pressing Save
@@ -218,6 +249,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // A tip request that names the same dollar tip is not a change; a percentage
   // is compared after pricing, below.
   const tipMaybeChanged = !!tipReq && !(tipReq.type === 'AMOUNT' && Math.abs(round2(tipReq.value) - round2(Number(discoOrder?.tips) || 0)) < 0.005)
+  const currentOrderType: 'PICKUP' | 'DELIVERY' = String(discoOrder?.order_type || base.orderType || '').toUpperCase() === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
+  const fulfillmentChanged = !!fulReq && fulReq.type !== currentOrderType
   const NOTHING_CHANGED = { success: true, noChange: true, message: 'Nothing changed, so the order was not updated.' }
   let linesAndNotesSame = false
   if (!dateChanged && discoOrder) {
@@ -228,7 +261,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         .map(r => `${r.ref || ''}|${(r.notes || '').trim()}`).sort().join('\n')
       const postedNotes = activeLines.map(l => `${l.reference || ''}|${lineNote(l) || ''}`).sort().join('\n')
       linesAndNotesSame = storedNotes === postedNotes
-      if (linesAndNotesSame && !tipMaybeChanged) return NextResponse.json(NOTHING_CHANGED)
+      if (linesAndNotesSame && !tipMaybeChanged && !fulfillmentChanged) return NextResponse.json(NOTHING_CHANGED)
     }
   }
 
@@ -245,6 +278,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // charged and paid out by FamilyMeal.
   if (tipMaybeChanged && (!isNative || !discoOrder || discoOrder.fm_order_reference)) {
     return NextResponse.json({ error: "This order's payment was taken by FamilyMeal, so its tip can't be changed here. Contact Disco Cater to change it." }, { status: 409 })
+  }
+  if (fulfillmentChanged && (!isNative || !discoOrder || discoOrder.fm_order_reference)) {
+    return NextResponse.json({ error: "This order's payment was taken by FamilyMeal, so it can't be switched between pickup and delivery here. Contact Disco Cater to change it." }, { status: 409 })
   }
 
   // ── PRICES COME FROM THE MENU, NOT FROM THE REQUEST ───────────────────────
@@ -340,17 +376,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // Lowering a third-party delivery tip: that tip went to the courier through
   // Disco, never to the restaurant, so refunding it would spend Disco's money.
   let courierTipLowered = false
+  // The fulfillment before and after this edit, and (a switch to delivery) the
+  // address checkout's range check accepted. Set in the native block below.
+  let oldFulfillment: Fulfillment = 'PICKUP'
+  let fulfillmentAfter: Fulfillment = 'PICKUP'
+  let newDelivery: {
+    addressLine1: string; addressLine2: string; city: string; state: string; zip: string
+    instructions: string; latitude: number | null; longitude: number | null; distanceMiles: number | null
+  } | null = null
+  let expediteToCancel: string | null = null
 
   if (isNative && discoOrder) {
     const [delRows, origRows] = await Promise.all([
-      sql`SELECT delivery_type, menu_reference FROM disco_orders WHERE id = ${discoOrder.id} LIMIT 1`.catch(() => []),
+      sql`SELECT delivery_type, menu_reference, expedite_delivery_id FROM disco_orders WHERE id = ${discoOrder.id} LIMIT 1`.catch(() => []),
       sql`
         SELECT subtotal, discount, own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding,
                lead_gen_one_disco_fee, lead_gen_two_disco_fee
         FROM disco_sale_transactions WHERE order_id = ${discoOrder.id} AND transaction_type = 'ORIGINAL' LIMIT 1
       `.catch(() => []),
     ]) as [
-      { delivery_type: string | null; menu_reference: string | null }[],
+      { delivery_type: string | null; menu_reference: string | null; expedite_delivery_id: string | null }[],
       {
         subtotal: string | number | null; discount: string | number | null
         own_delivery_fee: string | number | null; third_party_delivery_fee: string | number | null
@@ -361,6 +406,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const deliveryType = delRows[0]?.delivery_type || null
     const orderMenuReference = delRows[0]?.menu_reference || undefined
     const orig = origRows[0]
+    // The delivery fee the order carries NOW: an earlier edit that switched it
+    // between pickup and delivery recorded the new fee on its MANUAL_EDIT row, and
+    // the ORIGINAL row still holds the fee from checkout. Same row the PDF reads.
+    const feeRow = (await loadCurrentBreakdown(discoOrder.id).catch(() => ({ row: null }))).row || orig
     // Through the shared label, which knows every courier value: FamilyMeal's
     // DLIVRD_DELIVERY used to fall through to PICKUP here, so any edit of such an
     // order re-priced it without its delivery fee (#13539753: $375.66 → $337.41,
@@ -381,9 +430,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const scPct = await loadRestaurantServiceChargePct(restaurantRef, orderMenuReference)
     const editCtx: FrozenEditContext = {
       fulfillment,
-      ownDeliveryFee: Number(orig?.own_delivery_fee) || 0,
-      thirdPartyDeliveryFee: Number(orig?.third_party_delivery_fee) || 0,
-      thirdPartyDeliverySubsiding: Number(orig?.third_party_delivery_subsiding) || 0,
+      ownDeliveryFee: Number(feeRow?.own_delivery_fee) || 0,
+      thirdPartyDeliveryFee: Number(feeRow?.third_party_delivery_fee) || 0,
+      thirdPartyDeliverySubsiding: Number(feeRow?.third_party_delivery_subsiding) || 0,
       tipDollars: Number(discoOrder.tips) || 0,
       discountPct, leadGenPct, scPct,
       orderType: base.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
@@ -400,7 +449,63 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       tipChanged = Math.abs(newTipDollars - oldTipDollars) >= 0.005
       courierTipLowered = tipChanged && newTipDollars < oldTipDollars && fulfillment === 'THIRD_PARTY_DELIVERY'
     }
-    const newCtx: FrozenEditContext = { ...editCtx, tipDollars: newTipDollars }
+    oldFulfillment = fulfillment
+    fulfillmentAfter = fulfillment
+    let newCtx: FrozenEditContext = { ...editCtx, tipDollars: newTipDollars }
+    if (fulfillmentChanged && fulReq) {
+      if (fulReq.type === 'DELIVERY') {
+        // PICKUP → DELIVERY, held to what checkout holds a delivery order to: the
+        // menu must offer delivery, the items must meet its delivery minimum (the
+        // restaurant's own; Disco's courier floor is a customer-checkout rule, and
+        // an edit is the restaurant's), and the address must pass checkout's own
+        // range check, which also sets the fee from the menu's delivery settings.
+        const avail = await loadMenuFulfillmentAvailability(restaurantRef, orderMenuReference)
+        if (!avail.offersDelivery) {
+          return NextResponse.json({ error: "This order's menu is pickup only, so it can't be switched to delivery." }, { status: 400 })
+        }
+        const mins = await loadMenuOrderMinimums(restaurantRef, orderMenuReference)
+        if (mins.delivery > 0 && newSubtotal < mins.delivery) {
+          return NextResponse.json({ error: `This menu's delivery minimum is $${mins.delivery.toFixed(2)}; the items come to $${newSubtotal.toFixed(2)}.` }, { status: 400 })
+        }
+        // The delivery TYPE and fee are the menu's, exactly as checkout sets them:
+        // validateNativeDelivery reads the order's own menu's delivery_settings
+        // (self-delivery → its distance rings, restaurant keeps the fee; courier →
+        // 15% capped, less the restaurant's subsidy), fed the DISCOUNTED subtotal
+        // like checkout. Nothing here picks the type itself.
+        const q = await validateNativeDelivery(restaurantRef, fulReq.address, discountedBase(newSubtotal, discountPct), undefined, orderMenuReference)
+        if (!q.valid) {
+          return NextResponse.json({ error: q.message || 'That address is outside this restaurant’s delivery area.' }, { status: 400 })
+        }
+        fulfillmentAfter = q.fulfillment
+        newDelivery = { ...fulReq.address, instructions: fulReq.instructions, latitude: q.latitude, longitude: q.longitude, distanceMiles: q.distanceMiles }
+        newCtx = {
+          ...newCtx,
+          fulfillment: q.fulfillment,
+          ownDeliveryFee: q.fulfillment === 'OWN_DELIVERY' ? q.deliveryFee : 0,
+          thirdPartyDeliveryFee: q.fulfillment === 'THIRD_PARTY_DELIVERY' ? q.deliveryFee : 0,
+          thirdPartyDeliverySubsiding: q.fulfillment === 'THIRD_PARTY_DELIVERY' ? q.thirdPartyDeliverySubsiding : 0,
+          orderType: 'DELIVERY',
+        }
+      } else {
+        // DELIVERY → PICKUP: the delivery fee comes off, and a courier delivery's
+        // tip (the courier's, through Disco) comes off with it unless this same
+        // edit names a new tip. The courier booking is cancelled on confirm.
+        const avail = await loadMenuFulfillmentAvailability(restaurantRef, orderMenuReference)
+        if (!avail.offersPickup) {
+          return NextResponse.json({ error: "This order's menu is delivery only, so it can't be switched to pickup." }, { status: 400 })
+        }
+        fulfillmentAfter = 'PICKUP'
+        if (fulfillment === 'THIRD_PARTY_DELIVERY' && !tipReq) {
+          newTipDollars = 0
+          tipChanged = oldTipDollars >= 0.005
+        }
+        // Lowering the tip here removes the courier's tip along with the courier;
+        // it is not the refusal case below (a courier still being paid less).
+        courierTipLowered = false
+        newCtx = { ...newCtx, fulfillment: 'PICKUP', ownDeliveryFee: 0, thirdPartyDeliveryFee: 0, thirdPartyDeliverySubsiding: 0, orderType: 'PICKUP', tipDollars: newTipDollars }
+        expediteToCancel = delRows[0]?.expedite_delivery_id || null
+      }
+    }
     nativeCtx = newCtx
     const oldB = await priceNativeOrderAtSubtotal(restaurantRef, base.subtotal, editCtx)
     const newB = await priceNativeOrderAtSubtotal(restaurantRef, newSubtotal, newCtx)
@@ -413,13 +518,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       }, { status: 409 })
     }
     // A percentage that prices to the tip the order already has changes nothing.
-    if (linesAndNotesSame && !tipChanged) return NextResponse.json(NOTHING_CHANGED)
+    if (linesAndNotesSame && !tipChanged && !fulfillmentChanged) return NextResponse.json(NOTHING_CHANGED)
     if (tipChanged && !itemsChanged && !dateChanged) editType = 'TIP'
+    if (fulfillmentChanged && !itemsChanged && !dateChanged) editType = 'FULFILLMENT'
     newTaxes = round2(newB.stateTax + newB.localTax + newB.otherTax)
     newFee = newB.familyMealFee
     newTotal = newB.total
     delta = round2(newB.total - oldB.total)
     nativeTransferDelta = round2(newB.transfer - oldB.transfer)
+    // One edit is one payment: a charge carries a transfer to the restaurant and a
+    // refund carries a reversal from it. A switch whose customer total goes up
+    // while the restaurant's share goes down (a tipped pickup moving to a courier,
+    // whose tip then goes to the courier) would need both at once.
+    if (fulfillmentChanged && delta > 0 && nativeTransferDelta < -0.005) {
+      return NextResponse.json({ error: "This switch raises the customer's total but lowers the restaurant's share, which one edit can't settle. Change the tip in a separate edit first, then switch the fulfillment." }, { status: 409 })
+    }
     nativeBreakdown = newB
     nativePay = await getRestaurantPayoutConfig(restaurantRef)
   } else {
@@ -447,6 +560,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
   const orderNumber = String(base.orderNumber || discoOrder?.order_number || '')
   const newEditNumber = editCount + 1
+  // The order type the emails and the pending edit carry: the new one on a switch.
+  const newOrderType = fulfillmentChanged && fulReq ? fulReq.type : base.orderType
   const newItems: EditItem[] = activeLines.map(l => ({
     count: l.quantity, name: l.name, price: l.price,
     ...(l.addOns?.length ? { addOns: l.addOns.map(a => ({ name: a.name, price: Number(a.price) || 0, count: Math.max(1, Math.trunc(Number(a.quantity ?? a.count) || 1)) })) } : {}),
@@ -585,6 +700,50 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     `.catch(e => console.error('[orders/edit] disco_orders update:', e))
   }
 
+  // A pickup ↔ delivery switch: the order's type, delivery type and address,
+  // written the way native checkout writes them (fulfillmentToTypes), with the
+  // delivery time-window snapshot a delivery order carries. Going to pickup
+  // clears the address. Written with the items, in both the confirm and the
+  // pending-invoice paths.
+  async function writeFulfillment(): Promise<void> {
+    if (!discoOrder || !fulfillmentChanged) return
+    const { orderType, deliveryType } = fulfillmentToTypes(fulfillmentAfter)
+    const d = fulfillmentAfter === 'PICKUP' ? null : newDelivery
+    const timeWindow = fulfillmentAfter === 'PICKUP' ? null : await loadDeliveryTimeWindow(restaurantRef)
+    await sql`
+      UPDATE disco_orders SET
+        order_type = ${orderType}, delivery_type = ${deliveryType}, delivery_time_window = ${timeWindow},
+        delivery_address_line1 = ${d?.addressLine1 || null}, delivery_address_line2 = ${d?.addressLine2 || null},
+        delivery_city = ${d?.city || null}, delivery_state = ${d?.state || null}, delivery_zip = ${d?.zip || null},
+        delivery_lat = ${d?.latitude ?? null}, delivery_lng = ${d?.longitude ?? null},
+        delivery_instructions = ${d ? (d.instructions || null) : null}, updated_at = NOW()
+      WHERE id = ${discoOrder.id}
+    `.catch(e => console.error('[orders/edit] fulfillment update:', e))
+  }
+
+  // The courier side of a switch. Off a courier delivery: stand the courier down
+  // (recorded on the order, ops alerted if Expedite refuses) and, once Expedite
+  // confirms, clear the booking from the order. Onto a courier delivery: book one
+  // the way payment does — dispatchExpediteForOrder, which books only a
+  // THIRD_PARTY_DELIVERY order whose own menu says third-party, so a
+  // self-delivery menu can never get a courier. Booked at once on an invoiced
+  // edit too, as an invoiced courier order is (expedite-dispatch-sweep.ts).
+  async function switchCourier(): Promise<void> {
+    if (!discoOrder || !fulfillmentChanged) return
+    if (oldFulfillment === 'THIRD_PARTY_DELIVERY' && expediteToCancel) {
+      const r = await cancelCourierAndReport(discoOrder.reference, 'PORTAL_EDIT', 'cancelled')
+      if (r.success) {
+        await sql`
+          UPDATE disco_orders SET expedite_delivery_id = NULL, expedite_delivery_fee = NULL, expedite_provider_delivery_id = NULL, updated_at = NOW()
+          WHERE id = ${discoOrder.id} AND expedite_delivery_id = ${expediteToCancel}
+        `.catch(e => console.error('[orders/edit] clear courier booking:', e))
+      }
+    }
+    if (fulfillmentAfter === 'THIRD_PARTY_DELIVERY' && nativeDispatchEnabled()) {
+      waitUntil(dispatchExpediteForOrder(discoOrder.id))
+    }
+  }
+
   // Record the Stripe action in disco_stripe_payments (charges) + a
   // disco_sale_transactions row (ADDITIONAL / REFUND). For native orders this
   // stores the full recalculated breakdown (service charge, Stripe fee, tax
@@ -652,6 +811,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // the edit is never pushed back to FamilyMeal.
   async function confirmEdit(): Promise<NextResponse> {
     await writeNeonOrder()
+    await writeFulfillment()
     await recordStripe()
 
     await sql`
@@ -660,7 +820,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         original_items, new_items, original_total, previous_total, new_total, delta,
         original_date, previous_date, new_date, original_time, new_time,
         payment_action, payment_status, stripe_payment_intent_id, stripe_invoice_id, stripe_refund_id,
-        previous_tip, new_tip
+        previous_tip, new_tip, previous_fulfillment, new_fulfillment, delivery_address
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
@@ -669,14 +829,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         ${base.orderTime || null}::time, ${effTime || null}::time,
         ${paymentAction}, ${paymentStatus},
         ${stripePaymentIntentId || null}, ${stripeInvoiceId || null}, ${stripeRefundId || null},
-        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null}
+        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null},
+        ${fulfillmentChanged ? oldFulfillment : null}, ${fulfillmentChanged ? fulfillmentAfter : null}, ${fulfillmentChanged && newDelivery ? JSON.stringify(newDelivery) : null}::jsonb
       )
     `.catch(e => console.error('[orders/edit] disco_order_edits insert:', e))
 
     await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${discoOrder?.reference || ref}::uuid, 'ORDER_EDITED',
-              ${JSON.stringify({ editNumber: newEditNumber, editType, delta, newTotal, paymentAction, paymentStatus, ...(tipChanged ? { previousTip: oldTipDollars, newTip: newTipDollars } : {}) })}::jsonb, 'DISCO_EDIT')
+              ${JSON.stringify({ editNumber: newEditNumber, editType, delta, newTotal, paymentAction, paymentStatus, ...(tipChanged ? { previousTip: oldTipDollars, newTip: newTipDollars } : {}), ...(fulfillmentChanged ? { previousFulfillment: oldFulfillment, newFulfillment: fulfillmentAfter, deliveryAddress: newDelivery } : {}) })}::jsonb, 'DISCO_EDIT')
     `.catch(e => console.error('[orders/edit] event insert:', e))
 
     const dateStr = fmtDate(effDate)
@@ -685,7 +846,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // sendOrderUpdateEmails for why they are no longer fire-and-forget).
     const emails: OrderUpdateEmail[] = [...earlyEmails]
     if (customerEmail) {
-      emails.push({ kind: 'customer', to: customerEmail, email: 'order_updated', send: () => sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
+      emails.push({ kind: 'customer', to: customerEmail, email: 'order_updated', send: () => sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
       // GATED ON paymentStatus, NOT paymentAction. This used to read
       // `paymentAction === 'refund'`, which is set BEFORE the refund is
       // attempted — so a refund that failed still told the customer their money
@@ -723,14 +884,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       for (const to of restaurantEmails) {
-        emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: base.orderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
+        emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
       }
     }
     waitUntil(sendOrderUpdateEmails(discoOrder?.reference || ref, 'DISCO_EDIT', emails))
 
     // Expedite — push the updated date/time/items to the courier (best-effort).
     // Recorded on the order; a refusal alerts ops (lib/order/courier-sync.ts).
-    if (discoOrder) await syncCourierAndReport(discoOrder.reference, 'PORTAL_EDIT')
+    // A switch books or stands down the courier instead.
+    if (discoOrder && fulfillmentChanged) await switchCourier()
+    else if (discoOrder) await syncCourierAndReport(discoOrder.reference, 'PORTAL_EDIT')
     await alertFamilyMealDateChange()
 
     return NextResponse.json({ status: 'confirmed', editType, newTotal, delta, editNumber: newEditNumber })
@@ -795,7 +958,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     }
 
     const pending = {
-      fmRef: ref, restaurantRef, orderType: base.orderType,
+      fmRef: ref, restaurantRef, orderType: newOrderType,
       // Add-ons and notes travel with the lines: applyPendingEdit re-saves the
       // items from these if the order no longer matches them, and without the
       // add-ons it saved the lines bare (#900000228 lost $188 of platter sizes,
@@ -848,13 +1011,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
             pending_edit_delta = ${delta}, pending_stripe_invoice_id = ${stripeInvoiceId || null}, updated_at = NOW()
         WHERE id = ${discoOrder.id}
       `.catch(e => console.error('[orders/edit] pending update:', e))
+      await writeFulfillment()
+      await switchCourier()
     }
     await sql`
       INSERT INTO disco_order_edits (
         fm_order_reference, edit_number, editor_email, edited_by, edit_type,
         original_items, new_items, original_total, previous_total, new_total, delta,
         original_date, previous_date, new_date, original_time, new_time,
-        payment_action, payment_status, stripe_invoice_id, previous_tip, new_tip
+        payment_action, payment_status, stripe_invoice_id, previous_tip, new_tip,
+        previous_fulfillment, new_fulfillment, delivery_address
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
@@ -862,7 +1028,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         ${base.orderDateIso || null}::date, ${base.orderDateIso || null}::date, ${effDate || null}::date,
         ${base.orderTime || null}::time, ${effTime || null}::time,
         'invoice', 'pending', ${stripeInvoiceId || null},
-        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null}
+        ${tipChanged ? oldTipDollars : null}, ${tipChanged ? newTipDollars : null},
+        ${fulfillmentChanged ? oldFulfillment : null}, ${fulfillmentChanged ? fulfillmentAfter : null}, ${fulfillmentChanged && newDelivery ? JSON.stringify(newDelivery) : null}::jsonb
       )
     `.catch(e => console.error('[orders/edit] pending edit insert:', e))
 
@@ -1013,6 +1180,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     if (courierTipLowered) {
       return NextResponse.json({ error: "Contact Disco Cater to lower this order's tip. It is a courier tip held by Disco Cater, so it can't be refunded from here. Nothing was changed." }, { status: 409 })
     }
+    // A courier delivery's fee and tip were collected by Disco Cater for the
+    // courier, never paid to the restaurant, and every refund comes from the
+    // restaurant: the refund for switching it to pickup is made by hand.
+    if (fulfillmentChanged && oldFulfillment === 'THIRD_PARTY_DELIVERY') {
+      return NextResponse.json({ error: "Contact Disco Cater to switch this courier delivery to pickup. Its delivery fee and courier tip were collected by Disco Cater for the courier, so they can't be refunded from here. Nothing was changed." }, { status: 409 })
+    }
     paymentAction = 'refund'
     if (stripe && isNative && discoOrder) {
       try {
@@ -1020,7 +1193,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         // auto-compute a proportional reversal — verified empirically that the
         // auto-proportional split under-reverses once Stripe's flat $0.30 fee is
         // in the mix (it assumes the transfer scales linearly with the total).
-        const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.abs(nativeTransferDelta), { via: 'order_edit' })
+        const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.max(0, -nativeTransferDelta), { via: 'order_edit' })
         stripeRefundId = r.refundId; paymentStatus = 'refunded'
       } catch (e) {
         // Refused because the restaurant cannot give its share back: nothing moved,

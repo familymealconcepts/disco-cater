@@ -226,6 +226,11 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // A new tip (Peter, 2026-11-02): null = keep the order's tip. A dollar amount,
   // or a percentage of the discounted subtotal, as checkout prices it.
   const [tipEdit, setTipEdit] = useState<{ type: 'AMOUNT' | 'PERCENTAGE'; input: string } | null>(null)
+  // Pickup ↔ delivery (Peter, 2026-11-06): null = keep the order's fulfillment.
+  // Switching to delivery takes an address, which the server checks the way
+  // checkout does; `quote` is that check's answer for the address as typed.
+  const [fulEdit, setFulEdit] = useState<{ addressLine1: string; addressLine2: string; city: string; state: string; zip: string; instructions: string } | null>(null)
+  const [quote, setQuote] = useState<{ loading: boolean; valid: boolean; fee: number; courier: boolean; message: string; key: string } | null>(null)
 
   // ─── Commit / discard / UI ────────────────────────────────────────────────
   const [committing, setCommitting] = useState(false)
@@ -498,6 +503,28 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // (The Disco-native edit POST sends activeLines/date/time directly — no FM
   // checkout payload is built client-side anymore.)
 
+  function newSubtotalForQuote(): number {
+    return cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
+  }
+
+  // Ask the server what delivery to this address costs on this order's menu
+  // (self-delivery or courier, as the menu is set up). Reads only.
+  async function checkAddress() {
+    if (!fulEdit) return
+    const key = fulKey
+    setQuote({ loading: true, valid: false, fee: 0, courier: false, message: '', key })
+    try {
+      const res = await fetch(`/api/restaurant/orders/${orderRef}/delivery-quote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: { addressLine1: fulEdit.addressLine1, addressLine2: fulEdit.addressLine2, city: fulEdit.city, state: fulEdit.state, zip: fulEdit.zip }, subtotal: newSubtotalForQuote() }),
+      })
+      const data = (await res.json().catch(() => ({}))) as AnyRec
+      setQuote({ loading: false, valid: data.valid === true, fee: num(data.deliveryFee), courier: str(data.fulfillment) === 'THIRD_PARTY_DELIVERY', message: str(data.message) || str(data.error), key })
+    } catch {
+      setQuote({ loading: false, valid: false, fee: 0, courier: false, message: 'Could not check the address. Try again.', key })
+    }
+  }
+
   // ─── Totals: client-side estimate ─────────────────────────────────────────
   // No live FM re-price (it caused 404s + wrong initial totals). We derive a
   // blended tax/fee rate from the loaded order and apply it to the edited cart.
@@ -517,7 +544,12 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // New display values from the current cart (line price includes add-ons).
   const newSubtotal = cartEmpty ? 0 : cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
   const taxesFees = cartEmpty ? 0 : Math.round(newSubtotal * taxRate * 100) / 100
-  const delivery = cartEmpty ? 0 : origDeliveryFee
+  // A switch: to pickup drops the delivery fee; to delivery takes the fee the
+  // address check returned for the address as it now reads.
+  const switchingTo: 'PICKUP' | 'DELIVERY' | null = fulEdit ? (orderType === 'DELIVERY' ? 'PICKUP' : 'DELIVERY') : null
+  const fulKey = fulEdit ? [fulEdit.addressLine1, fulEdit.addressLine2, fulEdit.city, fulEdit.state, fulEdit.zip].map(v => v.trim()).join('|') + `|${round2(newSubtotalForQuote())}` : ''
+  const quoteReady = switchingTo !== 'DELIVERY' || (!!quote && !quote.loading && quote.valid && quote.key === fulKey)
+  const delivery = cartEmpty ? 0 : switchingTo === 'PICKUP' ? 0 : switchingTo === 'DELIVERY' ? (quoteReady && quote ? quote.fee : 0) : origDeliveryFee
   // The tip: the order's own, or the new one being entered. A percentage is of
   // the discounted subtotal, the same base checkout and the server use.
   const tipValue = tipEdit ? Number(tipEdit.input) : NaN
@@ -530,7 +562,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const tip = cartEmpty ? 0 : (tipChanged ? enteredTip : origTip)
   const newTotal = cartEmpty ? 0 : newSubtotal + taxesFees + delivery + tip
   const delta = newTotal - origTotal
-  const changed = changedItemsOrDate || tipChanged
+  const changed = changedItemsOrDate || tipChanged || !!switchingTo
 
   // Break `taxesFees` back out into the lines the receipt shows (Taxes /
   // Platform Fee / Service Charge) instead of one bucketed row. Display only:
@@ -641,6 +673,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
     if (editCount >= 3) { setCommitError('Maximum edits reached for this order.'); return }
     if (!canEdit) return
     if (!tipValid) { setCommitError('Enter a tip of $0 or more, or a percentage from 0 to 100.'); return }
+    if (switchingTo === 'DELIVERY' && !quoteReady) { setCommitError('Check the delivery address before updating the order.'); return }
     setCommitError(null)
     setCommitting(true)
     try {
@@ -667,6 +700,14 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
           editorEmail,
           // Only when the tip actually changes; absent keeps the order's tip.
           ...(tipChanged && tipEdit ? { tip: { type: tipEdit.type, value: Number(tipEdit.input) } } : {}),
+          // Only on a switch; absent keeps the order's pickup or delivery.
+          ...(switchingTo && fulEdit ? {
+            fulfillment: switchingTo === 'PICKUP' ? { type: 'PICKUP' } : {
+              type: 'DELIVERY',
+              address: { addressLine1: fulEdit.addressLine1, addressLine2: fulEdit.addressLine2, city: fulEdit.city, state: fulEdit.state, zip: fulEdit.zip },
+              instructions: fulEdit.instructions,
+            },
+          } : {}),
         }),
       })
       const data = (await res.json().catch(() => ({}))) as AnyRec
@@ -880,6 +921,63 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
                   {dateChangeWarning}
                 </div>
               )}
+              {orderType === 'DELIVERY' && deliveryAddress && !switchingTo && (
+                <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>
+                  {[deliveryAddress.addressLine1, deliveryAddress.addressLine2, deliveryAddress.city, [deliveryAddress.state, deliveryAddress.zipcode].filter(Boolean).join(' ')].filter(Boolean).join(', ')}
+                </div>
+              )}
+              <div style={{ marginTop: 8 }}>
+                {!fulEdit ? (
+                  <button type="button" onClick={() => { setFulEdit({ addressLine1: '', addressLine2: '', city: '', state: '', zip: '', instructions: '' }); setQuote(null) }}
+                    style={{ background: 'none', border: 'none', color: BLUE, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                    {orderType === 'DELIVERY' ? 'Switch to pickup' : 'Switch to delivery'}
+                  </button>
+                ) : (
+                  <div style={{ padding: '10px 12px', border: `1px solid ${BLUE}`, borderRadius: 10, background: 'rgba(91,111,232,0.06)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div style={{ fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {switchingTo === 'PICKUP' ? 'Switch to pickup' : 'Switch to delivery'}
+                      </div>
+                      <button type="button" onClick={() => { setFulEdit(null); setQuote(null) }}
+                        style={{ background: 'none', border: 'none', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                        Keep {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}
+                      </button>
+                    </div>
+                    {switchingTo === 'PICKUP' ? (
+                      <div style={{ fontSize: 12, color: '#666', lineHeight: 1.4 }}>
+                        The delivery fee comes off the order and the customer is refunded the difference. A courier delivery is switched by Disco Cater.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        {([
+                          ['addressLine1', 'Street address'], ['addressLine2', 'Apt, suite (optional)'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP'],
+                        ] as const).map(([k, label]) => (
+                          <input key={k} aria-label={label} placeholder={label} value={fulEdit[k]}
+                            onChange={e => setFulEdit({ ...fulEdit, [k]: e.target.value })}
+                            style={{ border: '1px solid #ddd', borderRadius: 8, padding: '6px 8px', fontSize: 13, fontFamily: F, minWidth: 0 }} />
+                        ))}
+                        <textarea aria-label="Delivery instructions" placeholder="Delivery instructions (optional)" value={fulEdit.instructions} rows={2}
+                          onChange={e => setFulEdit({ ...fulEdit, instructions: e.target.value })}
+                          style={{ border: '1px solid #ddd', borderRadius: 8, padding: '6px 8px', fontSize: 13, fontFamily: F, resize: 'vertical' }} />
+                        <button type="button" onClick={checkAddress} disabled={!!quote?.loading}
+                          style={{ ...pillBtnOutline(BLUE), padding: '6px 12px', fontSize: 12 }}>
+                          {quote?.loading ? 'Checking…' : 'Check address'}
+                        </button>
+                        {quote && !quote.loading && quote.key === fulKey && (
+                          <div style={{ fontSize: 12, color: quote.valid ? GREEN : RED, fontWeight: 600, lineHeight: 1.4 }}>
+                            {quote.valid
+                              ? `${quote.courier ? 'Courier delivery' : 'Delivered by the restaurant'} · delivery fee ${formatCurrency(quote.fee)}`
+                              : (quote.message || 'That address can’t be delivered to.')}
+                          </div>
+                        )}
+                        {quote && !quote.loading && quote.key !== fulKey && (
+                          <div style={{ fontSize: 12, color: '#888' }}>The address or items changed. Check the address again.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <Row label="Original Total" value={formatCurrency(origTotal)} muted strike={changed} />
@@ -959,8 +1057,8 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
               </div>
             )}
 
-            <button onClick={commit} disabled={committing || committed || pendingPayment || !canEdit || editCount >= 3}
-              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || pendingPayment || !canEdit || editCount >= 3) ? 0.6 : 1, cursor: (committing || committed || pendingPayment || !canEdit || editCount >= 3) ? 'default' : 'pointer' }}>
+            <button onClick={commit} disabled={committing || committed || pendingPayment || !canEdit || editCount >= 3 || !quoteReady}
+              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || pendingPayment || !canEdit || editCount >= 3 || !quoteReady) ? 0.6 : 1, cursor: (committing || committed || pendingPayment || !canEdit || editCount >= 3 || !quoteReady) ? 'default' : 'pointer' }}>
               {committing ? 'Saving changes…' : 'Update Order'}
             </button>
             <button onClick={() => setDiscardOpen(true)} disabled={committing || committed}
