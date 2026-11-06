@@ -22,6 +22,8 @@ interface FmRestaurant {
   businessNameWithoutSpaces?: string
   address?: FmAddress
   admin?: { firstName?: string; lastName?: string; email?: string; phoneNumber?: string }
+  /** Converted restaurants only: whose login the email is. 'FAMILYMEAL' = no Disco login yet. */
+  loginSource?: 'DISCO' | 'FAMILYMEAL' | null
   onlineOrderingAllowed?: boolean
   categories?: string[]
   fulfillmentOptions?: string[]
@@ -605,6 +607,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <div>
                     <label style={label}>Login email</label>
                     <input style={{ ...input, background: '#f4f4f8', color: '#777' }} type="email" name="admin-email" autoComplete="email" value={email} disabled readOnly />
+                    {existing?.loginSource === 'FAMILYMEAL' && (
+                      <div style={{ fontSize: 11, color: '#9a6700', marginTop: 5 }}>
+                        Their FamilyMeal login — no Disco login yet. They are asked to set a Disco password the first time they sign in.
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: '#aaa', marginTop: 5 }}>
                       This is the restaurant&rsquo;s login. To change it, go through concierge@discocater.com — a login move also has to carry their session and location access, and ends with a fresh invite.
                     </div>

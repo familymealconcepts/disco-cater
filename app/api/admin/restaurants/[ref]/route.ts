@@ -106,6 +106,26 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       const cache = (await sql`SELECT name, slug, address, address_line1, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
+      // NO DISCO LOGIN YET (El Burro Dos, 2026-11-06; ~600 converted restaurants): the
+      // owner still signs in with their FamilyMeal login, and is asked to set a Disco
+      // password the first time (disco-restaurant-auth/login, staff password migration).
+      // Show THAT address rather than a blank, read from FamilyMeal's own admin record as
+      // cached for the Restaurants list, so the form names the login actually in use.
+      // Display only: the PUT writes no login email when there is no real account row,
+      // and FamilyMeal staff listed as the admin (SUPER_ADMIN) are never shown as the
+      // restaurant's login.
+      let loginSource: 'DISCO' | 'FAMILYMEAL' | null = a.email ? 'DISCO' : null
+      let fmLoginEmail = ''
+      if (!a.email) {
+        const fm = (await sql`
+          SELECT admin_email FROM disco_restaurant_admin_list_cache
+           WHERE restaurant_reference::text = ${ref}
+             AND COALESCE(raw->'admin'->>'role', '') IN ('ADMIN', 'SYSTEM_ADMIN')
+           LIMIT 1
+        `.catch(() => [])) as Array<{ admin_email: string | null }>
+        fmLoginEmail = fm[0]?.admin_email || ''
+        if (fmLoginEmail) loginSource = 'FAMILYMEAL'
+      }
       return NextResponse.json({
         businessName: c.name || '',
         businessNameWithoutSpaces: c.slug || '',
@@ -113,7 +133,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         // write side only ever set it from addr.phoneNumber, never a genuinely
         // separate admin-personal number) — same source as address.phoneNumber,
         // now both read from the cache instead of the retired account column.
-        admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || '', phoneNumber: c.phone || '' },
+        admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || fmLoginEmail, phoneNumber: c.phone || '' },
+        loginSource,
         address: {
           addressLine1: streetForEditor(c), addressLine2: c.address_line2 || '',
           city: c.city || '', state: c.state || '', zipcode: c.zipcode || '', phoneNumber: c.phone || '',
