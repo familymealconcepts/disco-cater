@@ -64,10 +64,14 @@ export async function POST(req: NextRequest) {
   try {
     let copied = 0
     for (const r of refs) {
-      // COPY (FM semantics) — restaurant-scoped source, appended to the category.
+      // COPY (FM semantics) — restaurant-scoped source, appended to the category. Carries the
+      // dietary flags, the daily limit (Max Inventory Per Day) and whether its count is shown
+      // (Peter, 2026-11-06). The copy is a new item, so its limit is its own daily allowance.
       const res = (await sql`
-        INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible, show_remaining_count, position)
-        SELECT ${scopeRef}::uuid, ${categoryReference}::uuid, name, description, price, serves, image_url, visible, show_remaining_count,
+        INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible,
+          vegetarian, contains_nuts, gluten_free, vegan, dairy_free, max_inventory_per_day, show_remaining_count, position)
+        SELECT ${scopeRef}::uuid, ${categoryReference}::uuid, name, description, price, serves, image_url, visible,
+               vegetarian, contains_nuts, gluten_free, vegan, dairy_free, max_inventory_per_day, show_remaining_count,
                (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${categoryReference}::uuid)
         FROM disco_menu_items
         WHERE reference = ${r}::uuid AND restaurant_reference = ${scopeRef}::uuid

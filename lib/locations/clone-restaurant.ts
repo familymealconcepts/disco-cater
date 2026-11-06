@@ -36,8 +36,8 @@ export async function cloneDiscoRestaurantMenus(sourceRef: string, newRef: strin
     const nr = randomUUID(); itemMap.set(it.reference as string, nr)
     const newCatRef = it.category_reference ? catMap.get(it.category_reference as string) ?? null : null
     await sql`
-      INSERT INTO disco_menu_items (reference, restaurant_reference, category_reference, name, description, price, serves, visible, position, image_url, display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, dairy_free, show_remaining_count)
-      VALUES (${nr}::uuid, ${newRef}::uuid, ${newCatRef}::uuid, ${it.name}, ${it.description}, ${it.price}, ${it.serves}, ${it.visible}, ${it.position}, ${it.image_url}, ${it.display_price}, ${it.min_quantity}, ${it.allow_special_instructions}, ${it.vegetarian}, ${it.contains_nuts}, ${it.gluten_free}, ${it.vegan}, ${it.dairy_free}, ${it.show_remaining_count ?? false})`
+      INSERT INTO disco_menu_items (reference, restaurant_reference, category_reference, name, description, price, serves, visible, position, image_url, display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, dairy_free, max_inventory_per_day, show_remaining_count)
+      VALUES (${nr}::uuid, ${newRef}::uuid, ${newCatRef}::uuid, ${it.name}, ${it.description}, ${it.price}, ${it.serves}, ${it.visible}, ${it.position}, ${it.image_url}, ${it.display_price}, ${it.min_quantity}, ${it.allow_special_instructions}, ${it.vegetarian}, ${it.contains_nuts}, ${it.gluten_free}, ${it.vegan}, ${it.dairy_free}, ${(it.max_inventory_per_day as number | null) ?? null}, ${it.show_remaining_count ?? false})`
   }
 
   // 4. Modifiers
