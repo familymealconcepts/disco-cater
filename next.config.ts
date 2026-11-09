@@ -1,6 +1,21 @@
 import type { NextConfig } from 'next'
 import legacyRestaurantSlugRedirects from './lib/legacy-restaurant-slug-redirects.json'
 import { execSync } from 'node:child_process'
+import { HTML_LIMITED_BOT_UA_RE } from 'next/dist/shared/lib/router/utils/html-bots'
+
+// ── PUBLIC MARKETING PAGES ON restaurant.discocater.com (9 Nov 2026) ─────────
+// vercel.json rewrites that host onto /restaurant/*, but only for paths no
+// static page claims, so these public pages were served there too, as copies
+// of www that Google counted as duplicates. Each is sent to the same path on
+// www. Only static marketing pages are listed: every portal, admin, API,
+// login, sign-up and account path on that host is untouched.
+const RESTAURANT_HOST_MARKETING_PATHS = [
+  '/', '/faq', '/fullmap', '/restaurants',
+  '/new-york', '/new-jersey', '/los-angeles', '/chicago', '/austin', '/seattle',
+  '/corporate-catering', '/holiday-catering', '/social-catering', '/meal-prep',
+  '/third-party-delivery', '/compare/:path*', '/become-a-partner', '/for-restaurants',
+  '/privacy', '/privacy-choices', '/terms',
+]
 
 // ── WHICH COMMIT IS THIS BUILD? (served at /api/version) ─────────────────────
 // Baked in at BUILD time, so the live site can say exactly what it is running
@@ -61,8 +76,39 @@ const nextConfig: NextConfig = {
         { source: `/restaurants/${oldSlug}`, destination: `/restaurants/${newSlug}`, permanent: true },
         { source: `/order/${oldSlug}`, destination: `/order/${newSlug}`, permanent: true },
       ])),
+
+      ...RESTAURANT_HOST_MARKETING_PATHS.map(source => ({
+        source,
+        has: [{ type: 'host' as const, value: 'restaurant.discocater.com' }],
+        // /?login=1 is where /account sends a signed-out visitor to log in on
+        // this host; it keeps working exactly as before.
+        ...(source === '/' ? { missing: [{ type: 'query' as const, key: 'login' }] } : {}),
+        destination: `https://www.discocater.com${source}`,
+        permanent: true,
+      })),
     ]
   },
+  // ── THE BACKUP ADDRESS STAYS UP BUT OUT OF SEARCH (9 Nov 2026) ─────────────
+  // disco-cater.vercel.app serves the whole site and is kept as a working
+  // backup, so it is not redirected. noindex keeps Google from counting its
+  // pages as duplicates of www; every canonical tag already names www.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: '(?<host>.*)\\.vercel\\.app' }],
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex' }],
+      },
+    ]
+  },
+  // ── GOOGLEBOT GETS THE PAGE TAGS IN <head> (9 Nov 2026) ────────────────────
+  // Next treats Googlebot as a full browser and, when a page's metadata is not
+  // ready by the time the page starts sending, streams the title, canonical and
+  // robots tags into <body>. Google only reliably obeys canonical and noindex in
+  // <head>: ~470 restaurant pages (mostly the paused "not accepting online
+  // orders" notice) were reported as "Duplicate without user-selected
+  // canonical". Adding Googlebot to Next's own list makes it wait for them.
+  htmlLimitedBots: new RegExp(`${HTML_LIMITED_BOT_UA_RE.source}|Googlebot`, 'i'),
   // mupdf ships a WASM binary that must load from node_modules at runtime rather
   // than be bundled by Turbopack — used by the become-a-partner menu import to
   // rasterize PDF pages for Claude vision.

@@ -29,10 +29,13 @@ const HERO_GRADIENT = 'linear-gradient(120deg,#6466E8 0%,#C044C8 52%,#F0468A 100
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
   const link = await getLocationLink(slug)
-  if (!link) return { title: 'Locations — Disco Cater' }
+  // An unknown or inactive link still shows the friendly "not active" page,
+  // but is kept out of search.
+  if (!link) return { title: 'Locations — Disco Cater', robots: { index: false, follow: true } }
   return {
     title: `${link.title} — Disco Cater`,
     description: `Order catering from ${link.title} on Disco Cater`,
+    alternates: { canonical: `https://www.discocater.com/locations/${slug.toLowerCase()}` },
   }
 }
 

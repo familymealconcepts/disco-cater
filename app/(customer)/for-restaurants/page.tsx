@@ -5,6 +5,7 @@ import GlobalHeader from '../../components/GlobalHeader'
 export const metadata: Metadata = {
   title: 'For Restaurants — Disco Cater',
   description: 'Create an account, log in, or learn how Disco Cater works for restaurants that cater.',
+  alternates: { canonical: 'https://www.discocater.com/for-restaurants' },
 }
 
 const F = "'DM Sans', sans-serif"

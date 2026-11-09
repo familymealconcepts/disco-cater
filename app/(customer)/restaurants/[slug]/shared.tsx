@@ -1,7 +1,7 @@
 import { cache } from 'react'
 import { MENU_ACTIVE_SQL } from '../../../../lib/menu-state'
 import type { Metadata } from 'next'
-import { notFound } from 'next/navigation'
+import { notFound, permanentRedirect } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
 import NoLongerAvailable from '../../../components/NoLongerAvailable'
 import { cityForLocation } from '../../_city/CityLanding'
@@ -156,6 +156,22 @@ const fetchFmRestaurantBySlug = cache(async (slug: string): Promise<FmRestaurant
     return null
   }
 })
+
+// The Disco slug of a Disco-owned restaurant, by its reference; null when the
+// restaurant is not Disco-owned or the read fails (the page then renders as it
+// always has).
+async function discoNativeSlugFor(reference: string): Promise<string | null> {
+  try {
+    const rows = (await sql`
+      SELECT slug FROM disco_restaurant_cache
+      WHERE restaurant_reference::text = ${reference} AND is_disco_native = true AND COALESCE(slug, '') <> ''
+      LIMIT 1
+    `) as { slug: string }[]
+    return rows[0]?.slug ?? null
+  } catch {
+    return null
+  }
+}
 
 // FM restaurant detail BY REFERENCE — /public-api/restaurants/{ref}. Unlike the
 // business-by-slug endpoint, this DOES carry the full `address` object
@@ -866,6 +882,17 @@ export async function RestaurantView({
   // record here is a genuine 404, not just missing editorial content.
   const fmRestaurant = await fetchFmRestaurantBySlug(slug)
   if (!fmRestaurant) return notFound()
+
+  // ── AN OLD FAMILYMEAL ADDRESS OF A DISCO-OWNED RESTAURANT (9 Nov 2026) ──────
+  // A converted restaurant can have a Disco slug that differs from FamilyMeal's
+  // (taim-plainview vs FM's taimplainview). The FM slug still resolves above,
+  // so it used to render FamilyMeal's old menu as a second, competing page.
+  // Send it to the Disco page instead. The 21 known ones are also in
+  // lib/legacy-restaurant-slug-redirects.json; this catches later conversions.
+  const discoSlug = await discoNativeSlugFor(fmRestaurant.reference)
+  if (discoSlug && discoSlug.toLowerCase() !== slug.toLowerCase()) {
+    permanentRedirect(`${isFirstParty ? '/order' : '/restaurants'}/${discoSlug}${menuSlug ? `/${encodeURIComponent(menuSlug)}` : ''}`)
+  }
 
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
