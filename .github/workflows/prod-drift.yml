@@ -35,11 +35,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: .github/scripts
-      # A normal deploy takes a couple of minutes. Wait past the 15-minute
-      # threshold so a push run only alerts on a real miss.
-      - name: Give the push time to deploy
+      # A normal deploy takes a couple of minutes. Check /api/version every 30 s
+      # and move on as soon as it reports this push's commit. After 20 minutes
+      # stop waiting: the push is then past the 15-minute threshold, so the
+      # check below posts the alert.
+      - name: Wait for the push to go live
         if: github.event_name == 'push'
-        run: sleep 960
+        env:
+          PROD_URL: https://www.discocater.com
+          PUSHED_SHA: ${{ github.sha }}
+        run: |
+          deadline=$(( $(date +%s) + 1200 ))
+          while :; do
+            live=$(curl -fsS -m 10 -H 'Cache-Control: no-cache' "$PROD_URL/api/version?t=$(date +%s)" | sed -n 's/.*"sha":"\([0-9a-f]*\)".*/\1/p' || true)
+            if [ "$live" = "$PUSHED_SHA" ]; then echo "Live at ${live:0:7} after $(( 1200 - deadline + $(date +%s) )) s."; exit 0; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then echo "Not live after 20 min (production reports ${live:-nothing}); the check below decides whether to alert."; exit 0; fi
+            sleep 30
+          done
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
