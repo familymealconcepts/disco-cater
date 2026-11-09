@@ -10,14 +10,13 @@
 //   • GET /api/admin/menu?restaurantReference={ref}      → menus (+ REAL settings + scheduleOption;
 //                                                          the non-admin /api/menu returns null settings)
 //   • GET /api/restaurants/{ref}/extraItemsGroups        → modifier library (min/max + addOns w/ prices)
-//   • GET /api/restaurants/{ref}/mealPackages            → FLAT item catalog (richer per-item fields:
-//                                                          visible, displayPrice, minQuantity, addOns)
-//   • GET /public-api/restaurants/{ref}/mealPackages?menuReference={menu}
-//                                                        → each MENU's real categories (nested
-//                                                          mealPackages) — the only source that
-//                                                          partitions items per menu (the flat
-//                                                          catalog's item.menu is a bare number, not
-//                                                          a ref, so it can't place items in menus).
+//   • GET /api/restaurants/{ref}/mealPackages            → FLAT item catalog, hidden items included
+//                                                          (visible, displayPrice, minQuantity, addOns,
+//                                                          itemCategory.reference). All three lists are
+//                                                          paged with sort=id,asc — see fmGetAll.
+//   • GET /api/itemCategories?menuReference={menu}       → EVERY category of a menu, hidden ones too —
+//                                                          the category → menu link that places each
+//                                                          item on exactly the menu FM has it on.
 //   • GET /public-api/restaurants/{ref}/feesAndTips      → announcement + deliveryOrderTimeWindows.
 //                                                          PUBLIC (permitAll in FM's WebSecurityConfig,
 //                                                          no auth needed) — deliberately NOT the
@@ -86,6 +85,23 @@ async function fmGet(path: string, auth: Record<string, string>): Promise<unknow
   if (!r.ok) return null
   return r.json().catch(() => null)
 }
+// Every page of a paged FM list, or null if any page fails.
+//
+// THE SORT IS REQUIRED. Unsorted, FM's pages come back in no stable order, so
+// consecutive pages overlap and skip rows: Colonial Ranch Market's 1,112 items
+// paged 200 at a time returned 1,060 distinct items. With sort=id,asc all 1,112
+// arrived. The old single page of size=1000 also cut every larger catalogue off
+// at 1,000. A response that is not a page (a plain array) is returned as is.
+async function fmGetAll(path: string, auth: Record<string, string>): Promise<Record<string, unknown>[] | null> {
+  const out: Record<string, unknown>[] = []
+  for (let page = 0; ; page++) {
+    const d = await fmGet(`${path}${path.includes('?') ? '&' : '?'}page=${page}&size=500&sort=id,asc`, auth) as { content?: unknown; totalPages?: unknown } | unknown[] | null
+    if (d == null) return null
+    if (Array.isArray(d)) return d as Record<string, unknown>[]
+    out.push(...arrOf(d))
+    if (page + 1 >= num(d.totalPages)) return out
+  }
+}
 const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 const str = (v: unknown): string => (v == null ? '' : String(v))
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
@@ -94,26 +110,6 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'
 // name ("Gluten-Free Bread (+ $1.00)"), stripping it from the display name. Many FM
 // add-ons are genuinely free (substitutions/choices) → price 0.
 const NAME_PRICE = /\s*\(\s*\+?\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\s*\)\s*$/
-// FM's ItemCategory.visible, off the flat admin catalog's embedded
-// itemCategory object (verified live: it carries reference/name/description/
-// position/visible/createdDate).
-//
-// The PRIMARY import path never needs this — it reads the public per-menu
-// endpoint, and FM filters categories server-side there
-// (ItemCategoryRepository.findAllVisibleByMenuReference: `ic.visible = true`),
-// so a hidden category's items never arrive. The FALLBACK and SUPPLEMENTARY
-// paths read the flat ADMIN catalog, which is NOT category-filtered — so an
-// item in a category the restaurant hid in FM could be imported and sold.
-// Never observed in production; closed because the primary path's protection is
-// FM's, not ours, and nothing here was enforcing it.
-//
-// `!== false` so an absent flag reads as visible, matching FM's own
-// `Boolean visible = Boolean.TRUE` default on ItemCategory.
-function fmCategoryVisible(it: Record<string, unknown>): boolean {
-  const c = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
-  return !c || c.visible !== false
-}
-
 function addOnNamePrice(rawName: unknown, structuredPrice: unknown): { name: string; price: number } {
   const name = str(rawName) || 'Add-on'
   if (num(structuredPrice) > 0) return { name, price: num(structuredPrice) }
@@ -295,29 +291,14 @@ export interface FaithfulImportSummary {
   deliveryWindowImported: boolean
   iconUrlImported: boolean
   imageUrlImported: boolean
-  // Items placed by the supplementary pass (below) — real FM items whose menu is
-  // Inactive/hidden, invisible to the public per-menu endpoint the primary pass uses.
-  // Includes items duplicated across multiple menus (see duplicatedAcrossMenus).
-  supplementaryItemsPlaced: number
-  // Of supplementaryItemsPlaced, how many were placed into MORE THAN ONE menu because
-  // their schedule window matched more than one menu (e.g. twin party-size tiers with
-  // an identical season window) — a real, faithful duplication, not an error.
-  duplicatedAcrossMenus: number
-  // Items that matched no menu by window, name, or tier heuristic at all — placed in
-  // the first visible menu as a last resort so nothing is ever silently dropped, but
-  // worth a human glance since placement wasn't confidently determined.
-  unplacedFallbackCount: number
   /**
-   * WHICH items the last-resort fallback placed, and where. The count alone made
-   * the next reader infer the answer from item positions — on Tenkatori Sawtelle
-   * the 5 fallbacks turned out to be the Big Game Combos, but that had to be
-   * deduced rather than read. The fallback picks a menu it does not know is
-   * right, so it must say what it did.
+   * FM items whose category is on none of the restaurant's menus (FM's own data:
+   * a category detached from its menu). Not imported, and named so a human can
+   * decide; the old importer guessed a menu for these and put them in it.
    */
-  unplacedFallbackItems: { name: string; category: string; menu: string }[]
-  // Items skipped because FM's ItemCategory.visible was false. Only ever
-  // non-zero on the fallback/supplementary paths, which read the unfiltered
-  // flat admin catalog; the primary path inherits FM's own server-side filter.
+  unplacedItems: { name: string; category: string }[]
+  // Items skipped because their FM category is hidden (ItemCategory.visible =
+  // false). They would not show on FM's storefront either.
   hiddenCategorySkipped: number
   // Blackout ranges carried across from FM's scheduleOption.skippedDays.
   skippedDayRangesImported: number
@@ -350,7 +331,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     iconUrlImported: false, imageUrlImported: false,
     skippedDayPartialsImported: 0,
     itemImagesImported: 0, itemImagesMissing: 0, itemImagesFailed: 0,
-    supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0, unplacedFallbackItems: [],
+    unplacedItems: [],
     skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0, hiddenCategorySkipped: 0,
   }
   await runDiscoMenuMigrations()
@@ -364,9 +345,12 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   // `type` (admin "Catering Menu"/GENERAL_CATERING vs customer "Catering"/
   // OFFICE_CATERING) with no shared key to reconcile — so the import uses the admin
   // representation throughout (name + type + settings) rather than fragilely zipping.
-  const fmMenus = arrOf(await fmGet(`/api/admin/menu?restaurantReference=${fmRef}&page=0&size=100`, auth))
-  const fmGroups = arrOf(await fmGet(`/api/restaurants/${fmRef}/extraItemsGroups?page=0&size=500`, auth))
-  const fmItems = arrOf(await fmGet(`/api/restaurants/${fmRef}/mealPackages?page=0&size=1000`, auth))
+  const [fmMenus, fmGroups, fmItems] = await Promise.all([
+    fmGetAll(`/api/admin/menu?restaurantReference=${fmRef}`, auth),
+    fmGetAll(`/api/restaurants/${fmRef}/extraItemsGroups`, auth),
+    fmGetAll(`/api/restaurants/${fmRef}/mealPackages`, auth),
+  ])
+  if (!fmMenus || !fmGroups || !fmItems) { summary.error = 'FM menus, modifier groups or items could not be read in full'; return summary }
   if (!fmMenus.length && !fmItems.length) { summary.error = 'No FM menu/items returned'; return summary }
 
   // ── 0) Restaurant-level settings: announcement + delivery order time window ──
@@ -495,39 +479,41 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     menuNameByRef.set(mi[0].reference, nm)
     summary.menus++
   }
-  // ── 3) Items → categories, scoped per menu ──
-  // The flat /api/.../mealPackages catalog has NO usable menu linkage (item.menu is a
-  // bare number, not a ref), so importing from it alone would dump every item into a
-  // single menu. The customer site partitions items via the PUBLIC per-menu endpoint,
-  // which returns each menu's real categories (with nested mealPackages). We traverse
-  // menus through it for the correct menu→category→item structure, enriching each
-  // item's richer fields (visible, displayPrice, minQuantity, addOns) from the flat
-  // catalog joined by reference.
-  const flatByRef = new Map<string, Record<string, unknown>>()
-  for (const it of fmItems) { const r = str(it.reference); if (r) flatByRef.set(r, it) }
-  const catCache = new Map<string, string>() // `${discoMenu}::${catName}` → cat ref
-  let itemPos = 0
-
-  const ensureCat = async (discoMenu: string, catName: string, catDescription: string | null = null): Promise<string> => {
-    const catKey = `${discoMenu}::${catName}`
-    const cached = catCache.get(catKey)
-    if (cached) return cached
-    const found = (await sql`SELECT reference FROM disco_menu_categories WHERE restaurant_reference = ${targetRef}::uuid AND menu_reference = ${discoMenu}::uuid AND name = ${catName} LIMIT 1`) as { reference: string }[]
-    let catRef = found[0]?.reference
-    if (!catRef) {
-      const cp = (await sql`SELECT COALESCE(MAX(position), -1) + 1 AS p FROM disco_menu_categories WHERE menu_reference = ${discoMenu}::uuid`) as { p: number }[]
-      const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, description, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${catName}, ${catDescription}, ${cp[0]?.p ?? 0}) RETURNING reference`) as { reference: string }[]
-      catRef = ci[0].reference
-      summary.categories++
+  // ── 3) Items → categories, placed by FM's own category → menu link ──
+  // Every flat-catalog item carries itemCategory.reference, and
+  // GET /api/itemCategories?menuReference=… lists EVERY category of a menu —
+  // hidden menus and hidden categories included (ItemCategoryServiceImpl.getAll →
+  // findAllByMenuReference, not restaurant-scoped, open to SUPER_ADMIN). Together
+  // they say exactly which menu each item is on, so nothing is inferred.
+  //
+  // This replaced a public per-menu traversal plus a "supplementary pass" that
+  // GUESSED where items on hidden menus and hidden items belonged (schedule-window
+  // match, category-name overlap, party-size wording, else the first visible menu).
+  // The guesses copied hidden items into every menu sharing a window: Colonial
+  // Ranch Market converted with 1,862 items where FM had 1,112 — 776 hidden copies
+  // spread across menus they never belonged to (re-synced 2026-11-09).
+  //
+  // A category FM has hidden is skipped with its items, as before: Disco's
+  // customer read filters hidden categories, but nothing else would stop an item
+  // in one from being priced at checkout. An item whose category is on none of
+  // the restaurant's menus is not placed anywhere and is named in unplacedItems.
+  const catToMenu = new Map<string, { discoMenu: string; name: string; description: string | null; position: number; visible: boolean }>()
+  for (const m of fmMenus) {
+    const discoMenu = menuMap.get(str(m.reference))
+    if (!discoMenu) continue
+    const cats = await fmGet(`/api/itemCategories?menuReference=${str(m.reference)}`, auth)
+    if (!Array.isArray(cats)) { summary.error = `FM categories for menu "${str(m.name)}" could not be read`; return summary }
+    for (const c of cats as Record<string, unknown>[]) {
+      const ref = str(c.reference); if (!ref) continue
+      catToMenu.set(ref, { discoMenu, name: str(c.name) || 'Menu', description: str(c.description).trim() || null, position: num(c.position), visible: c.visible !== false })
     }
-    catCache.set(catKey, catRef)
-    return catRef
   }
 
   // One cache for the whole import: FM clones its image rows per restaurant, but an
   // item list can repeat a reference, and content-addressed blob paths dedupe
   // identical bytes across restaurants at the storage layer regardless.
   const itemImageCache = newItemImageCache()
+  let itemPos = 0
   const insertItem = async (it: Record<string, unknown>, catRef: string): Promise<void> => {
     const serves = str(it.serves).trim() || null
     const displayPrice = str(it.displayPrice).trim().slice(0, 120) || null
@@ -563,209 +549,39 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     }
   }
 
-  // PRIMARY: public per-menu traversal → correct menu→category→item partition.
-  // Only ever returns items for the menu(s) FM currently marks visible/active — by
-  // design, this is a public/customer-facing endpoint and won't serve Inactive menu
-  // content. `placedRefs` tracks every FM item reference placed here so the
-  // supplementary pass below never double-imports them.
-  let importedAnyItems = false
-  const placedRefs = new Set<string>()
-  for (const m of fmMenus) {
-    const discoMenu = menuMap.get(str(m.reference))
-    if (!discoMenu) continue
-    const cats = arrOf(await fmGet(`/public-api/restaurants/${fmRef}/mealPackages?menuReference=${str(m.reference)}`, auth))
-    for (const c of cats) {
-      const pkgs = arrOf(c.mealPackages)
-      if (!pkgs.length) continue
-      const catRef = await ensureCat(discoMenu, str(c.name) || 'Menu', str(c.description).trim() || null)
-      for (const pub of pkgs) {
-        // Flat catalog fills the fields the public endpoint omits; public is the
-        // menu-scoped truth for the rest (name/price/serves/extraItemsGroups).
-        const flat = flatByRef.get(str(pub.reference)) || {}
-        await insertItem({ ...flat, ...pub }, catRef)
-        placedRefs.add(str(pub.reference))
-        importedAnyItems = true
-      }
-    }
-  }
-
-  // FALLBACK: if the public endpoint returned nothing for every menu (rare — a
-  // restaurant whose only menu(s) are all currently invisible), use the flat catalog
-  // as a whole-catalog substitute, placing each item in its own menu when known, else
-  // the first VISIBLE menu (never a hidden/seasonal one, which is what the old
-  // default-to-first bug did). Also marks placedRefs so the supplementary pass below
-  // never re-processes these.
-  if (!importedAnyItems) {
-    const visRef = fmMenus.find(m => m.visible !== false)?.reference
-    const defaultMenu = (visRef ? menuMap.get(str(visRef)) : undefined) || (menuMap.values().next().value as string | undefined)
-    if (defaultMenu) {
-      for (const it of fmItems) {
-        // Hidden-category items are skipped, matching what the primary path
-        // inherits from FM's own server-side filter.
-        if (!fmCategoryVisible(it)) { summary.hiddenCategorySkipped++; continue }
-        const discoMenu = menuMap.get(str((it.menu as Record<string, unknown> | undefined)?.reference)) || defaultMenu
-        const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
-        const catName = (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu'
-        const catDescription = catObj ? (str(catObj.description).trim() || null) : null
-        const catRef = await ensureCat(discoMenu, catName, catDescription)
-        await insertItem(it, catRef)
-        placedRefs.add(str(it.reference))
-      }
-    }
-  }
-
-  // ── 4) Supplementary pass: real FM items belonging to Inactive/hidden menus ──
-  // The public per-menu endpoint (step 3 PRIMARY) never surfaces Inactive-menu
-  // content, so without this pass every Inactive menu silently imports with zero
-  // items even though FM has real, current (non-archived) data for it. FM's flat
-  // catalog has no usable item→menu link (`item.menu` is a bare literal, confirmed
-  // identical across every item regardless of true menu — unusable), so placement is
-  // reconstructed via the strongest available signals, in priority order:
-  //   1. Exact match between the item's own scheduleOption window and a menu's own
-  //      window.
-  //   2. If MULTIPLE menus share an identical window (e.g. twin party-size tiers with
-  //      the same season — confirmed real, not hypothetical), the item is placed into
-  //      ALL of them. Duplicating is the faithful choice here, not an error: these are
-  //      genuinely shared a-la-carte items FM makes available under both tiers, with
-  //      nothing in the data distinguishing "belongs to tier A only."
-  //   3. No window match at all (a stale per-item schedule stamp — e.g. last year's
-  //      Super Bowl date still sitting on an item that's still part of the current
-  //      catalog) → fall back to normalized category/menu NAME overlap.
-  //   4. A narrow numeric party-size-tier heuristic for "under N people" / "N+" /
-  //      "N or more" phrasing, common in catering party-size menus, matched against
-  //      numeric ranges embedded in menu names (e.g. "12-29 people" / "30+ people").
-  //   5. Still nothing → the first visible menu, so an item is never silently
-  //      dropped even when every heuristic above misses — logged via
-  //      unplacedFallbackCount rather than silently absorbed.
-  const menuWindows = new Map<string, { start: string; end: string; name: string }>()
-  for (const m of fmMenus) {
-    const discoMenu = menuMap.get(str(m.reference)); if (!discoMenu) continue
-    const sched = (m.scheduleOption || {}) as Record<string, unknown>
-    menuWindows.set(discoMenu, { start: str(sched.startDate), end: str(sched.endDate), name: str(m.name) })
-  }
-  const normalizeForMatch = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const tierNumbersInText = (s: string): { under?: number; atLeast?: number } => {
-    const under = /under\s+(\d+)/i.exec(s)
-    // Non-greedy, bounded gap so "30 ppl or more" / "30 people or more" still match —
-    // catering party-size phrasing routinely has a word between the number and
-    // "+"/"or more", not just adjacent digits.
-    const atLeast = /(\d+)[^\d]{0,12}?(?:\+|or\s*more)/i.exec(s)
-    return { under: under ? Number(under[1]) : undefined, atLeast: atLeast ? Number(atLeast[1]) : undefined }
-  }
-  const tierRangeInMenuName = (name: string): { lo?: number; hi?: number } => {
-    const plus = /(\d+)\s*\+/.exec(name)
-    if (plus) return { lo: Number(plus[1]) }
-    const range = /(\d+)\s*-\s*(\d+)/.exec(name)
-    if (range) return { lo: Number(range[1]), hi: Number(range[2]) }
-    return {}
-  }
-  const catNameOf = (it: Record<string, unknown>): { name: string; description: string | null } => {
-    const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
-    return { name: (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu', description: catObj ? (str(catObj.description).trim() || null) : null }
-  }
-
-  const placeItem = async (it: Record<string, unknown>, targets: string[]) => {
-    const { name: catName, description: catDescription } = catNameOf(it)
-    const uniqueTargets = [...new Set(targets)]
-    for (const discoMenu of uniqueTargets) {
-      const catRef = await ensureCat(discoMenu, catName, catDescription)
-      await insertItem(it, catRef)
-    }
-    summary.supplementaryItemsPlaced += uniqueTargets.length
-    if (uniqueTargets.length > 1) summary.duplicatedAcrossMenus += uniqueTargets.length
-  }
-
-  // PASS A — exact window matches (steps 1/2). Also LEARNS which menu(s) each
-  // category genuinely belongs to from these confidently-placed items, so pass B can
-  // apply that same placement (including duplication across twin tiers) to sibling
-  // items whose OWN schedule stamp is stale/missing but whose category is identical —
-  // e.g. "Holiday Appetizers" items with a clean window match teach pass B where every
-  // OTHER "Holiday Appetizers" item belongs too, rather than guessing per item.
-  const categoryToMenus = new Map<string, Set<string>>()
-  const unresolvedAfterA: Record<string, unknown>[] = []
+  const itemsByCat = new Map<string, Record<string, unknown>[]>()
   for (const it of fmItems) {
-      // Same category-visibility gate as the fallback path above: this pass also
-      // reads the unfiltered flat admin catalog.
-      if (!fmCategoryVisible(it)) { summary.hiddenCategorySkipped++; continue }
-    const ref = str(it.reference)
-    if (!ref || placedRefs.has(ref)) continue
-    const sched = (it.scheduleOption || {}) as Record<string, unknown>
-    const itemStart = str(sched.startDate), itemEnd = str(sched.endDate)
-    const targets: string[] = []
-    if (itemStart && itemEnd) {
-      for (const [discoMenu, w] of menuWindows) {
-        if (w.start === itemStart && w.end === itemEnd) targets.push(discoMenu)
-      }
+    const c = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
+    const cref = c ? str(c.reference) : ''
+    if (!cref || !catToMenu.has(cref)) {
+      summary.unplacedItems.push({ name: str(it.name) || '(unnamed)', category: (c ? str(c.name) : str(it.itemCategory)) || '(none)' })
+      continue
     }
-    if (targets.length) {
-      await placeItem(it, targets)
-      const normCat = normalizeForMatch(catNameOf(it).name)
-      if (!categoryToMenus.has(normCat)) categoryToMenus.set(normCat, new Set())
-      for (const t of targets) categoryToMenus.get(normCat)!.add(t)
-    } else {
-      unresolvedAfterA.push(it)
-    }
+    const list = itemsByCat.get(cref) || []
+    list.push(it)
+    itemsByCat.set(cref, list)
+  }
+  if (summary.unplacedItems.length) {
+    console.log(`[fm-faithful-import] ${summary.unplacedItems.length} FM item(s) are on no menu and were not imported:`, summary.unplacedItems.map(u => `${u.name} (${u.category})`).join('; '))
   }
 
-  // PASS B — no window match. Priority: (3) this category's LEARNED placement from
-  // pass A, so generic shared items (no tier-specific wording, e.g. "Vodka Sauce")
-  // correctly duplicate the same way their sibling items already did; (4) normalized
-  // category/menu NAME overlap (catches stale-window items still identifiable by
-  // category, e.g. "Super Bowl Menu" category ↔ "Super Bowl"/"Superbowl Menu" menu,
-  // when the category was never seen in pass A at all); (5) a narrow numeric
-  // party-size-tier heuristic ("under N" / "N+" / "N or more") for the specific items
-  // that ARE tier-labeled themselves; (6) last resort — first visible menu, logged via
-  // unplacedFallbackCount rather than silently dropped.
-  for (const it of unresolvedAfterA) {
-    const { name: catName } = catNameOf(it)
-    const normCat = normalizeForMatch(catName)
-    let targets: string[] = []
-    let wasFallback = false
-
-    const learned = categoryToMenus.get(normCat)
-    if (learned?.size) {
-      targets = [...learned]
-    }
-
-    if (!targets.length && normCat) {
-      for (const [discoMenu, w] of menuWindows) {
-        const normMenu = normalizeForMatch(w.name)
-        if (normMenu && (normCat.includes(normMenu) || normMenu.includes(normCat))) targets.push(discoMenu)
-      }
-    }
-
-    if (!targets.length) {
-      const tierText = `${str(it.name)} ${catName}`
-      const t = tierNumbersInText(tierText)
-      if (t.under != null || t.atLeast != null) {
-        for (const [discoMenu, w] of menuWindows) {
-          const r = tierRangeInMenuName(w.name)
-          if (t.under != null && r.hi != null && r.hi < t.under) targets.push(discoMenu)
-          else if (t.atLeast != null && r.lo != null && r.lo === t.atLeast && r.hi == null) targets.push(discoMenu)
-        }
-      }
-    }
-
-    if (!targets.length) {
-      const visRef = fmMenus.find(m => m.visible !== false)?.reference
-      const defaultMenu = (visRef ? menuMap.get(str(visRef)) : undefined) || (menuMap.values().next().value as string | undefined)
-      if (defaultMenu) { targets = [defaultMenu]; wasFallback = true }
-    }
-    if (!targets.length) continue
-
-    await placeItem(it, targets)
-    if (wasFallback) {
-      summary.unplacedFallbackCount++
-      // Name it. FM placed this item in no menu, so the target below is this
-      // importer's guess, not FM's instruction — the one case where a reader
-      // most needs to see the item rather than a tally.
-      const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
-      summary.unplacedFallbackItems.push({
-        name: str(it.name) || '(unnamed)',
-        category: (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu',
-        menu: menuNameByRef.get(targets[0]) || targets[0],
-      })
-      console.log(`[fm-faithful-import] last-resort placement: "${str(it.name)}" → menu "${menuNameByRef.get(targets[0]) || targets[0]}" (FM assigns it to no menu)`)
+  // Menu by menu, categories and items in FM's own order.
+  const catsByMenu = new Map<string, [string, { name: string; description: string | null; position: number; visible: boolean }][]>()
+  for (const [ref, c] of catToMenu) {
+    const list = catsByMenu.get(c.discoMenu) || []
+    list.push([ref, c])
+    catsByMenu.set(c.discoMenu, list)
+  }
+  for (const discoMenu of menuMap.values()) {
+    const cats = (catsByMenu.get(discoMenu) || []).sort((a, b) => a[1].position - b[1].position)
+    let cpos = 0
+    for (const [fmCatRef, c] of cats) {
+      const items = (itemsByCat.get(fmCatRef) || []).sort((a, b) => num(a.position) - num(b.position))
+      if (!c.visible) { summary.hiddenCategorySkipped += items.length; continue }
+      if (!items.length) continue
+      const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, description, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${c.name}, ${c.description}, ${cpos++}) RETURNING reference`) as { reference: string }[]
+      summary.categories++
+      for (const it of items) await insertItem(it, ci[0].reference)
     }
   }
 

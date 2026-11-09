@@ -98,8 +98,8 @@ async function main() {
       rec.drops = await groupLinkDrops(t.ref, auth)
       const m = await importFmMenuFaithfully(t.ref)
       rec.menu = { menus: m.menus, categories: m.categories, items: m.items, groups: m.groups,
-        modifiers: m.modifiers, itemGroupLinks: m.itemGroupLinks, duplicatedAcrossMenus: m.duplicatedAcrossMenus,
-        supplementaryItemsPlaced: m.supplementaryItemsPlaced, hiddenCategorySkipped: m.hiddenCategorySkipped }
+        modifiers: m.modifiers, itemGroupLinks: m.itemGroupLinks, unplacedItems: m.unplacedItems.length,
+        hiddenCategorySkipped: m.hiddenCategorySkipped }
       console.log('  menu:', JSON.stringify(rec.menu))
 
       // Standing rule: visible = true (is_live is COMPUTED by convertToNative from it).
