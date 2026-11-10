@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { partsFromOneLine, saveRestaurantAddress } from '../../../../lib/restaurant-address'
 import { formatDisplayAddress } from '../../../../lib/address-display'
+import { pickedCoords } from '../../../../lib/address-pick'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -118,7 +119,10 @@ export async function PUT(req: NextRequest) {
       WHERE restaurant_reference = ${ref}
     `
     // Every address column + the map pin, from this one box (lib/restaurant-address.ts).
-    const saved = await saveRestaurantAddress(ref, await partsFromOneLine(address, addressLine2))
+    // A Google address-search pick sends its coordinates (`addressPick`), used only
+    // while the box still holds the picked text; anything typed by hand is
+    // geocoded as before (lib/address-pick.ts).
+    const saved = await saveRestaurantAddress(ref, await partsFromOneLine(address, addressLine2), pickedCoords(body?.addressPick, address))
     // Marketplace Image (image_url) — only when explicitly provided.
     if (logoUrl !== undefined) {
       await sql`

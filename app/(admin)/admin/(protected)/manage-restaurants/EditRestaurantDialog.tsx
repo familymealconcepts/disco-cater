@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
 import { MoreInfoField } from '../../../../components/MoreInfo'
+import AddressSearchInput from '../../../../components/AddressSearchInput'
+import { pickedOneLine, type AddressPick, type PickedPlace } from '../../../../../lib/address-pick'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -110,6 +112,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
+  // Google address-search pick (lib/address-pick.ts). It fills line 1/city/state/
+  // zip AND the map fields (lat/lng/location), remembering what they held before
+  // so that any hand edit to the address puts them back — manual entry then
+  // saves exactly as it did before search existed.
+  const [addressPick, setAddressPick] = useState<(AddressPick & { before: { lat: string; lng: string; location: string } }) | null>(null)
   const [imageUrl, setImageUrl] = useState('')        // current/uploaded CDN URL
   const [imageFile, setImageFile] = useState<File | null>(null) // new file → also pushed to FM
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -422,6 +429,22 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     }
   }
 
+  function applyPick(pl: PickedPlace) {
+    const before = addressPick?.before ?? { lat, lng, location }
+    setAddr1(pl.line1); setCity(pl.city); setStateVal(pl.state); setZipcode(pl.zipcode)
+    setLat(String(pl.lat)); setLng(String(pl.lng))
+    if (pl.city) setLocation([pl.city, pl.state].filter(Boolean).join(', '))
+    setAddressPick({ lat: pl.lat, lng: pl.lng, address: pickedOneLine(pl), before })
+  }
+  // A hand edit to line 1/city/state/zip ends the pick and restores the map fields.
+  const editAddr = (set: (v: string) => void) => (v: string) => {
+    set(v)
+    if (addressPick) {
+      setLat(addressPick.before.lat); setLng(addressPick.before.lng); setLocation(addressPick.before.location)
+      setAddressPick(null)
+    }
+  }
+
   async function submit() {
     setErr('')
     setSavedOk(false)
@@ -466,6 +489,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         fulfillmentOptions: existing?.fulfillmentOptions,
         leadGenOne: pctOrDefault(leadGenOne, 15),
         leadGenTwo: pctOrDefault(leadGenTwo, 5),
+        // Disco-native only: the server strips it before anything reaches FM.
+        ...(addressPick ? { addressPick: { lat: addressPick.lat, lng: addressPick.lng, address: addressPick.address } } : {}),
       }
       const putRes = await fetch(`/api/admin/restaurants/${restaurantRef}`, {
         method: 'PUT',
@@ -623,12 +648,18 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
               {/* Address */}
               <div style={section}>
                 <div style={sTitle}>Address</div>
-                <div style={{ marginBottom: 12 }}><label style={label}>Address line 1 *</label><input style={input} value={addr1} onChange={e => setAddr1(e.target.value)} /></div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={label} htmlFor="admin-restaurant-address-line1">Address line 1 *</label>
+                  {/* Google address search (US); typing by hand still works. */}
+                  <AddressSearchInput id="admin-restaurant-address-line1" name="admin-restaurant-address-line1" style={input}
+                    value={addr1} onChange={editAddr(setAddr1)} onPick={applyPick}
+                    placeholder="Search for an address, or type the street" />
+                </div>
                 <div style={{ marginBottom: 12 }}><label style={label}>Address line 2</label><input style={input} value={addr2} onChange={e => setAddr2(e.target.value)} /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-                  <div><label style={label}>City</label><input style={input} value={city} onChange={e => setCity(e.target.value)} /></div>
-                  <div><label style={label}>State</label><input style={input} value={stateVal} onChange={e => setStateVal(e.target.value)} maxLength={2} /></div>
-                  <div><label style={label}>Zip</label><input style={input} value={zipcode} onChange={e => setZipcode(e.target.value)} /></div>
+                  <div><label style={label}>City</label><input style={input} value={city} onChange={e => editAddr(setCity)(e.target.value)} /></div>
+                  <div><label style={label}>State</label><input style={input} value={stateVal} onChange={e => editAddr(setStateVal)(e.target.value)} maxLength={2} /></div>
+                  <div><label style={label}>Zip</label><input style={input} value={zipcode} onChange={e => editAddr(setZipcode)(e.target.value)} /></div>
                 </div>
               </div>
 

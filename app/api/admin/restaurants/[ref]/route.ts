@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 import { sql } from '../../../../../lib/db'
 import { saveRestaurantAddress, streetForEditor } from '../../../../../lib/restaurant-address'
+import { pickedCoords, pickedOneLine } from '../../../../../lib/address-pick'
 import { archiveDiscoNativeRestaurant } from '../../../../../lib/disco-restaurant-archive'
 import { requireArchiveAccess } from '../../../../../lib/admin-archive-access'
 import { logAdminAction } from '../../../../../lib/admin-audit'
@@ -242,6 +243,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     } else {
       incoming = await req.json()
     }
+    // Google address-search pick (lib/address-pick.ts). Disco-only: taken off the
+    // body here so it can never be merged into the object PUT to FamilyMeal below.
+    const addressPick = incoming.addressPick
+    delete incoming.addressPick
 
     // Disco-native: write identity/address/lead-gen straight to Neon and return.
     // Post-conversion Disco owns this restaurant, so the FM GET→merge→PUT below must not
@@ -320,7 +325,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
           city = EXCLUDED.city, state = EXCLUDED.state, zipcode = EXCLUDED.zipcode, cached_at = NOW()
       `
       // Then every address column + the pin through the shared writer.
-      await saveRestaurantAddress(ref, { line1: s(addr.addressLine1), line2: s(addr.addressLine2), city: s(addr.city), state: s(addr.state), zipcode: s(addr.zipcode) })
+      // A pick's coordinates are used only while line 1/city/state/zip still match it.
+      const typed = pickedOneLine({ line1: String(s(addr.addressLine1) || ''), city: String(s(addr.city) || ''), state: String(s(addr.state) || ''), zipcode: String(s(addr.zipcode) || '') })
+      await saveRestaurantAddress(ref, { line1: s(addr.addressLine1), line2: s(addr.addressLine2), city: s(addr.city), state: s(addr.state), zipcode: s(addr.zipcode) }, pickedCoords(addressPick, typed))
       await sql`
         INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct)
         VALUES (${ref}, ${leadOne ?? 15}, ${leadTwo ?? 5})

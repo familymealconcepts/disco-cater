@@ -97,6 +97,48 @@ export function composeRestaurantAddress(p: RestaurantAddressParts): string {
 
 export interface SaveAddressResult { address: string; parts: RestaurantAddressParts; located: boolean }
 
+export interface AddressWritePlan {
+  parts: RestaurantAddressParts
+  address: string | null
+  location: string | null
+  lat: number | null
+  lng: number | null
+  /** 'picked' = the caller's coordinates (a Google Places pick); 'geocoded' = looked up from the typed address; 'none' = keep the old pin. */
+  pin: 'picked' | 'geocoded' | 'none'
+}
+
+/**
+ * Exactly what saveRestaurantAddress writes, computed without touching the
+ * database (scripts/tests/address-search.test.ts pins it). Picked coordinates
+ * win and the geocoder is not asked; with none, the street/city/state/zip
+ * (never line 2) is geocoded exactly as before Places search existed.
+ */
+export async function planRestaurantAddressWrite(
+  input: RestaurantAddressParts,
+  coords?: { lat: number | null | undefined; lng: number | null | undefined } | null,
+  geocode: (address: string) => Promise<{ lat: number; lng: number } | null> = geocodeAddress,
+): Promise<AddressWritePlan> {
+  const parts: RestaurantAddressParts = {
+    line1: clean(input.line1), line2: clean(input.line2 ?? null),
+    city: clean(input.city), state: clean(input.state)?.toUpperCase() ?? null, zipcode: clean(input.zipcode),
+  }
+  const noLine2 = { ...parts, line2: null }
+  const oneLine = composeRestaurantAddress(noLine2)
+  let lat = coords?.lat != null && Number.isFinite(Number(coords.lat)) ? Number(coords.lat) : null
+  let lng = coords?.lng != null && Number.isFinite(Number(coords.lng)) ? Number(coords.lng) : null
+  let pin: AddressWritePlan['pin'] = lat != null && lng != null ? 'picked' : 'none'
+  if (pin === 'none') {
+    lat = null; lng = null
+    if (oneLine) {
+      const g = await geocode(oneLine)
+      if (g) { lat = g.lat; lng = g.lng; pin = 'geocoded' }
+    }
+  }
+  const address = composeRestaurantAddress(parts) || null
+  const location = parts.city ? [parts.city, parts.state].filter(Boolean).join(', ') : null
+  return { parts, address, location, lat, lng, pin }
+}
+
 /**
  * Write a native restaurant's address everywhere it is stored. `coords` are used
  * when the caller already has them (a Places pick); otherwise the address is
@@ -108,20 +150,7 @@ export async function saveRestaurantAddress(
   input: RestaurantAddressParts,
   coords?: { lat: number | null | undefined; lng: number | null | undefined } | null,
 ): Promise<SaveAddressResult> {
-  const parts: RestaurantAddressParts = {
-    line1: clean(input.line1), line2: clean(input.line2 ?? null),
-    city: clean(input.city), state: clean(input.state)?.toUpperCase() ?? null, zipcode: clean(input.zipcode),
-  }
-  const noLine2 = { ...parts, line2: null }
-  const oneLine = composeRestaurantAddress(noLine2)
-  let lat = coords?.lat != null && Number.isFinite(Number(coords.lat)) ? Number(coords.lat) : null
-  let lng = coords?.lng != null && Number.isFinite(Number(coords.lng)) ? Number(coords.lng) : null
-  if ((lat == null || lng == null) && oneLine) {
-    const g = await geocodeAddress(oneLine)
-    if (g) { lat = g.lat; lng = g.lng }
-  }
-  const address = composeRestaurantAddress(parts) || null
-  const location = parts.city ? [parts.city, parts.state].filter(Boolean).join(', ') : null
+  const { parts, address, location, lat, lng } = await planRestaurantAddressWrite(input, coords)
   await sql`
     UPDATE disco_restaurant_cache SET
       address = ${address},

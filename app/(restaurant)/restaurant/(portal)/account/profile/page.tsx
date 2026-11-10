@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../../lib/ordering-validation'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
+import AddressSearchInput from '../../../../../components/AddressSearchInput'
+import { pickedOneLine, type AddressPick } from '../../../../../../lib/address-pick'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -57,6 +59,9 @@ interface DiscoProfile {
   addressLine2: string // optional suite / unit / floor → disco_restaurant_cache.address_line2
   logoUrl: string   // Marketplace Image → disco_restaurant_cache.image_url
   iconUrl: string   // Logo → disco_restaurant_cache.icon_url
+  // Set when the Address box was filled from a Google search result; cleared
+  // by any hand edit. The server keeps the pin only while the text matches.
+  addressPick?: AddressPick | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -641,13 +646,29 @@ export default function ProfilePage() {
           <FormField label="Phone Number" htmlFor="restaurant-phone-number">
             {inp(discoProfile.phone, v => setDiscoProfile({ ...discoProfile, phone: v }), { type: 'tel', name: 'restaurant-phone-number', autoComplete: 'tel' })}
           </FormField>
-          {/* Single free-text line (street + city/state/zip combined, per the
-              placeholder below) — 'street-address' is the spec token for a
-              combined single-field address, distinct from the split
-              address-line1/address-line2/address-level2 tokens; there's no
-              other address field on this form for it to conflict with. */}
+          {/* One line (street + city/state/zip combined). autoComplete is off
+              here so the browser's own autofill doesn't stack a second
+              dropdown on Google's suggestions. */}
+          {/* Google address search (US). Picking a result fills street, city,
+              state and ZIP and keeps its pin (map, delivery radius, courier
+              pickup); typing by hand still works and is geocoded on Save, as
+              before. components/AddressSearchInput + lib/address-pick.ts. */}
           <FormField label="Address" htmlFor="restaurant-address">
-            {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP', name: 'restaurant-address', autoComplete: 'street-address' })}
+            <AddressSearchInput
+              id="restaurant-address"
+              name="restaurant-address"
+              value={discoProfile.address}
+              onChange={v => setDiscoProfile(p => ({ ...p, address: v, addressPick: null }))}
+              onPick={pl => {
+                const text = pickedOneLine(pl)
+                setDiscoProfile(p => ({ ...p, address: text, addressPick: { lat: pl.lat, lng: pl.lng, address: text } }))
+              }}
+              placeholder="Search for an address, or type Street, City, State ZIP"
+              style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none', background: '#fff', color: DARK }}
+            />
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+              Start typing and pick your address. Can&rsquo;t find it? Type it in full.
+            </div>
           </FormField>
           {/* Optional. Shown wherever the address appears — customer pages,
               link pages, order emails, PDFs and courier pickups. autoComplete
