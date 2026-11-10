@@ -18,8 +18,11 @@ function slugify(s: string): string {
 // scoped to (their home location, or a SA's selected + authorized location).
 async function ownedRef(reqRef: string): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
-  if (!ctx?.restaurantReference || !UUID_RE.test(reqRef)) return null
+  // An FM-password session carries no restaurantReference (resolveDiscoScopeRef resolves it);
+  // checking it here 404'd every Disco menu page for those logins (Pecking House, 2026-11-10).
+  if (!ctx || !UUID_RE.test(reqRef)) return null
   const scopeRef = await resolveDiscoScopeRef(ctx)
+  if (!scopeRef) return null
   const rows = (await sql`
     SELECT 1 FROM disco_menus WHERE reference = ${reqRef}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as unknown[]

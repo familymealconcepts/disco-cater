@@ -10,8 +10,11 @@ function num(v: unknown): number { const n = parseFloat(String(v ?? '')); return
 
 async function ownedItem(itemRef: string): Promise<{ category_reference: string } | null> {
   const ctx = await getRestaurantAuthContext()
-  if (!ctx?.restaurantReference || !UUID_RE.test(itemRef)) return null
+  // An FM-password session carries no restaurantReference (resolveDiscoScopeRef resolves it);
+  // checking it here 404'd every Disco menu page for those logins (Pecking House, 2026-11-10).
+  if (!ctx || !UUID_RE.test(itemRef)) return null
   const scopeRef = await resolveDiscoScopeRef(ctx)
+  if (!scopeRef) return null
   const rows = (await sql`
     SELECT category_reference FROM disco_menu_items
     WHERE reference = ${itemRef}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1

@@ -13,8 +13,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
-  if (!ctx?.restaurantReference) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  // An FM-password session carries no restaurantReference (resolveDiscoScopeRef resolves it);
+  // checking it here 404'd every Disco menu page for those logins (Pecking House, 2026-11-10).
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const scopeRef = await resolveDiscoScopeRef(ctx)
+  if (!scopeRef) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const categoryRef = req.nextUrl.searchParams.get('categoryRef') || ''
   if (!UUID_RE.test(categoryRef)) return NextResponse.json({ error: 'categoryRef required' }, { status: 400 })
   await runDiscoMenuMigrations()
@@ -43,8 +46,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
-  if (!ctx?.restaurantReference) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  // An FM-password session carries no restaurantReference (resolveDiscoScopeRef resolves it);
+  // checking it here 404'd every Disco menu page for those logins (Pecking House, 2026-11-10).
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const scopeRef = await resolveDiscoScopeRef(ctx)
+  if (!scopeRef) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
   const categoryReference = String(body?.categoryReference || '')

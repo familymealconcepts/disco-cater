@@ -9,8 +9,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
-  if (!ctx?.restaurantReference || !UUID_RE.test(ref)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // An FM-password session carries no restaurantReference (resolveDiscoScopeRef resolves it);
+  // checking it here 404'd every Disco menu page for those logins (Pecking House, 2026-11-10).
+  if (!ctx || !UUID_RE.test(ref)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const scopeRef = await resolveDiscoScopeRef(ctx)
+  if (!scopeRef) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await runDiscoMenuMigrations()
   await sql`DELETE FROM disco_restaurant_closed_days WHERE reference = ${ref}::uuid AND restaurant_reference = ${scopeRef}::uuid`
   return NextResponse.json({ ok: true })
