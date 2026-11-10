@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { logAdminAction } from '../../../../lib/admin-audit'
 
 // Enrich disco_restaurant_cache rows that are missing cuisine/description/image
 // using the Google Places API (New) Text Search. For each candidate we search by
@@ -24,6 +25,12 @@ const KEY =
   process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
 const SEARCH_TEXT = 'https://places.googleapis.com/v1/places:searchText'
+
+// FILL ONLY, AND NEVER A DISCO-OWNED RESTAURANT (Peter, 2026-11-10). A converted or Disco-native restaurant's
+// listing is Disco's (its photo is uploaded in the portal, its description written there), so it is never a
+// candidate and never written, re-checked in each UPDATE. On the rest, cuisine, description and photo are each
+// written only when empty: NULL or blank text.
+const BLANK = (col: string) => `(${col} IS NULL OR btrim(${col}) = '')`
 
 // Google Places `types` → our cuisine vocabulary. First match wins.
 const TYPE_TO_CUISINE: Record<string, string> = {
@@ -197,23 +204,25 @@ export async function POST(req: NextRequest) {
     // The initial SELECTs get one transient-connection retry (Neon can drop the
     // first request after an idle period); a second connection failure → 503.
     let total = 0
-    let restaurants: { restaurant_reference: string; name: string; address: string | null; cuisine: string | null }[] = []
+    let restaurants: { restaurant_reference: string; name: string; address: string | null; cuisine: string | null; description: string | null; image_url: string | null }[] = []
     const runSelects = async () => {
       const totalRows = (await sql`
         SELECT COUNT(*)::int AS n FROM disco_restaurant_cache c
         JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
         WHERE o.visible = true AND o.stripe_connected = true
-          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR c.image_url IS NULL OR c.description IS NULL)
+          AND COALESCE(c.is_disco_native, false) = false
+          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR ${sql.unsafe(BLANK('c.image_url'))} OR ${sql.unsafe(BLANK('c.description'))})
       `) as { n: number }[]
       total = totalRows[0]?.n ?? 0
       restaurants = (await sql`
-        SELECT c.restaurant_reference, c.name, c.address, c.cuisine FROM disco_restaurant_cache c
+        SELECT c.restaurant_reference, c.name, c.address, c.cuisine, c.description, c.image_url FROM disco_restaurant_cache c
         JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
         WHERE o.visible = true AND o.stripe_connected = true
-          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR c.image_url IS NULL OR c.description IS NULL)
+          AND COALESCE(c.is_disco_native, false) = false
+          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR ${sql.unsafe(BLANK('c.image_url'))} OR ${sql.unsafe(BLANK('c.description'))})
         ORDER BY c.restaurant_reference
         LIMIT ${batchSize} OFFSET ${offset}
-      `) as { restaurant_reference: string; name: string; address: string | null; cuisine: string | null }[]
+      `) as { restaurant_reference: string; name: string; address: string | null; cuisine: string | null; description: string | null; image_url: string | null }[]
     }
     try {
       await runSelects()
@@ -231,6 +240,7 @@ export async function POST(req: NextRequest) {
     }
 
     let enriched = 0
+    const written: { ref: string; name: string; filled: string[] }[] = []
     let skipped = 0
     let notFound = 0
 
@@ -256,10 +266,8 @@ export async function POST(req: NextRequest) {
         await sql`
           UPDATE disco_restaurant_cache
           SET cuisine = CASE WHEN cuisine IS NULL OR cuisine = 'Other' THEN COALESCE(${cuisine}, cuisine) ELSE cuisine END,
-              description = COALESCE(${null}, description),
-              image_url = COALESCE(${null}, image_url),
               cached_at = NOW()
-          WHERE restaurant_reference = ${r.restaurant_reference}
+          WHERE restaurant_reference = ${r.restaurant_reference} AND COALESCE(is_disco_native, false) = false
         `
         notFound++
         await sleep(200)
@@ -272,18 +280,28 @@ export async function POST(req: NextRequest) {
         ? (await inferCuisineWithClaude(r.name, result.types, result.description)) || result.cuisine || 'Other'
         : null
 
-      // Only update fields Google actually returned; leave the rest untouched.
-      // COALESCE keeps the existing value when the parameter is null.
-      if (result.cuisine || result.description || result.imageUrl) {
+      // Only fields that are empty AND that Google returned are written; anything else is left as it is. A row
+      // with nothing to fill counts as skipped, so the cursor moves past it instead of re-reading it.
+      const isBlank = (v: string | null) => v == null || v.trim() === ''
+      const fills = {
+        cuisine: needsCuisine && !!result.cuisine,
+        description: isBlank(r.description) && !!result.description,
+        image: isBlank(r.image_url) && !!result.imageUrl,
+      }
+      if (fills.cuisine || fills.description || fills.image) {
         await sql`
           UPDATE disco_restaurant_cache
           SET cuisine = CASE WHEN cuisine IS NULL OR cuisine = 'Other' THEN COALESCE(${result.cuisine}, cuisine) ELSE cuisine END,
-              description = COALESCE(${result.description}, description),
-              image_url = COALESCE(${result.imageUrl}, image_url),
+              -- FILL ONLY (Peter, 2026-11-10): a description or photo already there is never replaced.
+              -- Before this, COALESCE(new, old) put Google's over an existing one whenever the row was in
+              -- the queue for a different missing field.
+              description = CASE WHEN ${sql.unsafe(BLANK('description'))} THEN COALESCE(${result.description}, description) ELSE description END,
+              image_url = CASE WHEN ${sql.unsafe(BLANK('image_url'))} THEN COALESCE(${result.imageUrl}, image_url) ELSE image_url END,
               cached_at = NOW()
-          WHERE restaurant_reference = ${r.restaurant_reference}
+          WHERE restaurant_reference = ${r.restaurant_reference} AND COALESCE(is_disco_native, false) = false
         `
         enriched++
+        written.push({ ref: r.restaurant_reference, name: r.name, filled: Object.entries(fills).filter(([, v]) => v).map(([k]) => k) })
       } else {
         skipped++
       }
@@ -303,6 +321,12 @@ export async function POST(req: NextRequest) {
     const remaining = total - enriched
     const done = remaining <= 0 || restaurants.length < batchSize
     const nextOffset = done ? 0 : skipped + notFound
+
+    // Who ran Enrich with Google, and what each batch filled (Peter, 2026-11-10): one row per batch.
+    await logAdminAction({
+      action: 'google_enrich_run', restaurantReference: null, actorEmail: await getAdminEmail().catch(() => null),
+      detail: { offset, batchSize, total, enriched, skipped, notFound, written },
+    })
 
     return NextResponse.json({
       total,

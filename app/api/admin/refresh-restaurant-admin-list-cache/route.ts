@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { logAdminAction } from '../../../../lib/admin-audit'
 import { refreshRestaurantAdminListCache } from '../../../../lib/restaurant-admin-list-cache'
 
 // Manual "Refresh Now" trigger for the ordering page's restaurant admin-list
@@ -16,5 +17,7 @@ export async function POST() {
 
   const result = await refreshRestaurantAdminListCache()
   console.log('[refresh-restaurant-admin-list-cache] done:', JSON.stringify(result))
+  // Who clicked Refresh List, and what it did (Peter, 2026-11-10). The 15-minute cron is not logged here.
+  await logAdminAction({ action: 'admin_list_refresh', restaurantReference: null, actorEmail: await getAdminEmail().catch(() => null), detail: { result } })
   return NextResponse.json(result, { status: result.ok ? 200 : 500 })
 }

@@ -60,6 +60,9 @@ export type AdminAuditAction =
   // Menu Builder (Super Admin, lib/menu-builder): a built menu published to a
   // location, or a confirmed before → after update applied to one.
   | 'menu_builder_publish' | 'menu_builder_update'
+  // Super Admin → Restaurants buttons that act on every restaurant at once (Peter, 2026-11-10): who
+  // clicked and when. restaurant_reference is NULL on these rows; detail carries the run's result.
+  | 'admin_list_refresh' | 'map_cache_refresh' | 'google_enrich_run'
 
 let auditTableEnsured = false
 export async function ensureAuditTable(): Promise<void> {
@@ -82,7 +85,8 @@ export async function ensureAuditTable(): Promise<void> {
 // it's swallowed and logged here.
 export async function logAdminAction(params: {
   action: AdminAuditAction
-  restaurantReference: string
+  /** NULL for an action on no one restaurant (the fleet-wide buttons above). */
+  restaurantReference: string | null
   actorEmail: string | null
   detail?: Record<string, unknown>
 }): Promise<void> {

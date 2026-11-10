@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { logAdminAction } from '../../../../lib/admin-audit'
 import { refreshRestaurantCache } from '../../../../lib/restaurant-cache'
 
 // Rebuilds disco_restaurant_cache from FM (active + coords restaurants), so the
@@ -15,10 +16,16 @@ export async function POST() {
   try {
     const result = await refreshRestaurantCache()
     console.log(`[refresh-restaurant-cache] cached ${result.cached}/${result.total} in ${result.durationMs}ms`)
+    // Who clicked Refresh Map Cache, and what it did (Peter, 2026-11-10). The nightly cron is not logged here.
+    await logAdminAction({
+      action: 'map_cache_refresh', restaurantReference: null, actorEmail: await getAdminEmail().catch(() => null),
+      detail: { total: result.total, cached: result.cached, qualified: result.qualified, missing: result.missing, rejected: result.rejected, durationMs: result.durationMs },
+    })
     return NextResponse.json(result)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[refresh-restaurant-cache] failed:', message, e instanceof Error ? e.stack : '')
+    await logAdminAction({ action: 'map_cache_refresh', restaurantReference: null, actorEmail: await getAdminEmail().catch(() => null), detail: { error: message } })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
