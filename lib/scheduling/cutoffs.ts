@@ -219,6 +219,16 @@ export interface FmScheduleLike {
    * picker-vs-placement-gate disagreement this field exists to end.
    */
   timezone?: string | null
+  /**
+   * Minutes a THIRD-PARTY DELIVERY slot sits after the food-ready time it is
+   * validated against — 30 when the restaurant ticked "Shift third-party
+   * delivery times by 30 minutes" AND this menu's delivery method is explicitly
+   * THIRD_PARTY AND the restaurant is Disco-native; absent (0) otherwise. Set by
+   * the server when it builds a scheduleOption (thirdPartyShiftFor). It applies
+   * ONLY to a DELIVERY order on this menu — see slotShiftMinutes. Pickup never
+   * reads it.
+   */
+  thirdPartyShiftMinutes?: number
 }
 /**
  * A menu blackout, in FM's own shape.
@@ -250,6 +260,78 @@ const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRID
 // existing booking changes answer.
 const SLOT_MINUTES = 15
 const MINUTES_PER_DAY = 24 * 60
+
+// ── THIRD-PARTY DELIVERY SHIFT ("Shift third-party delivery times by 30 min") ─
+//
+// Peter, 2026-11-10. A courier collects the food 30 minutes before the delivery
+// time (fulfillmentDateTime in lib/order/fulfillment-time.ts), so a 10:00 third-
+// party delivery used to mean food ready at 9:30 — before a 10:00 window opens,
+// with the lead time measured to 10:00 instead of to when the kitchen must be
+// done. With the restaurant's box ticked, a third-party delivery slot is the
+// FOOD-READY slot plus 30: the window, blackouts (whole and partial-day), closed
+// days, lead time (menu and category), cutoffs and horizon are ALL evaluated on
+// the ready time, unchanged, and the slot shown and stored is ready + 30.
+//
+// THIS IS THE ONLY PLACE THE SHIFT IS COMPUTED. The pickers, the placement gate,
+// the category lead check and the order-edit switch all call these helpers, so
+// the picker and the server cannot disagree about which slots exist.
+//
+// NEVER INTO THE NEXT DAY. The last delivery slot is 23:45 (Peter: "stop at
+// 11:45pm"); a ready slot whose shifted time would pass it is dropped rather
+// than rolled onto the next date — the date, the daily cap and every blackout
+// belong to one calendar day.
+export const THIRD_PARTY_SHIFT_MINUTES = 30
+export const LAST_SLOT_MINUTE = MINUTES_PER_DAY - SLOT_MINUTES // 23:45
+
+/** disco_menus.delivery_settings.method set EXPLICITLY to third-party. An unset
+ *  method (which checkout treats as third-party) is deliberately NOT shifted —
+ *  Peter's ruling: only a menu someone actually set to third-party moves. */
+export function isExplicitThirdPartyMethod(method: unknown): boolean {
+  return typeof method === 'string' && method.trim().toUpperCase() === 'THIRD_PARTY'
+}
+
+/** The shift a menu's third-party delivery slots carry: 30 only when the box is
+ *  ticked, the restaurant is Disco-native (FM-backed restaurants: FM owns their
+ *  ordering, so the flag is ignored), and the menu is explicitly third-party. */
+export function thirdPartyShiftFor(opts: { flag: unknown; isDiscoNative: boolean; deliveryMethod: unknown }): number {
+  return opts.flag === true && opts.isDiscoNative === true && isExplicitThirdPartyMethod(opts.deliveryMethod)
+    ? THIRD_PARTY_SHIFT_MINUTES : 0
+}
+
+/** The shift that applies to an order of `orderType` on this schedule: the
+ *  menu's third-party shift for DELIVERY, always 0 for PICKUP. */
+export function slotShiftMinutes(s: Pick<FmScheduleLike, 'thirdPartyShiftMinutes'> | null | undefined, orderType: string | null | undefined): number {
+  if (String(orderType || '').toUpperCase() !== 'DELIVERY') return 0
+  const n = Number(s?.thirdPartyShiftMinutes)
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
+}
+
+/** Move a same-day "HH:mm[:ss]" by `delta` minutes. Null when the result leaves
+ *  [00:00, 23:45] — a shift never crosses midnight. Keeps the input's shape
+ *  (seconds present → "HH:mm:ss"). */
+export function shiftSlotTime(time: string | null | undefined, delta: number): string | null {
+  if (!time || !/^\d{1,2}:\d{2}/.test(String(time))) return null
+  const m = hhmmToMinutes(String(time)) + Math.round(delta || 0)
+  if (!Number.isFinite(m) || m < 0 || m > LAST_SLOT_MINUTE) return null
+  const hhmm = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  return String(time).split(':').length > 2 ? `${hhmm}:00` : hhmm
+}
+
+/** The FOOD-READY time every scheduling rule is checked against, for a slot
+ *  carrying `shift`. Identity when shift is 0. */
+export function readyTimeForSlot(time: string | null | undefined, shift: number): string | null {
+  if (!shift) return time ? String(time) : null
+  return shiftSlotTime(time, -shift)
+}
+
+/** An order switched between fulfillments keeps its FOOD-READY time: 10:00
+ *  pickup → 10:30 shifted third-party delivery, and back. Null when the move
+ *  would cross midnight (the caller refuses and asks for a time). */
+export function timeAfterFulfillmentSwitch(time: string | null | undefined, fromShift: number, toShift: number): string | null {
+  if (!time) return null
+  if ((fromShift || 0) === (toShift || 0)) return String(time)
+  return shiftSlotTime(time, (toShift || 0) - (fromShift || 0))
+}
 
 function parseHardCutoff(raw?: string | null): Date | null {
   if (!raw) return null
@@ -577,10 +659,18 @@ export function buildAvailableDates(
   s: FmScheduleLike,
   now = new Date(),
   horizonDays?: number,
+  /** slotShiftMinutes(s, orderType). 0 (the default) is exactly the old behaviour. */
+  shift = 0,
 ): { date: string; disabled: boolean }[] {
   // Shift ONCE, here, into the restaurant's wall clock; the internal form below
   // must never shift again (isDateTimeBookable composes both).
-  return datesFrom(s, wallClockInZone(now, s.timezone), horizonDays, orderingClosed(s, now))
+  return datesFrom(s, wallClockInZone(now, s.timezone), horizonDays, orderingClosed(s, now), shift)
+}
+
+/** Ready-slot minutes whose shifted (offered) time stays on the same day. */
+function offeredReadyMinutes(win: { from: string; to: string }, shift: number): number[] {
+  const all = windowSlotMinutes(win)
+  return shift ? all.filter(m => m + shift <= LAST_SLOT_MINUTE) : all
 }
 
 function datesFrom(
@@ -588,6 +678,7 @@ function datesFrom(
   now: Date,
   horizonDays: number | undefined,
   closed: boolean,
+  shift = 0,
 ): { date: string; disabled: boolean }[] {
   const cfg = slotConfig(s)
   const skipped = skippedDateSet(s)
@@ -614,7 +705,7 @@ function datesFrom(
       // Testing existence handles both and is identical to the old behaviour when
       // no intervals are present.
       const blockedIvs = skippedIntervalsFor(s, iso)
-      const enabled = !closed && windowSlotMinutes(win).some(m =>
+      const enabled = !closed && offeredReadyMinutes(win, shift).some(m =>
         isSlotEnabled(now, cfg, atTime(cur, m)) && !inBlockedInterval(m, blockedIvs))
       out.push({ date: iso, disabled: !enabled })
     }
@@ -632,8 +723,11 @@ export function buildAvailableTimes(
   s: FmScheduleLike,
   dateStr: string,
   now = new Date(),
+  /** slotShiftMinutes(s, orderType). With a shift, each returned `time` is the
+   *  offered (delivery) time and `disabled` is decided on its ready time. */
+  shift = 0,
 ): { time: string; disabled: boolean }[] {
-  return timesFrom(s, dateStr, wallClockInZone(now, s.timezone), orderingClosed(s, now))
+  return timesFrom(s, dateStr, wallClockInZone(now, s.timezone), orderingClosed(s, now), shift)
 }
 
 function timesFrom(
@@ -641,6 +735,7 @@ function timesFrom(
   dateStr: string,
   now: Date,
   closed: boolean,
+  shift = 0,
 ): { time: string; disabled: boolean }[] {
   if (!dateStr) return []
   if (s.startDate && dateStr < s.startDate) return []
@@ -659,9 +754,11 @@ function timesFrom(
   if (!win) return []
   const blocked = skippedIntervalsFor(s, dateStr)
   const out: { time: string; disabled: boolean }[] = []
-  for (const m of windowSlotMinutes(win)) {
+  for (const m of offeredReadyMinutes(win, shift)) {
+    // Every rule below reads the READY minute `m`; only the label is shifted.
     const slot = atTime(new Date(`${dateStr}T00:00:00`), m)
-    const time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
+    const om = m + shift
+    const time = `${String(Math.floor(om / 60)).padStart(2, '0')}:${String(om % 60).padStart(2, '0')}:00`
     out.push({ time, disabled: closed || !isSlotEnabled(now, cfg, slot) || inBlockedInterval(m, blocked) })
   }
   return out
@@ -675,7 +772,7 @@ function timesFrom(
  *  out), and order placement calls THIS to re-check the exact submitted
  *  date+time server-side — so a request that bypasses the picker entirely
  *  can't slip through a rule the UI never actually removed, it just hid it. */
-export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: string, now = new Date()): boolean {
+export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: string, now = new Date(), shift = 0): boolean {
   if (!dateStr || !timeStr) return false
   // ONE shift, shared by both halves. This function is the server-side gate and
   // the picker calls the two builders directly, so if the shift were applied
@@ -687,10 +784,13 @@ export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: 
   // gate and picker cannot disagree about whether ordering has closed.
   const closed = orderingClosed(s, now)
   if (closed) return false
-  const dateEntry = datesFrom(s, zNow, undefined, closed).find(d => d.date === dateStr)
+  const dateEntry = datesFrom(s, zNow, undefined, closed, shift).find(d => d.date === dateStr)
   if (!dateEntry || dateEntry.disabled) return false
   const hhmm = timeStr.slice(0, 5)
-  const timeEntry = timesFrom(s, dateStr, zNow, closed).find(t => t.time.slice(0, 5) === hhmm)
+  // With a shift, timesFrom labels each slot with its offered (delivery) time
+  // and judges it on its ready time — so matching the submitted delivery time
+  // here IS validating its ready time against every rule.
+  const timeEntry = timesFrom(s, dateStr, zNow, closed, shift).find(t => t.time.slice(0, 5) === hhmm)
   return !!timeEntry && !timeEntry.disabled
 }
 

@@ -8,6 +8,7 @@ import { cityForLocation } from '../../_city/CityLanding'
 import { assertRestaurantOrderable } from '../../../../lib/restaurant-orderable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
+import { thirdPartyShiftFor } from '../../../../lib/scheduling/cutoffs'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
 import { restaurantDisplayAddress } from '../../../../lib/address-display'
 import { menuPageTitle, menuPageDescription } from '../../../../lib/restaurant-seo'
@@ -484,12 +485,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
              COALESCE(o.is_premium, false) AS is_premium,
-             o.announcement, o.more_info, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
+             o.announcement, o.more_info, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows,
+             COALESCE(o.shift_third_party_delivery_times, false) AS shift_third_party_delivery_times
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true
       LIMIT 1
-    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; more_info: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; more_info: string | null; delivery_order_time_windows: string; shift_third_party_delivery_times: boolean }[]
     const r = rows[0]
     if (!r) return null
 
@@ -675,6 +677,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
         // gate on Vercel's UTC, and the two disagree — see wallClockInZone in
         // lib/scheduling/cutoffs.ts.
         timezone: r.timezone || null,
+        // "Shift third-party delivery times by 30 minutes": 30 on an EXPLICITLY
+        // third-party menu when the box is ticked (this loader only serves
+        // Disco-native restaurants). The picker applies it to DELIVERY only.
+        ...(() => {
+          const shift = thirdPartyShiftFor({ flag: r.shift_third_party_delivery_times === true, isDiscoNative: true, deliveryMethod: m?.delivery_settings?.method })
+          return shift ? { thirdPartyShiftMinutes: shift } : {}
+        })(),
       }
       const settings = m ? menuRowToSettings(m) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
 

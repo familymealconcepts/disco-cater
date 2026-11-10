@@ -18,9 +18,10 @@
 // This returns the SAME shape the FM path produced (MenuSection[] with
 // extraItemsGroups on each package) so the dialog renders it unchanged, and it
 // reads the same tables as the customer page so the two can no longer disagree.
-import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
+import { sql, withDiscoTables, runDiscoMenuMigrations, runMigrations } from '../db'
+import { thirdPartyShiftFor } from '../scheduling/cutoffs'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
-import { menuRowToScheduleExtras } from '../menu-settings'
+import { menuRowToScheduleExtras, type DeliverySettings } from '../menu-settings'
 
 export interface NativeAddOn { reference: string; name: string; price: number; visible: boolean; position: number }
 export interface NativeExtraItemsGroup {
@@ -76,6 +77,8 @@ export interface NativeMenuSchedule {
   cutOffDate?: string
   skippedDays?: { fromDate: string; toDate: string }[]
   timezone?: string | null
+  /** "Shift third-party delivery times by 30 minutes" — see FmScheduleLike. */
+  thirdPartyShiftMinutes?: number
 }
 export interface NativeMenuSection { menu: { reference: string; name: string; position: number; scheduleOption?: NativeMenuSchedule }; categories: NativeCategory[] }
 
@@ -110,11 +113,11 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
            to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
            to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
            to_char(hard_cutoff_time, 'HH24:MI') AS hard_cutoff_time,
-           skipped_days
+           skipped_days, delivery_settings
     FROM disco_menus
     WHERE restaurant_reference = ${restaurantRef}::uuid AND visible = true AND archived = false
     ORDER BY position, name
-  `, runDiscoMenuMigrations).catch(() => [])) as (ScheduleColumns & { reference: string; name: string; position: number | null })[]
+  `, runDiscoMenuMigrations).catch(() => [])) as (ScheduleColumns & { reference: string; name: string; position: number | null; delivery_settings?: DeliverySettings | null })[]
   if (!menus.length) return []
 
   // The RESTAURANT's clock. Lead times and cutoffs are counted on the kitchen's
@@ -125,6 +128,13 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
     SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantRef} LIMIT 1
   `.catch(() => [])) as { timezone: string | null }[]
   const timezone = tzRows[0]?.timezone ?? null
+  // The restaurant's "Shift third-party delivery times" box (this function only
+  // runs for Disco-native restaurants — checked above). Same helper as checkout.
+  const shiftRows = (await withDiscoTables(() => sql`
+    SELECT COALESCE(shift_third_party_delivery_times, false) AS flag
+    FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1
+  `, runMigrations).catch(() => [])) as { flag: boolean }[]
+  const shiftFlag = shiftRows[0]?.flag === true
 
   const cats = (await sql`
     SELECT reference, name, description, menu_reference FROM disco_menu_categories
@@ -202,6 +212,10 @@ export async function loadNativeEditMenu(restaurantRef: string): Promise<NativeM
         ...menuRowToScheduleExtras(m),
         ...(Array.isArray(m.skipped_days) && m.skipped_days.length ? { skippedDays: m.skipped_days } : {}),
         timezone,
+        ...(() => {
+          const shift = thirdPartyShiftFor({ flag: shiftFlag, isDiscoNative: true, deliveryMethod: m.delivery_settings?.method })
+          return shift ? { thirdPartyShiftMinutes: shift } : {}
+        })(),
       } as NativeMenuSchedule,
     },
     categories: cats

@@ -17,7 +17,7 @@ import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
-import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
+import { buildAvailableDates, buildAvailableTimes, orderingClosed, slotShiftMinutes, readyTimeForSlot, timeAfterFulfillmentSwitch } from '../../../../lib/scheduling/cutoffs'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, categoryLeadNotice } from '../../../../lib/menu/category-lead-time'
 import { trackEvent } from '../../../../lib/analytics'
 import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
@@ -48,6 +48,9 @@ interface FmSchedule {
   // Lead times are counted on the kitchen's clock, not the diner's — see
   // wallClockInZone in lib/scheduling/cutoffs.ts for the measured divergence.
   timezone?: string | null
+  // "Shift third-party delivery times by 30 minutes" (shared.tsx, native only):
+  // applied to DELIVERY slots through slotShiftMinutes. Absent = no shift.
+  thirdPartyShiftMinutes?: number
 }
 interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
@@ -211,11 +214,16 @@ function packagePriceLabel(p: { displayPrice?: string | number | null; price: nu
 // Hard Cutoff, with self-tests). These return only ENABLED entries so the
 // calendar greys everything else and the time <select> lists only bookable
 // slots; orderingClosed() drives the "ordering closed" message.
-function computeDates(sched: FmSchedule): string[] {
-  return buildAvailableDates(sched).filter(d => !d.disabled).map(d => d.date)
+//
+// `type` matters only for a menu carrying thirdPartyShiftMinutes ("Shift
+// third-party delivery times by 30 minutes"): its DELIVERY slots are the ready
+// slots + 30, judged on the ready time — slotShiftMinutes decides, the engine
+// does the rest, and the server gate uses the same two calls.
+function computeDates(sched: FmSchedule, type: 'PICKUP' | 'DELIVERY' = 'PICKUP'): string[] {
+  return buildAvailableDates(sched, undefined, undefined, slotShiftMinutes(sched, type)).filter(d => !d.disabled).map(d => d.date)
 }
-function computeTimes(sched: FmSchedule, dateStr: string): string[] {
-  return buildAvailableTimes(sched, dateStr).filter(t => !t.disabled).map(t => t.time)
+function computeTimes(sched: FmSchedule, dateStr: string, type: 'PICKUP' | 'DELIVERY' = 'PICKUP'): string[] {
+  return buildAvailableTimes(sched, dateStr, undefined, slotShiftMinutes(sched, type)).filter(t => !t.disabled).map(t => t.time)
 }
 
 function fmtDateShort(d: string) {
@@ -592,9 +600,37 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const mMenuSched = menuData[tempMenuIdx]?.menu?.scheduleOption
   const mMenuSettings = menuData[tempMenuIdx]?.menu?.settings
   const mMenuAvail = mMenuSettings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
-  const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched) : [], [mMenuSched])
+  const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched, tempType) : [], [mMenuSched, tempType])
   const mAvailSet = useMemo(() => new Set(mAvailDates), [mAvailDates])
-  const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate) : [], [mMenuSched, tempDate])
+  const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate, tempType) : [], [mMenuSched, tempDate, tempType])
+
+  // ── SWITCHING PICKUP ↔ DELIVERY AFTER A TIME IS PICKED ───────────────────
+  // On a menu with the third-party shift the two types have different slot
+  // lists, so the picked time cannot simply carry over. Keep the FOOD-READY
+  // time (10:00 pickup → 10:30 delivery, and back) when that slot exists for
+  // the new type; otherwise keep the same clock time if it exists; otherwise
+  // fall to the first bookable time (and date) for the new type. Never leaves
+  // a time the new type does not offer selected.
+  function switchTempType(type: 'PICKUP' | 'DELIVERY') {
+    if (type === tempType) return
+    const sch = mMenuSched
+    setTempType(type)
+    if (!sch) return
+    const dates = computeDates(sch, type)
+    const date = tempDate && dates.includes(tempDate) ? tempDate : (dates[0] ?? '')
+    const times = date ? computeTimes(sch, date, type) : []
+    const kept = date === tempDate && tempTime
+      ? timeAfterFulfillmentSwitch(tempTime, slotShiftMinutes(sch, tempType), slotShiftMinutes(sch, type))
+      : null
+    const next = kept && times.includes(kept) ? kept
+      : date === tempDate && tempTime && times.includes(tempTime) ? tempTime
+        : (times[0] ?? '')
+    if (date !== tempDate) {
+      setTempDate(date)
+      if (date) { const d = new Date(date + 'T12:00:00'); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }
+    }
+    setTempTime(next)
+  }
   // Hard cutoff passed (or no bookable dates) → ordering closed for this menu.
   const mMenuClosed = useMemo(() => !!mMenuSched && (orderingClosed(mMenuSched) || mAvailDates.length === 0), [mMenuSched, mAvailDates])
 
@@ -754,6 +790,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }, [menuData])
 
   /** Required notice for an item, in hours — null for everything without a rule. */
+  // The category lead time protects the kitchen, so it is measured to the
+  // FOOD-READY time: the selected time itself, or — on a shifted third-party
+  // delivery — 30 minutes before it. Same helpers the server gate uses.
+  const selShift = slotShiftMinutes(checkoutMenu?.scheduleOption, orderType)
+  const selReadyTime = selTime ? readyTimeForSlot(selTime, selShift) : null
   function pkgLeadHours(pkg: FmPackage): number | null {
     return categoryLeadTimeHours(categoryRefByPkg.get(pkg.reference))
   }
@@ -772,8 +813,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function pkgLeadBlocked(pkg: FmPackage): boolean {
     if (isDirectEntry) return false
     const hours = pkgLeadHours(pkg)
-    if (hours == null || nowTs == null || !selDate || !selTime) return false
-    return !isCategoryLeadSatisfied(hours, selDate, selTime, new Date(nowTs), restaurantTz)
+    if (hours == null || nowTs == null || !selDate || !selReadyTime) return false
+    return !isCategoryLeadSatisfied(hours, selDate, selReadyTime, new Date(nowTs), restaurantTz)
   }
 
   // ── THE DATE-CHANGE HOLE, CLOSED ──────────────────────────────────────────
@@ -786,17 +827,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // date; this cannot go stale because it is not a check, it is a value.
   const cartLeadBreaches = useMemo(() => {
     if (isDirectEntry) return []   // see pkgLeadBlocked — staff are exempt
-    if (nowTs == null || !selDate || !selTime || cart.length === 0) return []
+    if (nowTs == null || !selDate || !selReadyTime || cart.length === 0) return []
     const out: { lineId: string; name: string; hours: number }[] = []
     for (const line of cart) {
       const hours = categoryLeadTimeHours(categoryRefByPkg.get(line.pkg.reference))
       if (hours == null) continue
-      if (!isCategoryLeadSatisfied(hours, selDate, selTime, new Date(nowTs), restaurantTz)) {
+      if (!isCategoryLeadSatisfied(hours, selDate, selReadyTime, new Date(nowTs), restaurantTz)) {
         out.push({ lineId: line.lineId, name: line.pkg.name, hours })
       }
     }
     return out
-  }, [isDirectEntry, cart, selDate, selTime, nowTs, restaurantTz, categoryRefByPkg])
+  }, [isDirectEntry, cart, selDate, selReadyTime, nowTs, restaurantTz, categoryRefByPkg])
 
   // The slot in effect before the current one, offered back as "keep my
   // original date" when the change is what created the conflict. A ref, not
@@ -807,8 +848,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const prevSlotClearsConflict = useMemo(() => {
     const prev = prevSelRef.current
     if (!prev || nowTs == null || cartLeadBreaches.length === 0) return false
-    return cartLeadBreaches.every(b => isCategoryLeadSatisfied(b.hours, prev.date, prev.time, new Date(nowTs), restaurantTz))
-  }, [cartLeadBreaches, nowTs, restaurantTz])
+    const prevReady = readyTimeForSlot(prev.time, selShift)
+    if (!prevReady) return false
+    return cartLeadBreaches.every(b => isCategoryLeadSatisfied(b.hours, prev.date, prevReady, new Date(nowTs), restaurantTz))
+  }, [cartLeadBreaches, nowTs, restaurantTz, selShift])
 
   function removeLeadBlockedItems() {
     const ids = new Set(cartLeadBreaches.map(b => b.lineId))
@@ -902,9 +945,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     setTempDate(first)
     const mSched = menuData[0]?.menu?.scheduleOption
-    const firstTime = mSched ? (computeTimes(mSched, first)[0] ?? '') : ''
-    setTempTime(firstTime)
     const defaultType = menuAvail.includes('PICKUP') ? 'PICKUP' : 'DELIVERY'
+    const firstTime = mSched ? (computeTimes(mSched, first, defaultType)[0] ?? '') : ''
+    setTempTime(firstTime)
     setTempType(defaultType as 'PICKUP' | 'DELIVERY')
     setMenusOpen(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1005,16 +1048,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setTempMenuIdx(idx)
     const sch = menuData[idx]?.menu?.scheduleOption
     const types = menuData[idx]?.menu?.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
-    const dates = sch ? computeDates(sch) : []
+    const nextType: 'PICKUP' | 'DELIVERY' = types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY'
+    const dates = sch ? computeDates(sch, nextType) : []
     const first = dates[0] ?? ''
     setTempDate(first)
-    const firstTime = sch && first ? (computeTimes(sch, first)[0] ?? '') : ''
+    const firstTime = sch && first ? (computeTimes(sch, first, nextType)[0] ?? '') : ''
     setTempTime(firstTime)
     if (first) {
       const d = new Date(first + 'T12:00:00')
       setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     }
-    setTempType(types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY')
+    setTempType(nextType)
     setAddrValidated(false); setAddrError('')
     setCalOpen(false)
   }
@@ -1046,7 +1090,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function openMenus() {
     setTempMenuIdx(activeMenuIdx)
     const sch = menuData[activeMenuIdx]?.menu?.scheduleOption
-    const dates = sch ? computeDates(sch) : []
+    const dates = sch ? computeDates(sch, orderType) : []
     const first = selDate || dates[0] || ''
     setTempDate(first)
     setTempTime(selTime)
@@ -1078,7 +1122,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   function handleDateSelect(d: string) {
     setTempDate(d)
-    const firstTime = mMenuSched ? (computeTimes(mMenuSched, d)[0] ?? '') : ''
+    const firstTime = mMenuSched ? (computeTimes(mMenuSched, d, tempType)[0] ?? '') : ''
     setTempTime(firstTime)
     setCalOpen(false)
   }
@@ -2700,7 +2744,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   const enabled = mMenuAvail.includes(type)
                   const active = tempType === type
                   return (
-                    <button key={type} onClick={() => { if (enabled) setTempType(type) }}
+                    <button key={type} onClick={() => { if (enabled) switchTempType(type) }}
                       style={{ flex: 1, height: 40, background: active ? DARK : '#fff', color: active ? '#fff' : enabled ? '#444' : '#ccc', border: 'none', cursor: enabled ? 'pointer' : 'default', fontFamily: F, fontSize: 14, fontWeight: active ? 700 : 500, transition: 'all 0.12s' }}>
                       {type === 'PICKUP' ? 'Pickup' : 'Delivery'}
                     </button>

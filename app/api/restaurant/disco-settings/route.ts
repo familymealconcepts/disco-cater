@@ -32,12 +32,15 @@ export async function GET() {
     SELECT online_ordering_enabled, delivery_order_time_windows, tax_rates,
            notification_emails, notification_sms_numbers,
            order_reminder_emails_enabled, admin_order_reminder_emails_enabled, withhold_payouts,
-           enable_menu_search, announcement, text_notifications_enabled
+           enable_menu_search, announcement, text_notifications_enabled,
+           shift_third_party_delivery_times
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
   `) as Record<string, unknown>[]
   // The restaurant's public slug (for the "Disco Cater URL" row) lives on the cache.
-  const cacheRows = (await sql`SELECT slug FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { slug: string | null }[]
-  return NextResponse.json({ restaurant_reference: ref, settings: rows[0] || {}, slug: cacheRows[0]?.slug || null })
+  const cacheRows = (await sql`SELECT slug, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { slug: string | null; is_disco_native: boolean | null }[]
+  // isDiscoNative gates the "Shift third-party delivery times" checkbox: it is
+  // shown only for a Disco-native restaurant (FamilyMeal owns an FM-backed one's ordering).
+  return NextResponse.json({ restaurant_reference: ref, settings: rows[0] || {}, slug: cacheRows[0]?.slug || null, isDiscoNative: cacheRows[0]?.is_disco_native === true })
 }
 
 // Anything not in here is coerced to 'exact' at line ~98, silently — so a new
@@ -51,6 +54,7 @@ const AUDITED_COLUMNS = [
   'notification_emails', 'notification_sms_numbers',
   'order_reminder_emails_enabled', 'admin_order_reminder_emails_enabled',
   'enable_menu_search', 'announcement', 'text_notifications_enabled',
+  'shift_third_party_delivery_times',
 ] as const
 
 export async function PUT(req: NextRequest) {
@@ -75,10 +79,16 @@ export async function PUT(req: NextRequest) {
   // re-runs the Stripe check at all, so an unrelated save (say, a
   // notification email) can't silently flip an already-live restaurant off
   // because the check happened to read wrong at that moment.
+  //
+  // Migrations FIRST: this read names shift_third_party_delivery_times, an
+  // additive column. Before it exists the read would fail, the catch would yield
+  // no row, and the online-ordering logic below would treat the save as a
+  // first-ever write — exactly the misread the comment above guards against.
+  await runMigrations()
   const existingRows = (await sql`
-    SELECT online_ordering_enabled, stripe_account_id, stripe_onboarding_complete
+    SELECT online_ordering_enabled, stripe_account_id, stripe_onboarding_complete, shift_third_party_delivery_times
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-  `.catch(() => [])) as { online_ordering_enabled: boolean | null; stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
+  `.catch(() => [])) as { online_ordering_enabled: boolean | null; stripe_account_id: string | null; stripe_onboarding_complete: boolean | null; shift_third_party_delivery_times?: boolean | null }[]
   const existing = existingRows[0]
   const requestedOnlineOrdering = body?.onlineOrderingEnabled === true
 
@@ -106,6 +116,18 @@ export async function PUT(req: NextRequest) {
   const enableMenuSearch = body?.enableMenuSearch === true
   const announcement = String(body?.announcement || '').trim().slice(0, 500) || null
   const textNotifications = body?.textNotificationsEnabled === true
+  // "Shift third-party delivery times by 30 minutes". KEPT AS STORED when the
+  // request does not name it — order-settings/page.tsx also PUTs here with only
+  // three fields, and must not silently switch a restaurant's shift off.
+  // Disco-native only: an FM-backed restaurant's ordering is FamilyMeal's, so the
+  // flag is never turned ON for one (and is ignored at checkout regardless).
+  const isNativeRows = (await sql`
+    SELECT is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
+  `.catch(() => [])) as { is_disco_native: boolean | null }[]
+  const storedShift = existing?.shift_third_party_delivery_times === true
+  const shiftThirdParty = typeof body?.shiftThirdPartyDeliveryTimes === 'boolean'
+    ? (body.shiftThirdPartyDeliveryTimes === true && isNativeRows[0]?.is_disco_native === true)
+    : storedShift
 
   await runMigrations()
 
@@ -138,6 +160,7 @@ export async function PUT(req: NextRequest) {
       enable_menu_search: enableMenuSearch,
       announcement,
       text_notifications_enabled: textNotifications,
+      shift_third_party_delivery_times: shiftThirdParty,
     },
     extra: {
       // Whether the online-ordering value was carried through unchanged or was a
@@ -153,9 +176,9 @@ export async function PUT(req: NextRequest) {
     INSERT INTO disco_restaurant_overrides (
       restaurant_reference, online_ordering_enabled, delivery_order_time_windows, tax_rates,
       notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
-      enable_menu_search, announcement, text_notifications_enabled, updated_at)
+      enable_menu_search, announcement, text_notifications_enabled, shift_third_party_delivery_times, updated_at)
     VALUES (${ref}, ${onlineOrdering}, ${window}, ${taxRates}::jsonb, ${emails}, ${sms}, ${orderReminders}, ${adminReminders},
-      ${enableMenuSearch}, ${announcement}, ${textNotifications}, NOW())
+      ${enableMenuSearch}, ${announcement}, ${textNotifications}, ${shiftThirdParty}, NOW())
     ON CONFLICT (restaurant_reference) DO UPDATE SET
       online_ordering_enabled = EXCLUDED.online_ordering_enabled,
       delivery_order_time_windows = EXCLUDED.delivery_order_time_windows,
@@ -167,6 +190,7 @@ export async function PUT(req: NextRequest) {
       enable_menu_search = EXCLUDED.enable_menu_search,
       announcement = EXCLUDED.announcement,
       text_notifications_enabled = EXCLUDED.text_notifications_enabled,
+      shift_third_party_delivery_times = EXCLUDED.shift_third_party_delivery_times,
       updated_at = NOW()
   `
   return NextResponse.json({ ok: true })

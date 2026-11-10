@@ -45,6 +45,9 @@ export default function RestaurantSettingsPage() {
   const [adminReminders, setAdminReminders] = useState(false)       // restaurant
   const [enableMenuSearch, setEnableMenuSearch] = useState(false)
   const [deliveryWindow, setDeliveryWindow] = useState<'exact' | '15_min' | '30_min' | '1_hour'>('exact')
+  // "Shift third-party delivery times by 30 minutes" — Disco-native only.
+  const [shiftThirdParty, setShiftThirdParty] = useState(false)
+  const [isDiscoNative, setIsDiscoNative] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [moreInfo, setMoreInfo] = useState('')
 
@@ -80,6 +83,8 @@ export default function RestaurantSettingsPage() {
       setAdminReminders(set.admin_order_reminder_emails_enabled === true)
       setEnableMenuSearch(set.enable_menu_search === true)
       setDeliveryWindow(set.delivery_order_time_windows || 'exact')
+      setShiftThirdParty(set.shift_third_party_delivery_times === true)
+      setIsDiscoNative(s.isDiscoNative === true)
       setAnnouncement(set.announcement || '')
       setMoreInfo(mi.moreInfo || '')
       setClosedDays(Array.isArray(c.closedDays) ? c.closedDays : [])
@@ -117,6 +122,8 @@ export default function RestaurantSettingsPage() {
           notificationEmails, textNotificationsEnabled: textNotifications, notificationSmsNumbers: notificationSms,
           orderReminderEmailsEnabled: orderReminders, adminOrderReminderEmailsEnabled: adminReminders,
           enableMenuSearch, deliveryOrderTimeWindows: deliveryWindow, announcement,
+          // Sent only when the box is on screen; the server keeps the stored value otherwise.
+          ...(isDiscoNative ? { shiftThirdPartyDeliveryTimes: shiftThirdParty } : {}),
         }),
       })
       if (!res.ok) {
@@ -345,6 +352,15 @@ export default function RestaurantSettingsPage() {
         <select value={deliveryWindow} onChange={e => setDeliveryWindow(e.target.value as 'exact' | '15_min' | '30_min' | '1_hour')} style={{ ...input, maxWidth: 220 }}>
           <option value="exact">Exact time</option><option value="15_min">15-minute window</option><option value="30_min">30-minute window</option><option value="1_hour">1-hour window</option>
         </select>
+        {isDiscoNative && (
+          <div style={{ marginTop: 16 }}>
+            {toggle(shiftThirdParty, setShiftThirdParty, 'Shift third-party delivery times by 30 minutes')}
+            <div style={{ fontSize: 12, color: '#999', marginTop: 6, marginLeft: 24, lineHeight: 1.5 }}>
+              Third-party delivery times start and end 30 minutes after your pickup times (e.g. pickup 10:00am–1:00pm → delivery 10:30am–1:30pm), so the food is ready at the start of your hours.
+              Lead time, cutoffs and blackouts still apply to the food-ready time. Pickup and self-delivery are unchanged. Applies only to menus set to third-party delivery.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 10 — Announcement Banner */}

@@ -2,7 +2,7 @@ import type Stripe from 'stripe'
 import { repriceCartFromMenu } from './native-cart-reprice'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  isNativeDateTimeValid, findCategoryLeadBreaches, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadMenuIsThirdPartyDelivery,
+  isNativeDateTimeValid, findCategoryLeadBreaches, loadThirdPartyShiftMinutes, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadMenuIsThirdPartyDelivery,
   cartSubtotal, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   priceNativeCart, resolveCartMenuReference, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
@@ -10,6 +10,7 @@ import {
 import { effectiveOrderMinimum, orderMinimumMessage } from './platform-minimums'
 import { checkItemInventoryAvailability } from './native-inventory'
 import { checkCartMinimums } from './native-minimums'
+import { readyTimeForSlot } from '../scheduling/cutoffs'
 import {
   reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse,
   type NativePromoResolution,
@@ -116,6 +117,19 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // availability, skipped days) — the picker only hides invalid options, it
   // doesn't stop a direct API call from requesting one.
   const orderTime = String(cd.orderTime ?? '')
+  const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
+  // Normalized once here rather than re-derived per gate — the date/time gate
+  // just below, the order-minimum gate and the fulfillment-availability gate
+  // further down all need it.
+  const requestedOrderType: 'DELIVERY' | 'PICKUP' = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
+  // ── THIRD-PARTY DELIVERY SHIFT ────────────────────────────────────────────
+  // "Shift third-party delivery times by 30 minutes": orderTime is then the
+  // DELIVERY time and every gate below judges its food-ready time. Resolved from
+  // the menu itself for EVERY caller — customer checkout, the 1P link, staff
+  // direct entry and the invoice path all come through here — so direct entry
+  // knows the menu is third-party without trusting the request.
+  const shiftMinutes = requestedOrderType === 'DELIVERY' ? await loadThirdPartyShiftMinutes(ref, menuReference) : 0
+  const readyTime = readyTimeForSlot(orderTime, shiftMinutes)
   // ── PER-CATEGORY LEAD TIME: THE EXEMPTION IS NAMED, NOT INFERRED ──────────
   // Staff direct entry is exempt (Peter's ruling: the rule protects the
   // kitchen's prep time, and staff taking a phone order are the kitchen). It is
@@ -126,14 +140,14 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // still applies to direct entry, including the menu's own lead time.
   const exemptCategoryLeadTimes = params.isDirectEntry === true
   const itemReferences = items.map(i => i.reference).filter((r): r is string => !!r)
-  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime, menuReference, { itemReferences, exemptCategoryLeadTimes }))) {
+  if (!readyTime || !(await isNativeDateTimeValid(ref, orderDate, orderTime, menuReference, { itemReferences, exemptCategoryLeadTimes, shiftMinutes }))) {
     // Ask the gate WHY before answering, so a 48-hour rule is not reported as
     // "no longer available for this menu" — which would send the customer to
     // change their time when what they need is a later date. Same function the
     // gate itself called, so the message can never describe a different rule
     // from the one that refused.
     if (!exemptCategoryLeadTimes) {
-      const breaches = await findCategoryLeadBreaches(ref, itemReferences, orderDate, orderTime)
+      const breaches = readyTime ? await findCategoryLeadBreaches(ref, itemReferences, orderDate, readyTime) : []
       if (breaches.length) {
         const hours = Math.max(...breaches.map(b => b.hours))
         const names = [...new Set(breaches.map(b => b.name))]
@@ -172,10 +186,6 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
       : explicitSource === 'DISCO' ? 'DISCO'
         : params.isDirectEntry === true ? 'FAMILYMEAL' : 'DISCO'
 
-  const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
-  // Normalized once here rather than re-derived per gate — the order-minimum gate
-  // below and the fulfillment-availability gate further down both need it.
-  const requestedOrderType: 'DELIVERY' | 'PICKUP' = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
   const tips = Number(cd.tips) || 0
   const tipsType = String(cd.tipsType ?? 'PERCENTAGE')
 
@@ -308,6 +318,14 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   })
   if (!priced.deliveryValid) {
     return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
+  }
+  // The time was validated as a SHIFTED third-party slot. If pricing resolved a
+  // different fulfillment, that validation was for the wrong rules — refuse
+  // rather than book a time nobody checked. (An explicitly third-party menu
+  // always prices as third-party, so this should never fire.)
+  if (shiftMinutes > 0 && priced.fulfillment !== 'THIRD_PARTY_DELIVERY') {
+    console.error(`[native-place-checkout] shifted slot priced as ${priced.fulfillment}: restaurant=${ref} menu=${menuReference}`)
+    return { ok: false, status: 400, error: 'The selected date/time is no longer available for this menu. Please choose a different date or time.' }
   }
   // No real tax rate on file — refuse rather than charge at a fabricated 0%
   // (loadNativePricingConfig's `?? 0` is the same defect class as the residual

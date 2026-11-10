@@ -38,7 +38,7 @@ import { resolveRestaurantNotificationEmails, sendOrderUpdateEmails, type OrderU
 import { repriceEditLinesFromMenu, storedLinesIfUnchanged, remapLinesToRestaurant } from '../../../../../../lib/order/native-cart-reprice'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
-import { fulfillmentToTypes, isDiscoNativeRestaurant, loadDeliveryTimeWindow, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
+import { fulfillmentToTypes, isDiscoNativeRestaurant, loadDeliveryTimeWindow, loadThirdPartyShiftMinutes, loadMenuFulfillmentAvailability, loadMenuOrderMinimums, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
 import { assertFiniteMoney, discountedBase } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder, refundPaymentFromRestaurant, RefundRefusedError } from '../../../../../../lib/order/native-refund'
@@ -55,6 +55,7 @@ import { validateNativeDelivery } from '../../../../../../lib/order/native-deliv
 import { loadCurrentBreakdown } from '../../../../../../lib/order/current-breakdown'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../../lib/expedite'
 import { formatTime12 } from '../../../../../../lib/utils/time'
+import { timeAfterFulfillmentSwitch } from '../../../../../../lib/scheduling/cutoffs'
 import { cartSubtotal } from '../../../../../../lib/pricing/cart'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
@@ -227,7 +228,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   }
 
   const effDate = orderDate || base.orderDateIso
-  const effTime = orderTime || base.orderTime
+  // `let`: a pickup ↔ third-party switch on a shifted menu moves the time to
+  // keep the food-ready time (see the switch block below).
+  let effTime = orderTime || base.orderTime
 
   // What changed (drives edit_type + the reschedule 24h rule).
   const origMap = new Map<string, number>()
@@ -504,6 +507,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         courierTipLowered = false
         newCtx = { ...newCtx, fulfillment: 'PICKUP', ownDeliveryFee: 0, thirdPartyDeliveryFee: 0, thirdPartyDeliverySubsiding: 0, orderType: 'PICKUP', tipDollars: newTipDollars }
         expediteToCancel = delRows[0]?.expedite_delivery_id || null
+      }
+    }
+    // ── A SWITCH KEEPS THE FOOD-READY TIME ("Shift third-party delivery times") ─
+    // Peter, 2026-11-10: on a menu whose third-party slots sit 30 minutes after
+    // the ready time, a 10:00 pickup switched to third-party delivery becomes a
+    // 10:30 delivery, and a 10:30 delivery switched to pickup becomes 10:00 — the
+    // kitchen's deadline does not move. Applied only when this same edit did not
+    // name a new time (a time picked in the dialog is used exactly as picked),
+    // and never across midnight. Self-delivery is never shifted.
+    if (fulfillmentChanged) {
+      const menuShift = await loadThirdPartyShiftMinutes(restaurantRef, orderMenuReference)
+      const fromShift = oldFulfillment === 'THIRD_PARTY_DELIVERY' ? menuShift : 0
+      const toShift = fulfillmentAfter === 'THIRD_PARTY_DELIVERY' ? menuShift : 0
+      const timeRequested = !!orderTime && orderTime.slice(0, 5) !== String(base.orderTime || '').slice(0, 5)
+      if (!timeRequested && fromShift !== toShift) {
+        const moved = timeAfterFulfillmentSwitch(effTime, fromShift, toShift)
+        if (!moved) {
+          return NextResponse.json({ error: 'Keeping the food-ready time would move this order past midnight. Reschedule it to a time on the same day, then switch.' }, { status: 400 })
+        }
+        effTime = moved
       }
     }
     nativeCtx = newCtx

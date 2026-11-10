@@ -294,6 +294,11 @@ export async function runMigrations(): Promise<void> {
     // is shown to the customer — 'exact' | '30_min' | '1_hour'. Mirrors FM's
     // feesAndTips.deliveryOrderTimeWindows; read by the customer flow for disco-native.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS delivery_order_time_windows VARCHAR(12) NOT NULL DEFAULT 'exact'`,
+    // "Shift third-party delivery times by 30 minutes" (Peter, 2026-11-10). On:
+    // an EXPLICITLY third-party menu's delivery slots are its food-ready slots
+    // + 30, and every scheduling rule is judged on the ready time. Disco-native
+    // only — ignored for FM-backed rows. See lib/scheduling/cutoffs.ts.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS shift_third_party_delivery_times BOOLEAN NOT NULL DEFAULT false`,
     // Persisted audit marker for a failed closed-days/holiday carry-over on
     // conversion (mirrors notification_settings_flagged_at's role) — set by
     // carryOverClosedDays in lib/native-conversion.ts when FM's /api/closedDays

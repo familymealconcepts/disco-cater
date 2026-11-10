@@ -65,6 +65,7 @@ export interface OverridesRow {
   money_flow: string | null
   stripe_account_id: string | null
   withhold_payouts: boolean | null
+  shift_third_party_delivery_times: boolean | null
 }
 
 export async function overridesSnapshot(ref: string): Promise<OverridesRow | null> {
@@ -74,7 +75,7 @@ export async function overridesSnapshot(ref: string): Promise<OverridesRow | nul
              admin_order_reminder_emails_enabled, text_notifications_enabled,
              online_ordering_enabled, delivery_order_time_windows, tax_rates,
              enable_menu_search, announcement, visible, is_premium, order_url,
-             money_flow, stripe_account_id, withhold_payouts
+             money_flow, stripe_account_id, withhold_payouts, shift_third_party_delivery_times
       FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
     `) as OverridesRow[]
     return rows[0] ?? null

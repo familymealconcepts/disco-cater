@@ -6,14 +6,14 @@
 import type Stripe from 'stripe'
 import { MENU_ACTIVE_SQL } from '../menu-state'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
-import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
+import { sql, withDiscoTables, runDiscoMenuMigrations, runMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer, nativeInvoiceRouting, type RestaurantPayoutConfig } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
 import { cents, discountedBase, assertFiniteMoney } from '../promo-pricing'
 import { buildNativeChargeDescription } from './charge-description'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
-import { isDateTimeBookable } from '../scheduling/cutoffs'
+import { isDateTimeBookable, readyTimeForSlot, thirdPartyShiftFor } from '../scheduling/cutoffs'
 import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
 import { resolveNativeRestaurantPromo, type NativePromoResolution, type NativePromoReason } from '../promo-native'
 import { TAX_EXEMPT_ID_RE } from './tax-exempt'
@@ -295,6 +295,52 @@ export async function loadDeliveryTimeWindow(restaurantReference: string): Promi
   return typeof w === 'string' && w ? w : null
 }
 
+/**
+ * "Shift third-party delivery times by 30 minutes" — the minutes a DELIVERY
+ * order on this menu sits after its food-ready time (0 or 30). The same rule
+ * the pickers get, through the same helper (thirdPartyShiftFor in
+ * lib/scheduling/cutoffs.ts): the restaurant's box ticked, the restaurant
+ * Disco-native (the flag is ignored for FM-backed restaurants), and the menu's
+ * delivery_settings.method EXPLICITLY 'THIRD_PARTY' (an unset method is not
+ * shifted). Same exact-menu-then-primary-fallback as the other menu loaders.
+ *
+ * withDiscoTables(runMigrations): the flag is an additive column; on a cold
+ * lambda that predates it the read migrates and retries rather than silently
+ * reading "off" and refusing every shifted slot.
+ */
+export async function loadThirdPartyShiftMinutes(restaurantReference: string, menuReference?: string): Promise<number> {
+  if (!restaurantReference) return 0
+  const flagRows = (await withDiscoTables(() => sql`
+    SELECT c.is_disco_native, COALESCE(o.shift_third_party_delivery_times, false) AS flag
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+    WHERE c.restaurant_reference = ${restaurantReference} LIMIT 1
+  `, runMigrations).catch(e => {
+    console.error('[native-checkout] loadThirdPartyShiftMinutes: flag read failed for', restaurantReference, e instanceof Error ? e.message : e)
+    return []
+  })) as { is_disco_native: boolean | null; flag: boolean | null }[]
+  const r = flagRows[0]
+  if (!r || r.flag !== true || r.is_disco_native !== true) return 0
+  type Row = { delivery_settings: { method?: string } | null }
+  let menu: Row | undefined
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid LIMIT 1
+    `.catch(() => [])) as Row[]
+    menu = exact[0]
+  }
+  if (!menu) {
+    const rows = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
+      ORDER BY position, id LIMIT 1
+    `.catch(() => [])) as Row[]
+    menu = rows[0]
+  }
+  return thirdPartyShiftFor({ flag: r.flag, isDiscoNative: r.is_disco_native === true, deliveryMethod: menu?.delivery_settings?.method })
+}
+
 // Online-ordering hard gate: a Disco-native restaurant is "open" for orders unless
 // it has explicitly paused online ordering (online_ordering_enabled = false). A
 // missing overrides row counts as open (COALESCE → true) — see lib/db.ts. The
@@ -417,6 +463,13 @@ export interface NativeDateTimeOptions {
    * other gate in this function still applies to direct entry.
    */
   exemptCategoryLeadTimes?: boolean
+  /**
+   * loadThirdPartyShiftMinutes for a DELIVERY order (0 for pickup). With a
+   * shift, `orderTime` is the DELIVERY time and every rule — menu window,
+   * blackouts, lead times (menu AND category), cutoffs — is checked on its
+   * ready time, delivery − shift. 0/absent is exactly the old behaviour.
+   */
+  shiftMinutes?: number
 }
 
 /**
@@ -472,6 +525,11 @@ export async function findCategoryLeadBreaches(
 
 export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string, menuReference?: string, opts?: NativeDateTimeOptions): Promise<boolean> {
   if (!orderDate || !orderTime) return false
+  const shift = opts?.shiftMinutes && opts.shiftMinutes > 0 ? opts.shiftMinutes : 0
+  // The food-ready time the rules are checked against. Null = the shift would
+  // cross midnight, which is never a bookable slot.
+  const readyTime = readyTimeForSlot(orderTime, shift)
+  if (!readyTime) return false
   // ── PER-CATEGORY LEAD TIME ────────────────────────────────────────────────
   // Runs INSIDE the gate rather than beside it, so it is enforced for every
   // caller of the gate rather than for the one placement path that exists
@@ -479,7 +537,7 @@ export async function isNativeDateTimeValid(restaurantReference: string, orderDa
   // makes the effective rule max(menu, category) without either knowing about
   // the other. See lib/menu/category-lead-time.ts.
   if (!opts?.exemptCategoryLeadTimes && opts?.itemReferences?.length) {
-    const breaches = await findCategoryLeadBreaches(restaurantReference, opts.itemReferences, orderDate, orderTime)
+    const breaches = await findCategoryLeadBreaches(restaurantReference, opts.itemReferences, orderDate, readyTime)
     if (breaches.length) return false
   }
   let menu: ScheduleMenuRow | undefined
@@ -526,7 +584,7 @@ export async function isNativeDateTimeValid(restaurantReference: string, orderDa
     ...(Array.isArray(menu.skipped_days) && menu.skipped_days.length ? { skippedDays: menu.skipped_days } : {}),
     timezone: tzRows[0]?.timezone ?? null,
   }
-  return isDateTimeBookable(scheduleOption, orderDate, orderTime)
+  return isDateTimeBookable(scheduleOption, orderDate, orderTime, undefined, shift)
 }
 
 export function cartSubtotal(items: NativeCartItem[]): number {

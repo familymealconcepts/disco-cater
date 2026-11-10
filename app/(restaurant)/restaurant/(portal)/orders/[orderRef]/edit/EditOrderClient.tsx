@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
-import { buildAvailableTimes, type FmScheduleLike } from '../../../../../../../lib/scheduling/cutoffs'
+import { buildAvailableTimes, slotShiftMinutes, timeAfterFulfillmentSwitch, type FmScheduleLike } from '../../../../../../../lib/scheduling/cutoffs'
+import { isThirdPartyDeliveryType } from '../../../../../../../lib/order/fulfillment-time'
 import { useRouter } from 'next/navigation'
 import { cartSubtotal, lineUnitPrice } from '../../../../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../../../../lib/pricing/lineItem'
@@ -198,6 +199,9 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // ─── Order / cart state ───────────────────────────────────────────────────
   const [cart, setCart] = useState<EditCartLine[]>([])
   const [orderType, setOrderType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
+  // The order's stored delivery_type — tells a courier (third-party) delivery,
+  // whose times may be shifted, from a self-delivery, whose times never are.
+  const [deliveryTypeStr, setDeliveryTypeStr] = useState('')
   const [orderDate, setOrderDate] = useState('')   // YYYY-MM-DD
   const [orderTime, setOrderTime] = useState('')   // HH:mm:ss
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddr | null>(null)
@@ -379,6 +383,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
         setCart(mps.map(orderLineToCart))
 
         setOrderType(str(order.orderType) === 'DELIVERY' || str(order.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP')
+        setDeliveryTypeStr(str(order.deliveryType))
         setOrderDate(str(order.orderDate))
         setOrderTime(str(order.orderTime))
         setOrderNumber(order.orderNumber != null && order.orderNumber !== '' ? String(order.orderNumber) : '')
@@ -467,6 +472,16 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
     return menuData[0]?.menu
   }, [cart, menuData])
 
+  // The shift on the order's CURRENT fulfillment, and on the one it will have
+  // after this edit. A switch keeps the food-ready time (the server moves the
+  // time by the difference; see the edit route).
+  const menuDeliveryShift = slotShiftMinutes(orderMenu?.scheduleOption, 'DELIVERY')
+  const shiftNow = orderType === 'DELIVERY' && isThirdPartyDeliveryType(deliveryTypeStr) ? menuDeliveryShift : 0
+  const pendingSwitch: 'PICKUP' | 'DELIVERY' | null = fulEdit ? (orderType === 'DELIVERY' ? 'PICKUP' : 'DELIVERY') : null
+  // A switch TO delivery on a shifted menu is a courier delivery: the shift only
+  // exists on a menu explicitly set to third-party.
+  const shiftAfter = pendingSwitch === 'PICKUP' ? 0 : pendingSwitch === 'DELIVERY' ? menuDeliveryShift : shiftNow
+
   // ── The times this restaurant actually accepts on the drafted date ────────
   // buildAvailableTimes is the SAME function the customer ordering page calls,
   // so the two surfaces cannot disagree about what is bookable.
@@ -477,15 +492,21 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   // phone order — they are the kitchen, and a 48-hour lead time must not stop
   // them moving tomorrow's order by fifteen minutes. The window is a fact about
   // the restaurant's hours; the lead time is a rule about new orders.
+  //
+  // THIRD-PARTY SHIFT: on a menu with "Shift third-party delivery times by 30
+  // minutes", a courier delivery's times are the ready times + 30. The shift
+  // that applies is the one for the fulfillment the order will HAVE after this
+  // edit (a pending switch included) — the same slotShiftMinutes the customer
+  // picker and the server use. Self-delivery and pickup are never shifted.
   const scheduleSlots = useMemo(() => {
     const sched = orderMenu?.scheduleOption
     if (!sched || !draftDate) return []
     try {
-      return buildAvailableTimes(sched, draftDate).map(t => t.time.slice(0, 5))
+      return buildAvailableTimes(sched, draftDate, undefined, shiftAfter).map(t => t.time.slice(0, 5))
     } catch {
       return []
     }
-  }, [orderMenu, draftDate])
+  }, [orderMenu, draftDate, shiftAfter])
 
   // What the dropdown shows. The current time is always included even when it
   // falls outside the window — an order already AT 11:45 must never lose its own
@@ -943,6 +964,17 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
                         Keep {orderType === 'DELIVERY' ? 'delivery' : 'pickup'}
                       </button>
                     </div>
+                    {!rescheduled && shiftNow !== shiftAfter && (() => {
+                      // Same helper the server applies on save, so this preview is the time saved.
+                      const moved = timeAfterFulfillmentSwitch(orderTime, shiftNow, shiftAfter)
+                      return (
+                        <div style={{ fontSize: 12, color: moved ? '#444' : RED, fontWeight: 600, lineHeight: 1.4, marginBottom: 6 }}>
+                          {moved
+                            ? `${switchingTo === 'PICKUP' ? 'Pickup' : 'Delivery'} time becomes ${fmt12h(moved)} so the food-ready time stays the same.`
+                            : 'Keeping the food-ready time would move this order past midnight. Reschedule it to a time on the same day first.'}
+                        </div>
+                      )
+                    })()}
                     {switchingTo === 'PICKUP' ? (
                       <div style={{ fontSize: 12, color: '#666', lineHeight: 1.4 }}>
                         The delivery fee comes off the order and the customer is refunded the difference. A courier delivery is switched by Disco Cater.
