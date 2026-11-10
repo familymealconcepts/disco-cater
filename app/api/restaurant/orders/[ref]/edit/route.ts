@@ -931,6 +931,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
               transferDollars: String(nativeTransferDelta),
               connectedAccountId: nativePay.connectedAccountId ?? '',
               withholdPayouts: nativePay.withholdPayouts ? '1' : '0',
+              ...(nativePay.holdSource ? { holdSource: nativePay.holdSource } : {}),
             } : {}),
           },
         })
@@ -1070,6 +1071,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
                 transferDollars: nativeTransferDelta,
                 connectedAccountId: nativePay.connectedAccountId,
                 withholdPayouts: nativePay.withholdPayouts,
+                holdSource: nativePay.holdSource,
                 customerId: pmRow.stripe_customer_id,
                 paymentMethodId: pmRow.stripe_payment_method_id,
                 offSession: true, confirm: true, onBehalfOf: true,
@@ -1137,6 +1139,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
                 transferDollars: String(nativeBreakdown?.transfer ?? 0),
                 connectedAccountId: nativePay.connectedAccountId ?? '',
                 withholdPayouts: nativePay.withholdPayouts ? '1' : '0',
+                ...(nativePay.holdSource ? { holdSource: nativePay.holdSource } : {}),
               } : {}),
             },
           })

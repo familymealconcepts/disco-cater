@@ -8,7 +8,7 @@ import { MENU_ACTIVE_SQL } from '../menu-state'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
 import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
-import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer, nativeInvoiceRouting } from './native-payment'
+import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer, nativeInvoiceRouting, type RestaurantPayoutConfig } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
 import { cents, discountedBase, assertFiniteMoney } from '../promo-pricing'
 import { buildNativeChargeDescription } from './charge-description'
@@ -1112,10 +1112,11 @@ export class NativePaymentNotConfiguredError extends Error {
   }
 }
 
-function assertNativePaymentConfigured(pay: { connectedAccountId: string | null; holdSource: 'hold_payments' | 'withhold_payouts' | null }, restaurantReference: string): void {
+function assertNativePaymentConfigured(pay: { connectedAccountId: string | null; holdSource: RestaurantPayoutConfig['holdSource'] }, restaurantReference: string): void {
   // Hold Payments does not excuse a missing account: a held restaurant still has to have connected Stripe
-  // to take orders, as before. Only the explicit withhold_payouts switch charges with no account on file.
-  if (!pay.connectedAccountId && pay.holdSource !== 'withhold_payouts') throw new NativePaymentNotConfiguredError(restaurantReference)
+  // to take orders, as before. Only the explicit withhold_payouts switch charges with no account on file,
+  // and so does an unreadable setting: the order goes through held, never blocked (Peter, 2026-11-10).
+  if (!pay.connectedAccountId && pay.holdSource !== 'withhold_payouts' && pay.holdSource !== 'read_failed') throw new NativePaymentNotConfiguredError(restaurantReference)
 }
 
 /**
@@ -1187,6 +1188,7 @@ export async function placeAndPayNativeOrder(
     transferDollars: placed.breakdown.transfer,
     connectedAccountId: pay.connectedAccountId,
     withholdPayouts: pay.withholdPayouts,
+    holdSource: pay.holdSource,
     customerId,
     receiptEmail: input.customerEmail || undefined,
     onBehalfOf: opts?.onBehalfOf ?? true, // production: restaurant is merchant-of-record
@@ -1288,7 +1290,7 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
         transferDollars: String(transfer),
         connectedAccountId: pay.connectedAccountId ?? '',
         withholdPayouts: pay.withholdPayouts ? '1' : '0',
-        ...(pay.withholdPayouts ? { payoutHeld: '1', restaurantPayoutAmount: transfer.toFixed(2) } : {}),
+        ...(pay.withholdPayouts ? { payoutHeld: '1', restaurantPayoutAmount: transfer.toFixed(2), ...(pay.holdSource ? { holdSource: pay.holdSource } : {}) } : {}),
         // 'destination' → Stripe moves the restaurant's share itself and the
         // webhook must NOT transfer again. Absent/'manual' → an invoice created
         // before this change, whose share the webhook still has to push. The
@@ -1352,6 +1354,7 @@ export async function chargeAndPlaceNativeRecurringOrder(
       transferDollars: placed.breakdown.transfer,
       connectedAccountId: pay.connectedAccountId,
       withholdPayouts: pay.withholdPayouts,
+      holdSource: pay.holdSource,
       customerId: opts.customerId,
       paymentMethodId: opts.paymentMethodId,
       receiptEmail: input.customerEmail || undefined,

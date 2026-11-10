@@ -27,6 +27,8 @@
 import Stripe from 'stripe'
 import { sql } from '../db'
 import { cents } from '../promo-pricing'
+import { alertOps } from '../ops-alert'
+import { shortError } from '../ops-alert-format'
 
 export const STRIPE_API_VERSION = '2025-01-27.acacia'
 
@@ -39,8 +41,8 @@ export interface RestaurantPayoutConfig {
   connectedAccountId: string | null
   /** The restaurant's share is held on the platform: Hold Payments on, or withhold_payouts. */
   withholdPayouts: boolean
-  /** Why it is held, for the records; null when it is not. */
-  holdSource: 'hold_payments' | 'withhold_payouts' | null
+  /** Why it is held, for the records; null when it is not. 'read_failed': the setting couldn't be read. */
+  holdSource: 'hold_payments' | 'withhold_payouts' | 'read_failed' | null
 }
 
 /** Pure: the hold decision from the overrides row. Pinned by scripts/tests/native-hold-payments.test.ts. */
@@ -60,11 +62,32 @@ export function payoutHoldFrom(row: { money_flow?: string | null; withhold_payou
 // called for new orders; it stays untouched for the same reason existing
 // orders' refunds still work after Stripe is disconnected.)
 export async function getRestaurantPayoutConfig(restaurantReference: string): Promise<RestaurantPayoutConfig> {
-  // NOT swallowed: a failed read used to return "not held", which would pay out a held restaurant. A
-  // payment path that cannot read the hold must fail, and every caller surfaces the error as a 500.
-  const ovrRows = (await sql`
-    SELECT stripe_account_id, withhold_payouts, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
-  `) as { stripe_account_id: string | null; withhold_payouts: boolean | null; money_flow: string | null }[]
+  // Ordering is never blocked by withholding (Peter, 2026-11-10). A failed read is retried once; if it
+  // still fails the order goes through with the restaurant's share HELD on the platform (never sent, so a
+  // held restaurant is never paid out by mistake) and ops is alerted to send it by hand if the restaurant
+  // isn't on hold. A failed read used to throw, which stopped the payment.
+  let ovrRows: { stripe_account_id: string | null; withhold_payouts: boolean | null; money_flow: string | null }[] | null = null
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 2 && !ovrRows; attempt++) {
+    try {
+      ovrRows = (await sql`
+        SELECT stripe_account_id, withhold_payouts, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+      `) as { stripe_account_id: string | null; withhold_payouts: boolean | null; money_flow: string | null }[]
+    } catch (e) { lastError = e }
+  }
+  if (!ovrRows) {
+    await alertOps({
+      severity: 'urgent',
+      headline: "A Disco order is going through with the restaurant's share held: its Hold Payments setting couldn't be read",
+      lines: [
+        `Restaurant ${restaurantReference}, at ${new Date().toISOString()}.`,
+        `The order is not blocked. If it is paid, the restaurant's share stays on Disco's Stripe account. ${shortError(lastError)}`,
+      ],
+      action: "find the order in Stripe (metadata holdSource = read_failed). If the restaurant isn't on Hold Payments, send its share by hand.",
+      context: { restaurantReference, error: shortError(lastError, 500) },
+    })
+    return { connectedAccountId: null, withholdPayouts: true, holdSource: 'read_failed' }
+  }
   const holdSource = payoutHoldFrom(ovrRows[0])
   return {
     connectedAccountId: ovrRows[0]?.stripe_account_id ?? null,
@@ -78,6 +101,8 @@ export interface NativePaymentParams {
   transferDollars: number   // restaurant payout
   connectedAccountId: string | null
   withholdPayouts: boolean
+  /** Recorded on a held charge; 'read_failed' tells ops the hold setting couldn't be read. */
+  holdSource?: RestaurantPayoutConfig['holdSource']
   customerId?: string
   receiptEmail?: string      // diner email → shown on the charge + Stripe receipt
   paymentMethodId?: string  // set for server-side confirm (tests); omit for client-side confirm
@@ -159,7 +184,7 @@ export function invoiceNeedsManualPayout(invoice: { metadata?: Stripe.Metadata |
 // lib/order/stripe-facts.ts so reports show the payout as on any other order.
 export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePaymentParams, idempotencyKey?: string): Promise<Stripe.PaymentIntent> {
   const routeToRestaurant = !p.withholdPayouts && !!p.connectedAccountId
-  const heldMeta: Record<string, string> = routeToRestaurant ? {} : { payoutHeld: '1', restaurantPayoutAmount: (cents(p.transferDollars) / 100).toFixed(2) }
+  const heldMeta: Record<string, string> = routeToRestaurant ? {} : { payoutHeld: '1', restaurantPayoutAmount: (cents(p.transferDollars) / 100).toFixed(2), ...(p.holdSource ? { holdSource: p.holdSource } : {}) }
   const params: Stripe.PaymentIntentCreateParams = {
     amount: cents(p.totalDollars),
     currency: 'usd',

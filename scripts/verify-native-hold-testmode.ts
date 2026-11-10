@@ -114,6 +114,19 @@ async function main() {
   const rf = await s.refunds.create({ payment_intent: pi.id, amount: 5000 })
   check(rf.status === 'succeeded' || rf.status === 'pending', 'a held order refunds from the held money (plain platform refund)')
 
+  console.log('\n=== 6. hold setting unreadable (the fail-safe) ===')
+  // What getRestaurantPayoutConfig returns when the read fails twice: no account known, share held.
+  const unread = { connectedAccountId: null, withholdPayouts: true, holdSource: 'read_failed' as const }
+  for (const [label, extra] of [['card', {}], ['recurring', { offSession: true }], ['edit card delta', { metadata: { kind: 'order_edit' } }]] as const) {
+    const upi = await createNativeOrderPaymentIntent(s, { totalDollars: TOTAL, transferDollars: TRANSFER, ...unread, onBehalfOf: true, paymentMethodId: 'pm_card_visa', confirm: true, ...extra })
+    const uch = await chargeOf(upi)
+    check(upi.status === 'succeeded' && uch.amount === Math.round(TOTAL * 100), `${label}: the order is still charged in full`)
+    check(!uch.transfer && !upi.transfer_data, `${label}: nothing is sent to the restaurant`)
+    check(upi.metadata.payoutHeld === '1' && upi.metadata.holdSource === 'read_failed' && upi.metadata.restaurantPayoutAmount === TRANSFER.toFixed(2), `${label}: recorded as held, read_failed, with the $${TRANSFER} owed`)
+  }
+  const ur = nativeInvoiceRouting(unread, TRANSFER)
+  check(!('transfer_data' in ur.params) && !ur.routeToRestaurant, 'invoice / direct entry: the invoice is made with the share held')
+
   console.log(failures ? `\n${failures} FAILED` : '\nALL PASS')
   process.exit(failures ? 1 : 0)
 }

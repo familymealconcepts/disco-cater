@@ -38,6 +38,12 @@ const checkout = src('lib/order/native-checkout.ts')
 ok((checkout.match(/getRestaurantPayoutConfig\(input\.restaurantReference\)/g) || []).length === 3, 'card, invoice and recurring all read the config')
 ok(/nativeInvoiceRouting\(pay, transfer\)/.test(checkout), 'the invoice path uses the shared routing')
 ok(/getRestaurantPayoutConfig\(restaurantRef\)/.test(src('app/api/restaurant/orders/[ref]/edit/route.ts')), 'order edits read the config')
+// Ordering is never blocked by withholding (Peter, 2026-11-10): an unreadable setting holds the share and alerts.
+ok(/for \(let attempt = 0; attempt < 2 && !ovrRows; attempt\+\+\)/.test(pay), 'a failed read is retried once')
+ok(/if \(!ovrRows\) \{\s*await alertOps\(\{[\s\S]*?\}\)\s*return \{ connectedAccountId: null, withholdPayouts: true, holdSource: 'read_failed' \}/.test(pay), 'still unreadable: alert ops, and the order goes through with the share held')
+ok(!/getRestaurantPayoutConfig[\s\S]{0,1200}throw /.test(pay.slice(pay.indexOf('export async function getRestaurantPayoutConfig'), pay.indexOf('export interface NativePaymentParams'))), 'the config read never throws')
+ok(/pay\.holdSource !== 'read_failed'\) throw new NativePaymentNotConfiguredError/.test(checkout), 'an unreadable setting is not refused for a missing account')
+ok(/holdSource: p\.holdSource/.test(pay) && (checkout.match(/holdSource: pay\.holdSource/g) || []).length >= 3, 'the held charge records why (read_failed for ops)')
 const webhook = src('app/api/stripe/webhook/route.ts')
 ok((webhook.match(/invoiceNeedsManualPayout\(/g) || []).length === 2, 'both webhook payouts (edit and native invoice) use the shared decision')
 
