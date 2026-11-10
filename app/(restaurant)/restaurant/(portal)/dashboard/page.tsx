@@ -6,6 +6,7 @@ import {
 import GenerateReportButton from '../_components/GenerateReportButton'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { ScheduledReportsPanel } from '../manage/admin-manager-reports/page'
+import OrdersReportTable from '../_components/OrdersReportTable'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -221,7 +222,10 @@ export default function DashboardPage() {
   const [preset, setPreset] = useState<Preset>('last30')
   const [fromDate, setFromDate] = useState(initRange.from)
   const [toDate, setToDate] = useState(initRange.to)
-  const [dateType, setDateType] = useState<'orderDate' | 'createdDate'>('orderDate')
+  // Created Date (when the order was placed) is the default basis (Peter,
+  // 2026-11-10); Order Date is one click away. This is the page's default only —
+  // scheduled reports keep their own stored dateType.
+  const [dateType, setDateType] = useState<'orderDate' | 'createdDate'>('createdDate')
   const [saleStats, setSaleStats] = useState<SaleStats>({})
   const [dashStats, setDashStats] = useState<DashStats>({})
   const [restaurant, setRestaurant] = useState<Restaurant>({})
@@ -644,7 +648,7 @@ export default function DashboardPage() {
       {/* #20: export orders for a date range (order or created date) as CSV/Excel/PDF.
           Moved below the summary cards per request. */}
       <div style={{ marginTop: 20 }}>
-        <ExportPanel />
+        <ExportPanel syncFrom={lastFetched.fromDate} syncTo={lastFetched.toDate} syncDateType={lastFetched.dateType} />
       </div>
 
       {/* Scheduled Reports — moved here from the standalone Reports page. */}
@@ -659,10 +663,21 @@ export default function DashboardPage() {
 // #20: on-demand orders export. Picks a date range, the date field to filter on
 // (order date vs created date), and a format (CSV / Excel / PDF). Each button hits
 // the restaurant-scoped /api/restaurant/reports/export route and downloads the file.
-function ExportPanel() {
-  const [from, setFrom] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10))
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
-  const [dateField, setDateField] = useState<'order' | 'created'>('order')
+//
+// The panel follows the range the summary above was last run for (so the orders
+// table shows the same window as the cards), and can still be changed here on
+// its own. The on-screen table and the three downloads always use this panel's
+// from/to/dateField, and the same loader, so they cannot disagree.
+function ExportPanel({ syncFrom, syncTo, syncDateType }: { syncFrom: string; syncTo: string; syncDateType: string }) {
+  const [from, setFrom] = useState(() => ymd(new Date(Date.now() - 29 * 86_400_000)))
+  const [to, setTo] = useState(() => ymd(new Date()))
+  // Created date by default (Peter, 2026-11-10), matching the summary's default.
+  const [dateField, setDateField] = useState<'order' | 'created'>('created')
+  useEffect(() => {
+    if (syncFrom) setFrom(syncFrom)
+    if (syncTo) setTo(syncTo)
+    if (syncDateType) setDateField(syncDateType === 'orderDate' ? 'order' : 'created')
+  }, [syncFrom, syncTo, syncDateType])
   // ── SUBSIDY COLUMN ──────────────────────────────────────────────────────────
   // Off by default because it is zero on every order ever placed, and a
   // permanently-zero money column is noise on a 22-column sheet. The server
@@ -686,18 +701,18 @@ function ExportPanel() {
   const fmtBtn = (bg: string): React.CSSProperties => ({ background: bg, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F })
   return (
     <div style={{ marginBottom: 28, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '18px 20px' }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Export report</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Orders report</h2>
       <p style={{ fontSize: 12.5, color: '#888', margin: '0 0 14px' }}>
-        Download your orders for a date range as CSV, Excel, or PDF. Columns with no activity in the range are left out;
-        Net Sales, Gross and Total Distributed are always included.
+        Every order in the date range, as shown below or downloaded as CSV, Excel, or PDF. Columns with no activity in the range are left out;
+        Net Sales, Gross and Total Distributed are always included. Click an order to open it.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
         <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>From<input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={inp} /></label>
         <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>To<input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} style={inp} /></label>
         <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>Filter by
           <select value={dateField} onChange={e => setDateField(e.target.value as 'order' | 'created')} style={inp}>
-            <option value="order">Order date</option>
             <option value="created">Created date</option>
+            <option value="order">Order date</option>
           </select>
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -706,6 +721,7 @@ function ExportPanel() {
           <button onClick={() => download('pdf')} style={fmtBtn('#B91C1C')}>PDF</button>
         </div>
       </div>
+      <OrdersReportTable from={from} to={to} dateField={dateField} />
     </div>
   )
 }

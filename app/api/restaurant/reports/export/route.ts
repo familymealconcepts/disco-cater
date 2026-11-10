@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
-import { getRestaurantRef, getFmSessionPermittedRefs, RESTAURANT_TOKEN_COOKIE } from '../../../../../lib/restaurant-auth'
-import { cookies } from 'next/headers'
-import { sql } from '../../../../../lib/db'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { contentDisposition } from '../../../../../lib/download-filename'
-import { resolveDiscoGroupScope } from '../../../../../lib/restaurant-write-scope'
-import { visibleReportColumns } from '../../../../../lib/reports/visible-columns'
+import { resolveReportRefs, loadOrderReport } from '../../../../../lib/reports/order-report-load'
 import { provenanceCsvRows, provenanceSummary, type ProvenanceFacts } from '../../../../../lib/reports/report-provenance'
 import {
-  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow, TOTALS_LABEL,
-  reconcileRow, type OrderReportRow, type ReportColumnDef,
+  ORDER_REPORT_COLUMNS, TOTALS_LABEL, type OrderReportRow, type ReportColumnDef,
 } from '../../../../../lib/reports/order-report-rows'
 
 export const runtime = 'nodejs'
@@ -30,19 +25,8 @@ const money = (n: number) => `$${n.toFixed(2)}`
 // #900000142 it read $1,159.00 while $1,011.29 reached the restaurant. The final
 // column is now Total Distributed — the payout, verified to the cent against
 // Stripe's transfer_data.amount on eleven real orders.
-// THE SAME FUNCTION THE SCHEDULED REPORTS CALL. The two used to answer the
-// column question separately — this one auto-showed only the subsidy, that one
-// also had auto_tidy and a stored preset — so a download and a scheduled send of
-// the same window could differ. See lib/reports/visible-columns.ts.
-function activeColumns(rows: OrderReportRow[], multiLocation: boolean): ReportColumnDef[] {
-  const byKey = new Map<string, ReportColumnDef>(
-    [LOCATION_COLUMN, ...ORDER_REPORT_COLUMNS].map(c => [c.key, c]),
-  )
-  return visibleReportColumns(rows, { multiLocation })
-    .map(k => byKey.get(k))
-    .filter((c): c is ReportColumnDef => !!c)
-}
-
+// The column choice is visibleReportColumns, the same function the scheduled
+// reports call (lib/reports/order-report-load.ts activeReportColumns).
 const MONEY_KEYS = new Set(ORDER_REPORT_COLUMNS.filter(c => c.financial).map(c => c.key))
 
 function cellFor(r: Partial<OrderReportRow>, key: string): string {
@@ -138,37 +122,6 @@ async function toPdf(rows: OrderReportRow[], title: string, sub: string, cols: R
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  // resolveDiscoScopeRef only resolves ctx.restaurantReference, which is always
-  // '' for ordinary FM-authenticated sessions (only Disco-native sessions carry
-  // it) — that silently 400'd Export Reports for every FM-backed restaurant.
-  // FM sessions resolve their restaurant from the JWT itself via getRestaurantRef
-  // (same fix as the menu-manager Items-column bug, same root cause).
-  const ref = ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef()) || ''
-
-  // ── A SESSION WITH NO SINGLE HOME IS NOT A SESSION WITH NO SCOPE ──────────
-  // getRestaurantRef returns the FM JWT's `restaurant` claim, honouring the
-  // selected-location cookie. An FM session that carries NEITHER — a
-  // SYSTEM_ADMIN or SUPER_ADMIN who has not picked a location yet — resolved to
-  // '' and this route answered {"error":"No restaurant in context"} as raw JSON
-  // in the browser, because Export is a navigation rather than a fetch.
-  //
-  // Reproduced by session shape: an FM JWT WITH a restaurant claim exports
-  // correctly; the same request with no claim and no fm_selected_restaurant
-  // cookie 400s, for every role. It has behaved this way since ec2038e
-  // (2026-07-16) — it is not fallout from the master-password, set-password or
-  // scheduled-reports work.
-  //
-  // Such a session does have a scope: the admin's Disco list (since 22 Oct
-  // 2026; it was FamilyMeal's own list).
-  // That is the SAME set the Reporting dashboard already charts for them
-  // (dashboard/sale-stats builds refs the same way and deliberately never
-  // errors), so Export now matches the figures on screen instead of refusing.
-  // No access is widened: the set comes from FamilyMeal, not from the request.
-  let fmFallbackRefs: string[] = []
-  if (!ref && ctx.authType !== 'disco') {
-    const token = (await cookies()).get(RESTAURANT_TOKEN_COOKIE)?.value || ''
-    if (token) fmFallbackRefs = [...(await getFmSessionPermittedRefs(token).catch(() => new Set<string>()))]
-  }
 
   const sp = req.nextUrl.searchParams
   const from = sp.get('from') || ''
@@ -181,16 +134,10 @@ export async function GET(req: NextRequest) {
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) return NextResponse.json({ error: 'from and to dates (YYYY-MM-DD) are required.' }, { status: 400 })
 
   try {
-    // MULTI-LOCATION. FM prepends a Location column for a SYSTEM_ADMIN covering
-    // more than one restaurant, so the scope is the caller's whole reach rather
-    // than one ref. resolveDiscoGroupScope is the role gate: a plain ADMIN gets
-    // its own location no matter how many grant rows exist.
-    //
-    // MUST NOT be scoped to visibility/archive status — an archived restaurant's
-    // history must keep exporting. Archiving is not deletion.
-    const scope = await resolveDiscoGroupScope(ctx)
-    const base = scope.unrestricted || scope.refs.size === 0 ? [ref] : [...new Set([ref, ...scope.refs])]
-    const refs = [...new Set([...base, ...fmFallbackRefs])].filter(Boolean)
+    // Scope, rows, columns, totals and the reconciliation refusal all come from
+    // lib/reports/order-report-load.ts — the SAME loader the on-screen report
+    // table (../rows) uses, so a download and the screen cannot disagree.
+    const refs = await resolveReportRefs(ctx)
     // Only now, with every resolver exhausted, is there genuinely nothing to
     // report on — and the message says what to do rather than naming an internal
     // concept the reader cannot act on.
@@ -200,27 +147,17 @@ export async function GET(req: NextRequest) {
         description: 'This session is not currently pointed at a restaurant. Pick a location in the portal, then export again.',
       }, { status: 400 })
     }
-    const rows = await buildOrderReportRows({
-      refs, from, to, dateField: dateField === 'created' ? 'created_at' : 'order_date',
+    const report = await loadOrderReport({
+      refs, from, to, dateField: dateField === 'created' ? 'created_at' : 'order_date', logTag: 'reports/export',
     })
-
-    // FAIL LOUDLY. The subsidy subtraction has never been exercised by a real
-    // order — zero native orders carry one — so if the payout ever stops
-    // reconciling against the row's own visible components, this refuses to
-    // render rather than publishing a plausible wrong number. A quietly
-    // misstated payout is the worst outcome available here.
-    const broken = rows.map(r => ({ r, c: reconcileRow(r) })).filter(x => !x.c.ok)
-    if (broken.length) {
-      console.error('[reports/export] payout failed to reconcile:', broken.slice(0, 5).map(b => ({ order: b.r.orderId, expected: b.c.expected, got: b.r.totalDistributed, delta: b.c.delta })))
+    if (!report.ok) {
+      const { broken } = report
       return NextResponse.json({
         error: 'Report withheld: the payout figures did not reconcile.',
         description: `${broken.length} order(s) could not be reconciled — first: #${broken[0].r.orderId}. This has been logged. Email concierge@discocater.com.`,
       }, { status: 500 })
     }
-
-    const multiLocation = new Set(rows.map(r => r.location)).size > 1
-    const cols = activeColumns(rows, multiLocation)
-    const totals = totalsRow(rows)
+    const { rows, cols, totals } = report
 
     const title = 'Orders Report'
     // "to" not "→" — pdf-lib's WinAnsi-encoded Helvetica can't draw that glyph

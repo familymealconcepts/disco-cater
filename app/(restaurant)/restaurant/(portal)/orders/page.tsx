@@ -226,7 +226,7 @@ const STATUS_LABEL: Record<string, string> = {
 // Display label for an order's OWN status. Refunded orders read "Refunded" when
 // the refund covers the whole order, or "Partially Refunded" when it's less than
 // the order total. (Target statuses in a dropdown still use STATUS_LABEL.)
-function statusLabel(o: { orderStatus: string; refund?: number; total?: number; transactionsTotal?: number }): string {
+export function statusLabel(o: { orderStatus: string; refund?: number; total?: number; transactionsTotal?: number }): string {
   const st = o.orderStatus
   const refund = o.refund ?? 0
   if (refund > 0 || st === 'REFUNDED' || st === 'REFUND' || st === 'PARTIAL_REFUND') {
@@ -238,7 +238,7 @@ function statusLabel(o: { orderStatus: string; refund?: number; total?: number; 
 
 // Colored indicator dot for the orders-list status column. Refunds read amber
 // regardless of the underlying status code (matching statusLabel's display).
-function statusDotColor(o: { orderStatus: string; refund?: number }): string {
+export function statusDotColor(o: { orderStatus: string; refund?: number }): string {
   if ((o.refund ?? 0) > 0) return '#F59E0B'
   switch ((o.orderStatus || '').toUpperCase()) {
     case 'DUE': return '#5B6FE8'
@@ -811,7 +811,7 @@ function ReopenModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
   )
 }
 
-function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; onClose: () => void; onOrderUpdated: () => void }) {
+export function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; onClose: () => void; onOrderUpdated: () => void }) {
   const router = useRouter()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)

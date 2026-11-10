@@ -188,6 +188,8 @@ export interface OrderReportRow {
   refundReversal: number
   /** Which settlement produced totalDistributed. Not a column; used for diagnostics. */
   settlement: 'native' | 'fm'
+  /** Not a column: the order's own reference, so the portal's on-screen report can open it. */
+  orderReference?: string
   /** Not columns — carried so callers can filter without a second query. */
   orderStatus: string
   deliveryType: string | null
@@ -285,7 +287,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
   // version of this query used bare created_at and would have mis-dated every
   // FM-mirrored row, both in the scheduled report and the on-demand export.
   const rows = (await sql`
-    SELECT o.order_number, o.restaurant_name, pc.name AS paid_to_name, (m.paid_ref <> o.restaurant_reference) AS transferred_money,
+    SELECT o.reference::text AS order_reference, o.order_number, o.restaurant_name, pc.name AS paid_to_name, (m.paid_ref <> o.restaurant_reference) AS transferred_money,
            o.customer_first_name, o.customer_last_name,
            COALESCE(o.placed_at, o.created_at) AS created_at,
            o.order_date::text AS order_date, o.order_time::text AS order_time,
@@ -438,6 +440,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
         ? `${String(row.paid_to_name ?? '')} (prepared by ${String(row.restaurant_name ?? '')})`
         : String(row.restaurant_name ?? ''),
       orderId: String(row.order_number ?? ''),
+      orderReference: String(row.order_reference ?? ''),
       customerName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ').trim(),
       createdDate: row.created_at ? new Date(row.created_at as string).toISOString().slice(0, 10) : '',
       serviceType: service,
