@@ -27,6 +27,7 @@ export default function SocialCateringPage() {
     <UseCaseShell
       title="Social Event & Party Catering"
       slug="social-catering"
+      description={metadata.description ?? undefined}
       ctaHeading="Find Social Event Catering"
       faq={FAQ}
     >

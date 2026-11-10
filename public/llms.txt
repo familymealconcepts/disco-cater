@@ -18,8 +18,21 @@ Disco Cater is a two-sided catering marketplace connecting corporate and event c
 - Corporate catering: https://www.discocater.com/corporate-catering
 - Holiday catering: https://www.discocater.com/holiday-catering
 - Social catering: https://www.discocater.com/social-catering
+- Meal prep and recurring team meals: https://www.discocater.com/meal-prep
+- Disco Cater vs ezCater: https://www.discocater.com/compare/ezcater
 - For restaurants: https://www.discocater.com/become-a-partner
 - FAQ: https://www.discocater.com/faq
+
+## Catering by City
+- New York: https://www.discocater.com/new-york
+- New Jersey: https://www.discocater.com/new-jersey
+- Los Angeles: https://www.discocater.com/los-angeles
+- Chicago: https://www.discocater.com/chicago
+- Austin: https://www.discocater.com/austin
+- Seattle: https://www.discocater.com/seattle
+
+## Restaurant Menus
+- Every restaurant menu page is listed in the sitemap: https://www.discocater.com/sitemap.xml
 
 ## Contact
 - Customer inquiries: concierge@discocater.com

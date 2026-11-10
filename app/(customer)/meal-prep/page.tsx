@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 const FAQ: FaqItem[] = [
   {
     q: 'Can I set up weekly meal prep catering through Disco Cater?',
-    a: 'Yes. Disco Cater supports recurring catering subscriptions for teams that need regular meal delivery. You can set up weekly or monthly catering from premium restaurants and manage your program from one dashboard.',
+    a: 'Disco Cater supports recurring catering subscriptions for teams that need regular meal delivery. You can set up weekly or monthly catering from premium restaurants and manage your program from one dashboard.',
   },
   {
     q: 'What restaurants offer meal prep catering on Disco Cater?',
@@ -27,6 +27,7 @@ export default function MealPrepPage() {
     <UseCaseShell
       title="Meal Prep & Subscription Catering for Teams"
       slug="meal-prep"
+      description={metadata.description ?? undefined}
       ctaHeading="Browse Meal Prep Catering"
       faq={FAQ}
     >

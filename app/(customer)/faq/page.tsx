@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import FAQClient from './FAQClient'
+import { faqPlainItems } from './faq-data'
+import { jsonLdString, faqPageJsonLd } from '../../../lib/json-ld'
 
 export const metadata = {
   title: 'How Disco Cater Works — FAQ',
@@ -11,83 +13,16 @@ export const metadata = {
   },
 }
 
-const faqSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
-  mainEntity: [
-    {
-      '@type': 'Question',
-      name: 'What is Disco Cater?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: "Disco Cater is a nationwide premium restaurant catering marketplace. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Disco Cater charges no monthly fees to restaurants.",
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'How is Disco Cater different from ezCater?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Disco Cater differs from ezCater in several ways: the platform is far more restaurant-friendly in terms of fees, control, and service; restaurants pay no monthly fees, 0% on first-party orders, and 15% on a customer\'s first marketplace order and 5% on repeats (ezCater charges a 15% commission plus a 2.99% payment transaction fee on accepted marketplace orders, higher with optional marketing programs); it offers proprietary holiday and social event menus exclusive to the marketplace; and Disco AI — an AI-powered catering assistant built on Anthropic\'s Claude.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'Can I set up recurring catering orders for my office?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Yes — recurring office catering programs are one of Disco Cater\'s core specialties. Office managers can set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans, and manage ongoing meal programs. Enterprise clients including leading enterprise companies use Disco Cater for recurring office catering.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'Does Disco Cater have holiday catering menus?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Yes. Disco Cater features proprietary holiday menus for Thanksgiving, winter holiday parties, and seasonal events that are exclusive to the marketplace and not available through any other catering platform or directly from the restaurants.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'What is Disco AI?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Disco AI is an AI-powered catering assistant built into Disco Cater, powered by Anthropic\'s Claude. Describe your event — occasion, guest count, cuisine preference, budget, and location — and Disco recommends restaurants with specific packages and pricing.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'Is Disco Cater available in my city?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Disco Cater is available nationwide with 700+ hand-vetted restaurants across the United States.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'What does it cost to be a Disco Cater restaurant partner?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'There are no monthly or fixed fees. The marketplace fee is 15% on a customer\'s first order, and 5% on all recurring orders from that same customer. Credit card processing (2.90% + $0.30) is paid by the restaurant partner.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'How does pricing work for customers?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Pricing is based on the menu you select from a partner restaurant. There is a 3.00% convenience fee charged at checkout. All applicable fees are shown at checkout before you confirm your order. There are no hidden fees or surprise charges.',
-      },
-    },
-  ],
-}
+// Built from the SAME questions and answers the page renders (./faq-data), so the structured
+// data always matches the visible FAQ.
+const faqSchema = faqPageJsonLd(faqPlainItems())
 
 export default function FAQPage() {
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+        dangerouslySetInnerHTML={{ __html: jsonLdString(faqSchema) }}
       />
 
       {/* Hidden server-rendered GEO content — readable by crawlers, visually hidden */}

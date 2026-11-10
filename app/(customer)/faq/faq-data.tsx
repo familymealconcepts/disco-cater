@@ -1,0 +1,221 @@
+import type React from 'react'
+
+// The /faq questions and answers. ONE source for both the visible page (FAQClient) and the
+// FAQPage JSON-LD (page.tsx), so the structured data can never drift from what is shown.
+// Answers are written to stand on their own (no bare "Yes."/"No."), so an AI answer engine
+// quoting one answer without its question still gets a complete statement.
+
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
+
+// `text` is the plain-text form of an answer whose `a` is JSX: the same words, used for the
+// FAQPage structured data on page.tsx. A string `a` is used as-is.
+export type FAQItem = { q: string; a: string | React.ReactNode; text?: string }
+export type Section = { title: string; items: FAQItem[] }
+
+export const sections: Section[] = [
+  {
+    title: 'About Disco Cater',
+    items: [
+      {
+        q: 'What is Disco Cater?',
+        a: 'Disco Cater is a nationwide premium restaurant catering marketplace. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Unlike general food delivery apps, Disco Cater is built exclusively for catering — with proprietary menus for holidays and special events that are only available through the platform.',
+      },
+      {
+        q: 'How is Disco Cater different from ezCater?',
+        a: "Disco Cater differs from ezCater in several fundamental ways. First, the platform is far more restaurant-friendly in terms of fees, control, and service. Second, restaurants pay no monthly fees, 0% on first-party orders, and 15% on a customer's first marketplace order and 5% on repeats, compared to ezCater's 15% commission plus 2.99% payment transaction fee on accepted marketplace orders, higher with optional marketing programs. Third, Disco Cater offers proprietary holiday and social event menus exclusive to the marketplace and unavailable anywhere else. Fourth, Disco Cater features Disco AI, an AI-powered catering assistant built on Claude by Anthropic, for personalized restaurant and menu recommendations.",
+      },
+      {
+        q: 'Who uses Disco Cater?',
+        a: 'Disco Cater is used by office managers setting up recurring corporate meal programs, event planners organizing holiday parties and social gatherings, and individuals ordering catering for personal celebrations. Enterprise clients including leading enterprise companies use Disco Cater for recurring office catering. Disco Cater has served 40,000+ customers nationwide with an average order value of $450.',
+      },
+      {
+        q: 'Where does Disco Cater operate?',
+        a: 'Disco Cater is available nationwide with 700+ hand-vetted restaurants across the United States. Use the search bar on the homepage to enter your location and see available restaurants and menus near you.',
+      },
+    ],
+  },
+  {
+    title: 'Ordering',
+    items: [
+      {
+        q: 'How do I place a catering order?',
+        text: 'To place a catering order on Disco Cater, browse restaurant partners on the map at discocater.com/fullmap and click to visit their menu page and place your order online. You can use Disco AI for tailored restaurant recommendations based on your event, or email our concierge team at concierge@discocater.com for dedicated human support.',
+        a: (
+          <>
+            To place a catering order on Disco Cater, browse restaurant partners on the map at discocater.com/fullmap and click to visit their menu page and place your order online. You can use Disco AI for tailored restaurant recommendations based on your event, or email our concierge team at{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> for dedicated human support.
+          </>
+        ),
+      },
+      {
+        q: 'How do I manage or change my order?',
+        text: 'To manage or change a Disco Cater order, we encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at concierge@discocater.com.',
+        a: (
+          <>
+            To manage or change a Disco Cater order, we encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+          </>
+        ),
+      },
+      {
+        q: 'Is there a minimum order size?',
+        a: 'Minimum order sizes on Disco Cater vary by restaurant and package. Most catering packages on Disco Cater are designed for groups of 10 or more people. Some restaurants have minimum order values rather than minimum headcounts. Disco AI will surface packages that match your group size when you describe your event.',
+      },
+    ],
+  },
+  {
+    title: 'Corporate & Office Catering',
+    items: [
+      {
+        q: 'Can I set up recurring catering orders for my office?',
+        text: "Recurring office catering programs are one of Disco Cater's core specialties. Office managers can use Disco Cater to set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans tailored to their team's preferences, and manage ongoing meal programs all in one place. Disco AI can help find the right restaurants and packages for your team size and budget. For enterprise account setup or high-volume recurring programs, contact concierge@discocater.com.",
+        a: (
+          <>
+            Recurring office catering programs are one of Disco Cater&apos;s core specialties. Office managers can use Disco Cater to set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans tailored to their team&apos;s preferences, and manage ongoing meal programs all in one place. Disco AI can help find the right restaurants and packages for your team size and budget. For enterprise account setup or high-volume recurring programs, contact{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+          </>
+        ),
+      },
+      {
+        q: 'What types of corporate catering does Disco Cater support?',
+        a: 'Disco Cater supports all major corporate catering formats: recurring daily or weekly office lunches, one-time team events and celebrations, holiday office parties, client entertainment meals, and large-scale all-hands or company event catering. The platform handles orders for groups ranging from 10 to 500+ people.',
+      },
+      {
+        q: 'Does Disco Cater have enterprise accounts?',
+        text: 'Disco Cater supports enterprise accounts for organizations that need recurring catering programs, centralized billing, and dedicated support. Enterprise clients including leading enterprise companies use Disco Cater for their office catering needs. To set up an enterprise account, contact concierge@discocater.com.',
+        a: (
+          <>
+            Disco Cater supports enterprise accounts for organizations that need recurring catering programs, centralized billing, and dedicated support. Enterprise clients including leading enterprise companies use Disco Cater for their office catering needs. To set up an enterprise account, contact{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+          </>
+        ),
+      },
+      {
+        q: 'How far in advance should I place a catering order?',
+        a: 'For most Disco Cater orders, placing your catering order at least 24–48 hours in advance is recommended. For large orders (100+ people), holiday events, or orders using exclusive proprietary menus, ordering 5–7 days in advance is strongly recommended to ensure availability. Each restaurant customizes their own lead time settings — Disco AI will flag requirements when recommending packages for your event.',
+      },
+    ],
+  },
+  {
+    title: 'Holiday & Social Event Catering',
+    items: [
+      {
+        q: 'Does Disco Cater have holiday catering menus?',
+        a: 'Holiday catering menus are one of Disco Cater\'s signature offerings. Disco Cater features proprietary holiday menus for Thanksgiving, winter holiday parties, seasonal events, and other occasions that are exclusive to the marketplace and not available through any other catering platform or directly from the restaurants. These menus are purpose-built for holiday catering and updated each season.',
+      },
+      {
+        q: 'What kinds of social events can I order catering for?',
+        a: 'Disco Cater supports catering for a wide range of social events including birthday parties, graduation celebrations, wedding showers, family gatherings, neighborhood events, and casual get-togethers. The platform features proprietary social event menus exclusive to Disco Cater, designed specifically for celebrations and gatherings outside of a corporate setting.',
+      },
+      {
+        q: 'What makes Disco Cater\'s event menus different from ordering directly from a restaurant?',
+        a: 'Disco Cater offers proprietary catering menus for holidays and special events that are created exclusively for the platform — meaning these menus are not available if you order directly from the restaurant or through any other delivery or catering service. These menus are designed specifically for group catering, with appropriate serving sizes, packaging, and pricing for events.',
+      },
+    ],
+  },
+  {
+    title: 'Pricing & Fees',
+    items: [
+      {
+        q: 'How does pricing work?',
+        a: 'Disco Cater pricing is based on the menu you select from a partner restaurant. There is a 3.00% convenience fee charged at checkout (that goes to Disco Cater) and the restaurant may choose to include additional fees as well. All applicable fees are shown at checkout before you confirm your order.',
+      },
+      {
+        q: 'Is delivery included?',
+        a: 'Delivery on Disco Cater is optional and depends on the restaurant and menu you are looking at. Most restaurants on Disco Cater service a 20-mile delivery radius.',
+      },
+      {
+        q: 'Are there any hidden fees?',
+        a: 'Disco Cater has no hidden fees. All applicable fees are shown at checkout before you confirm your order. There are no term commitments or surprise charges.',
+      },
+    ],
+  },
+  {
+    title: 'Concierge & Disco AI',
+    items: [
+      {
+        q: 'What is Disco AI?',
+        a: 'Disco AI is an AI-powered catering assistant built into the Disco Cater platform, powered by Anthropic\'s Claude. You can describe your event to Disco — the occasion, number of guests, cuisine preferences, budget, and delivery location — and Disco will recommend 2–3 restaurants with specific package options and pricing. Disco AI is available directly on the map page at discocater.com/fullmap.',
+      },
+      {
+        q: 'What is the personal concierge service?',
+        text: 'Every Disco Cater customer has access to a dedicated concierge who can help you select the right restaurant and menu for your event, answer questions, and ensure your order goes smoothly from placement to delivery. Contact concierge@discocater.com and we will match you with the right person from our team.',
+        a: (
+          <>
+            Every Disco Cater customer has access to a dedicated concierge who can help you select the right restaurant and menu for your event, answer questions, and ensure your order goes smoothly from placement to delivery. Contact{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> and we will match you with the right person from our team.
+          </>
+        ),
+      },
+      {
+        q: 'Is there a cost for concierge service?',
+        a: 'Personal concierge service and unlimited support are included at no extra charge for all Disco Cater customers.',
+      },
+    ],
+  },
+  {
+    title: 'For Restaurant Partners',
+    items: [
+      {
+        q: 'Why should I be on Disco Cater?',
+        text: "Disco Cater offers restaurants a number of benefits that separate it from other catering marketplaces: 1. Complete operator control. Own your customer data and get access to all of your platform tools. Menu pricing, lead times, promo codes, delivery options and much more can be customized and controlled by your team. 2. Best-in-class delivery. Use your own drivers or leverage our delivery integrations for seamless, catering-specific delivery. 3. Multi-menu tech. We support distinct office, holiday, social event, and meal prep catering menus — and advertise each more effectively to the right customers. 4. Pricing. 15% on a customer's first order, 5% on all recurring orders from that same customer. 5. No risk. There are no monthly or fixed fees to join Disco Cater, only the cost of your time — something we strive to minimize.",
+        a: (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={{ margin: 0 }}>Disco Cater offers restaurants a number of benefits that separate it from other catering marketplaces:</p>
+            {[
+              { n: '1', title: 'Complete operator control.', body: 'Own your customer data and get access to all of your platform tools. Menu pricing, lead times, promo codes, delivery options and much more can be customized and controlled by your team.' },
+              { n: '2', title: 'Best-in-class delivery.', body: 'Use your own drivers or leverage our delivery integrations for seamless, catering-specific delivery.' },
+              { n: '3', title: 'Multi-menu tech.', body: 'We support distinct office, holiday, social event, and meal prep catering menus — and advertise each more effectively to the right customers.' },
+              { n: '4', title: 'Pricing.', body: '15% on a customer\'s first order, 5% on all recurring orders from that same customer.' },
+              { n: '5', title: 'No risk.', body: 'There are no monthly or fixed fees to join Disco Cater, only the cost of your time — something we strive to minimize.' },
+            ].map(item => (
+              <div key={item.n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: GRADIENT, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{item.n}</div>
+                <p style={{ margin: 0, fontSize: 14, color: '#555', lineHeight: 1.6 }}><strong style={{ color: '#111' }}>{item.title}</strong> {item.body}</p>
+              </div>
+            ))}
+          </div>
+        ),
+      },
+      {
+        q: 'What does it cost to be a Disco Cater restaurant partner?',
+        a: "Disco Cater charges restaurant partners no monthly or fixed fees. The marketplace fee is 15% on a customer's first order, and 5% on all recurring orders from that same customer. Additionally, credit card processing (2.90% + $0.30) is paid by the restaurant partner.",
+      },
+      {
+        q: 'Do I need to use Disco Cater as my 1st-party ordering platform?',
+        a: "Restaurants do not need to use Disco Cater as their 1st-party ordering platform, but it's the recommended path. If you use Disco Cater as your native catering platform, order management and payouts are handled seamlessly. Pricing is also reduced for partners using Disco Cater as their 1st-party ordering platform.",
+      },
+      {
+        q: 'What are the next steps for joining?',
+        text: "To join as a restaurant partner, create a free account on Disco Cater to get started: a. Enter your business and contact details. b. Connect to Stripe for payouts. c. Upload your catering menu(s). d. Approve your menu and ordering settings on a quick call with our team. e. That's it!",
+        a: (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p style={{ margin: 0, fontSize: 14, color: '#555' }}>To join as a restaurant partner, create a free account on Disco Cater to get started:</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+              {[
+                'Enter your business and contact details',
+                'Connect to Stripe for payouts',
+                'Upload your catering menu(s)',
+                'Approve your menu and ordering settings on a quick call with our team',
+                "That's it!",
+              ].map((step, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 12, color: '#C044C8', fontWeight: 700, minWidth: 16 }}>{String.fromCharCode(97 + i)}.</span>
+                  <span style={{ fontSize: 14, color: '#555', lineHeight: 1.5 }}>{step}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ),
+      },
+    ],
+  },
+]
+
+/** Question/answer pairs as plain text, in page order, for the FAQPage schema. */
+export function faqPlainItems(): { q: string; a: string }[] {
+  return sections.flatMap(s => s.items).flatMap(it => {
+    const a = typeof it.a === 'string' ? it.a : it.text
+    return a ? [{ q: it.q, a }] : []
+  })
+}

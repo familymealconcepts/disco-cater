@@ -14,7 +14,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'Can I set up recurring office catering?',
-    a: 'Yes. Disco Cater supports recurring catering subscriptions for office teams. You can schedule weekly or monthly catering from your favorite restaurants and manage everything from one dashboard.',
+    a: 'Disco Cater supports recurring catering subscriptions for office teams. You can schedule weekly or monthly catering from your favorite restaurants and manage everything from one dashboard.',
   },
   {
     q: 'How much does corporate catering cost on Disco Cater?',
@@ -27,6 +27,7 @@ export default function CorporateCateringPage() {
     <UseCaseShell
       title="Corporate Catering & Recurring Office Meal Programs"
       slug="corporate-catering"
+      description={metadata.description ?? undefined}
       ctaHeading="Find Corporate Catering Near You"
       faq={FAQ}
     >

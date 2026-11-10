@@ -42,19 +42,19 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
       },
       {
         q: 'Can I set up recurring office catering?',
-        a: 'Yes. Disco Cater is built for recurring office programs, from weekly team lunches to daily meals, with New York restaurants your team already knows.',
+        a: 'Disco Cater is built for recurring office programs, from weekly team lunches to daily meals, with New York restaurants your team already knows.',
       },
       {
         q: 'Do you cater holiday parties?',
-        a: 'Yes. Many New York restaurants on Disco Cater offer holiday and special-event menus available only on the marketplace.',
+        a: 'Many New York restaurants on Disco Cater offer holiday and special-event menus available only on the marketplace.',
       },
       {
         q: 'How far ahead should I order?',
-        a: 'Each restaurant sets its own lead time. For large groups and holiday season, order as early as you can.',
+        a: 'Each restaurant on Disco Cater sets its own lead time. For large groups and holiday season, order as early as you can.',
       },
       {
         q: 'Is it delivery or pickup?',
-        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+        a: 'Delivery or pickup depends on the restaurant. Each restaurant on Disco Cater sets its own delivery and pickup options.',
       },
     ],
   },
@@ -71,19 +71,19 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
       },
       {
         q: 'Can I set up recurring office catering?',
-        a: 'Yes. Offices across New Jersey use Disco Cater for recurring team lunches from restaurants close to them.',
+        a: 'Offices across New Jersey use Disco Cater for recurring team lunches from restaurants close to them.',
       },
       {
         q: 'Do you cater holiday parties?',
-        a: 'Yes, including holiday and special-event menus available only on Disco Cater.',
+        a: 'New Jersey restaurants on Disco Cater cater holiday parties, including holiday and special-event menus available only on Disco Cater.',
       },
       {
         q: 'How far ahead should I order?',
-        a: 'Each restaurant sets its own lead time. For large groups and holiday season, order as early as you can.',
+        a: 'Each restaurant on Disco Cater sets its own lead time. For large groups and holiday season, order as early as you can.',
       },
       {
         q: 'Is it delivery or pickup?',
-        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+        a: 'Delivery or pickup depends on the restaurant. Each restaurant on Disco Cater sets its own delivery and pickup options.',
       },
     ],
   },
@@ -100,19 +100,19 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
       },
       {
         q: 'Can I set up recurring office catering?',
-        a: 'Yes. Disco Cater supports recurring office programs with Los Angeles restaurants, from weekly lunches to standing orders.',
+        a: 'Disco Cater supports recurring office programs with Los Angeles restaurants, from weekly lunches to standing orders.',
       },
       {
         q: 'Do you cater holiday parties?',
-        a: 'Yes, with holiday and special-event menus available only on Disco Cater.',
+        a: 'Los Angeles restaurants on Disco Cater cater holiday parties, with holiday and special-event menus available only on Disco Cater.',
       },
       {
         q: 'How far ahead should I order?',
-        a: 'Each restaurant sets its own lead time. Give large orders and holiday events extra notice.',
+        a: 'Each restaurant on Disco Cater sets its own lead time. Give large orders and holiday events extra notice.',
       },
       {
         q: 'Is it delivery or pickup?',
-        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+        a: 'Delivery or pickup depends on the restaurant. Each restaurant on Disco Cater sets its own delivery and pickup options.',
       },
     ],
   },
@@ -143,19 +143,19 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
       },
       {
         q: 'Can I set up recurring office catering?',
-        a: 'Yes. Austin offices can set up recurring team lunches with local restaurants on Disco Cater.',
+        a: 'Austin offices can set up recurring team lunches with local restaurants on Disco Cater.',
       },
       {
         q: 'Do you cater holiday parties?',
-        a: 'Yes, through restaurants offering holiday and special-event menus.',
+        a: 'Disco Cater caters holiday parties in Austin through restaurants offering holiday and special-event menus.',
       },
       {
         q: 'How far ahead should I order?',
-        a: 'Each restaurant sets its own lead time. Order early for large groups.',
+        a: 'Each restaurant on Disco Cater sets its own lead time. Order early for large groups.',
       },
       {
         q: 'Is it delivery or pickup?',
-        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+        a: 'Delivery or pickup depends on the restaurant. Each restaurant on Disco Cater sets its own delivery and pickup options.',
       },
     ],
   },
@@ -172,19 +172,19 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
       },
       {
         q: 'Can I set up recurring office catering?',
-        a: 'Yes. Seattle offices can set up recurring team lunches with local restaurants on Disco Cater.',
+        a: 'Seattle offices can set up recurring team lunches with local restaurants on Disco Cater.',
       },
       {
         q: 'Do you cater holiday parties?',
-        a: 'Yes, through restaurants offering holiday and special-event menus.',
+        a: 'Disco Cater caters holiday parties in Seattle through restaurants offering holiday and special-event menus.',
       },
       {
         q: 'How far ahead should I order?',
-        a: 'Each restaurant sets its own lead time. Order early for large groups.',
+        a: 'Each restaurant on Disco Cater sets its own lead time. Order early for large groups.',
       },
       {
         q: 'Is it delivery or pickup?',
-        a: 'It depends on the restaurant. Each one sets its own delivery and pickup options.',
+        a: 'Delivery or pickup depends on the restaurant. Each restaurant on Disco Cater sets its own delivery and pickup options.',
       },
     ],
   },

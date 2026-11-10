@@ -11,6 +11,7 @@ import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../.
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
 import { restaurantDisplayAddress } from '../../../../lib/address-display'
 import { menuPageTitle, menuPageDescription } from '../../../../lib/restaurant-seo'
+import { jsonLdString, restaurantJsonLd } from '../../../../lib/json-ld'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -448,6 +449,17 @@ function SeoBlock({ name, location, cuisine, description }: {
   )
 }
 
+// Restaurant structured data (schema.org/Restaurant) for search and AI answer engines.
+// Built only from what this page already loaded; see lib/json-ld.ts for what is never emitted.
+function RestaurantJsonLd(props: Parameters<typeof restaurantJsonLd>[0]) {
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: jsonLdString(restaurantJsonLd(props)) }}
+    />
+  )
+}
+
 // Native modifier shapes — mirror RestaurantClient's FmAddOn / FmExtraItemsGroup so
 // the emitted menu packages carry modifiers the customer UI renders + prices as-is.
 interface NativeAddOn { reference: string; name: string; price: number; visible: boolean; position: number }
@@ -840,6 +852,16 @@ export async function RestaurantView({
   if (native) {
     return (
       <>
+        <RestaurantJsonLd
+          name={native.restaurant.name}
+          slug={slug}
+          address={cachedForArchiveCheck?.address || native.restaurant.address}
+          description={native.restaurant.description}
+          cuisines={(native.restaurant.cuisine || '').split(',')}
+          image={native.restaurant.imageUrl || native.restaurant.iconUrl}
+          lat={cachedForArchiveCheck?.lat}
+          lng={cachedForArchiveCheck?.lng}
+        />
         <SeoBlock
           name={native.restaurant.name}
           location={native.restaurant.location}
@@ -938,6 +960,16 @@ export async function RestaurantView({
 
   return (
     <>
+      <RestaurantJsonLd
+        name={restaurant.name}
+        slug={slug}
+        address={restaurant.address}
+        description={restaurant.description}
+        cuisines={restaurant.cuisines}
+        image={restaurant.imageUrl || restaurant.image?.asset.url || restaurant.iconUrl}
+        lat={cached?.lat}
+        lng={cached?.lng}
+      />
       <SeoBlock
         name={restaurant.name}
         location={restaurant.location || restaurant.address}

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 const FAQ: FaqItem[] = [
   {
     q: 'Does Disco Cater have exclusive holiday menus?',
-    a: 'Yes. Disco Cater features proprietary holiday and seasonal catering menus that are exclusive to the marketplace and not available on other catering platforms like ezCater. These include Thanksgiving, winter holiday, and special event menus from premium restaurants.',
+    a: 'Disco Cater features proprietary holiday and seasonal catering menus that are exclusive to the marketplace and not available on other catering platforms like ezCater. These include Thanksgiving, winter holiday, and special event menus from premium restaurants.',
   },
   {
     q: 'How far in advance should I order holiday catering?',
@@ -18,7 +18,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'Can I order holiday catering for a large office?',
-    a: 'Yes. Disco Cater serves events of all sizes, from small team lunches to large corporate holiday parties with hundreds of guests. Use Disco AI to describe your event size and get personalized restaurant recommendations.',
+    a: 'Disco Cater serves events of all sizes, from small team lunches to large corporate holiday parties with hundreds of guests. Use Disco AI to describe your event size and get personalized restaurant recommendations.',
   },
 ]
 
@@ -27,6 +27,7 @@ export default function HolidayCateringPage() {
     <UseCaseShell
       title="Holiday Party Catering & Seasonal Event Menus"
       slug="holiday-catering"
+      description={metadata.description ?? undefined}
       ctaHeading="Browse Holiday Catering"
       faq={FAQ}
     >

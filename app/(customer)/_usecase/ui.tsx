@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import GlobalHeader from '../../components/GlobalHeader'
+import { jsonLdString, faqPageJsonLd, serviceJsonLd } from '../../../lib/json-ld'
 
 // Shared server-rendered chrome + primitives for the four use-case landing
 // pages (corporate / holiday / social / meal-prep). Fully server-rendered for
@@ -173,27 +174,21 @@ function Footer() {
 }
 
 export function UseCaseShell({
-  title, slug, ctaHeading, faq, children,
+  title, slug, ctaHeading, faq, description, children,
 }: {
   title: string
   slug: string
   ctaHeading: string
   faq: FaqItem[]
+  /** The page's meta description; reused as the Service schema description. */
+  description?: string
   children: ReactNode
 }) {
-  const faqSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faq.map(it => ({
-      '@type': 'Question',
-      name: it.q,
-      acceptedAnswer: { '@type': 'Answer', text: it.a },
-    })),
-  }
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(faqPageJsonLd(faq)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdString(serviceJsonLd({ name: title, slug, description })) }} />
       <GlobalHeader />
       <main className="uc">
         <h1>{title}</h1>
