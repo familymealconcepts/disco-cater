@@ -1176,8 +1176,7 @@ export async function placeAndPayNativeOrder(
   // can never be paid.
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
   assertNativePaymentConfigured(pay, input.restaurantReference)
-  // A held order is recorded as FamilyMeal records its held ones: money_flow FAMILY_MEAL on the sale row.
-  const placed = await placeNativeOrder(pay.withholdPayouts ? { ...input, moneyFlow: 'FAMILY_MEAL' } : input)
+  const placed = await placeNativeOrder(input)
   // Attach the diner to the charge: prefer an explicit test-supplied customerId,
   // otherwise resolve/create a real Stripe Customer from the diner's email so the
   // charge is never customer-less in the Stripe dashboard.
@@ -1333,10 +1332,10 @@ export async function chargeAndPlaceNativeRecurringOrder(
   stripe: Stripe,
   opts: { customerId: string; paymentMethodId: string; idempotencyKey: string },
 ): Promise<NativeRecurringResult> {
-  // Resolved BEFORE placing, as placeAndPayNativeOrder does, so a held occurrence is recorded as held.
+  // Resolved BEFORE placing, as placeAndPayNativeOrder does: a refusal leaves nothing to roll back.
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
   assertNativePaymentConfigured(pay, input.restaurantReference)
-  const placed = await placeNativeOrder(pay.withholdPayouts ? { ...input, moneyFlow: 'FAMILY_MEAL' } : input)
+  const placed = await placeNativeOrder(input)
 
   const rollback = async () => {
     try {

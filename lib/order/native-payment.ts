@@ -8,9 +8,11 @@
 //   restaurant payout = breakdown.transfer (cents)  → transfer_data.amount
 //   Disco keeps       = total − transfer            (stays on the platform)
 //   HELD              → OMIT transfer_data: the whole charge stays on the platform
-//                       (funds held with Disco); the order still completes. The
-//                       intended payout is recorded on disco_sale_transactions and
-//                       on the charge's metadata for a later manual release.
+//                       (funds held with Disco); the order still completes and looks
+//                       exactly like any other order everywhere (statement name,
+//                       receipts, emails, portal, reports, Super Admin). Withholding is
+//                       tracked outside Disco; the charge's metadata (payoutHeld,
+//                       restaurantPayoutAmount) is the only internal record.
 //
 // HELD MEANS HOLD PAYMENTS (Peter, 2026-11-10). A restaurant's payout is held when the Super Admin
 // Hold Payments toggle is on (disco_restaurant_overrides.money_flow = 'FAMILY_MEAL', the value
@@ -130,9 +132,11 @@ export function nativeInvoiceRouting(pay: Pick<RestaurantPayoutConfig, 'connecte
   const routeToRestaurant = !pay.withholdPayouts && !!pay.connectedAccountId && transferDollars > 0
   return {
     routeToRestaurant,
+    // A held invoice is still the restaurant's (on_behalf_of: its name, as on any other order); only the
+    // transfer is left off (Peter, 2026-11-10: held orders look and behave exactly like normal ones).
     params: routeToRestaurant
       ? { on_behalf_of: pay.connectedAccountId as string, transfer_data: { destination: pay.connectedAccountId as string, amount: cents(transferDollars) } }
-      : {},
+      : pay.connectedAccountId ? { on_behalf_of: pay.connectedAccountId } : {},
   }
 }
 
@@ -149,9 +153,10 @@ export function invoiceNeedsManualPayout(invoice: { metadata?: Stripe.Metadata |
 }
 
 // Build the destination-charge PaymentIntent. When withheld (or no connected
-// account), transfer_data is omitted so the whole charge stays on the platform, and the charge says so
-// in its metadata (payoutHeld, restaurantPayoutAmount: the share owed, like FamilyMeal's
-// restaurant_payout_amount on its held charges).
+// account), transfer_data is omitted so the whole charge stays on the platform. Nothing else changes: the
+// charge is still on the restaurant's behalf, with the same description and receipt. The only record that
+// it was held is internal metadata (payoutHeld, restaurantPayoutAmount: the share owed), read by
+// lib/order/stripe-facts.ts so reports show the payout as on any other order.
 export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePaymentParams, idempotencyKey?: string): Promise<Stripe.PaymentIntent> {
   const routeToRestaurant = !p.withholdPayouts && !!p.connectedAccountId
   const heldMeta: Record<string, string> = routeToRestaurant ? {} : { payoutHeld: '1', restaurantPayoutAmount: (cents(p.transferDollars) / 100).toFixed(2) }
@@ -170,7 +175,9 @@ export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePa
     ...(routeToRestaurant
       ? { transfer_data: { destination: p.connectedAccountId as string, amount: cents(p.transferDollars) } }
       : {}),
-    ...(routeToRestaurant && p.onBehalfOf ? { on_behalf_of: p.connectedAccountId as string } : {}),
+    // Held or not, the charge is made on the restaurant's behalf, so the diner's statement and receipt name
+    // the restaurant exactly as on any other order (Peter, 2026-11-10). Holding only leaves off transfer_data.
+    ...(p.connectedAccountId && p.onBehalfOf ? { on_behalf_of: p.connectedAccountId } : {}),
     // Native checkout is ALWAYS a card charge — confirmed client-side via Stripe.js
     // confirmCardPayment, or server-side with a supplied payment_method (tests).
     // Use an explicit card-only PaymentIntent: automatic_payment_methods breaks the

@@ -2,7 +2,8 @@
 // (Peter, 2026-11-10). Runs the production builders from lib/order/native-payment.ts against test mode:
 // card checkout, saved-card / recurring off-session charges, pay by invoice / direct entry, order-edit card
 // deltas, edit and reissue invoices (the paid-invoice webhook's payout decision), and a refund of a held
-// charge. Each held case is paired with a not-held control that must still pay out. Stripe only: no
+// charge. A held charge must still be on the restaurant's behalf, with the same statement name as a normal
+// one (Peter, 2026-11-10: held orders look exactly like normal orders). Each held case is paired with a not-held control that must still pay out. Stripe only: no
 // database writes. Refuses to run with anything but an sk_test_ key.
 //   npx tsx scripts/verify-native-hold-testmode.ts [acct_test_connected_account]
 import { config } from 'dotenv'; config({ path: '.env.local', quiet: true } as never)
@@ -29,6 +30,7 @@ async function chargeOf(pi: Stripe.PaymentIntent, expectTransfer = false) {
 }
 
 async function cardPath(label: string, extra: Partial<Parameters<typeof createNativeOrderPaymentIntent>[1]>) {
+  let heldDescriptor: string | null = null
   for (const [name, pay] of [['held', held], ['not held', open]] as const) {
     const pi = await createNativeOrderPaymentIntent(s, {
       totalDollars: TOTAL, transferDollars: TRANSFER, ...pay, onBehalfOf: true,
@@ -40,11 +42,14 @@ async function cardPath(label: string, extra: Partial<Parameters<typeof createNa
       check(pi.status === 'succeeded' && ch.amount === Math.round(TOTAL * 100), `${label}, held: the full $${TOTAL} is charged`)
       await sleep(5000)
       const later = await s.charges.retrieve(ch.id)
-      check(!later.transfer && !pi.transfer_data && !pi.on_behalf_of, `${label}, held: nothing goes to the restaurant (no transfer after 5s, no destination)`)
+      check(!later.transfer && !pi.transfer_data, `${label}, held: nothing goes to the restaurant (no transfer after 5s)`)
+      check(pi.on_behalf_of === ACCT && later.on_behalf_of === ACCT, `${label}, held: still charged on the restaurant's behalf`)
+      heldDescriptor = later.calculated_statement_descriptor ?? null
       check(pi.metadata.payoutHeld === '1' && pi.metadata.restaurantPayoutAmount === TRANSFER.toFixed(2), `${label}, held: recorded as held with the $${TRANSFER} owed`)
     } else {
       const t = ch.transfer ? await s.transfers.retrieve(ch.transfer as string) : null
       check(!!t && t.destination === ACCT && t.amount === Math.round(TRANSFER * 100), `${label}, not held: $${TRANSFER} still goes to the restaurant`)
+      check(!!ch.calculated_statement_descriptor && ch.calculated_statement_descriptor === heldDescriptor, `${label}: the statement name is the same held or not ("${ch.calculated_statement_descriptor}")`)
     }
     await sleep(300)
   }
@@ -69,7 +74,10 @@ async function invoicePath(label: string, kind: string, routed: boolean) {
     const ch = await s.charges.retrieve(chId)
     const manual = invoiceNeedsManualPayout(paid as unknown as { metadata?: Stripe.Metadata | null; transfer_data?: unknown })
     if (name === 'held') {
-      check(paid.status === 'paid' && !ch.transfer && !manual, `${label}, held: paid in full, no transfer on the charge, and the webhook will not push one`)
+      await sleep(4000)
+      const later = await s.charges.retrieve(ch.id)
+      check(paid.status === 'paid' && !later.transfer && !manual, `${label}, held: paid in full, no transfer on the charge, and the webhook will not push one`)
+      if (routed) check(later.on_behalf_of === ACCT, `${label}, held: still on the restaurant's behalf ("${later.calculated_statement_descriptor}")`)
     } else if (routed) {
       check(!!ch.transfer && !manual, `${label}, not held: Stripe pays the restaurant from the charge, and the webhook does not pay twice`)
     } else {

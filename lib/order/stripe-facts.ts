@@ -43,7 +43,7 @@ export interface OrderStripeFacts {
   transferred: number
   reversed: number
   invoiceStatus: string | null
-  detail: { charges: string[]; transfers: string[]; invoices: string[] }
+  detail: { charges: string[]; transfers: string[]; invoices: string[]; held?: { charge: string; amount: number; reversed: number }[] }
 }
 
 const idOf = (v: unknown): string | null => (typeof v === 'string' ? v : (v as { id?: string } | null)?.id ?? null)
@@ -99,6 +99,8 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
   for (const m of ev.matchAll(TR_RE)) trIds.add(m[0])
 
   const chargeIds = new Set<string>()
+  // A charge paid through an invoice created HELD (Hold Payments on): the restaurant's share it would have sent.
+  const heldByCharge = new Map<string, number>()
   let invoiceStatus: string | null = null
   let newestInvoice = -1
   for (const id of invIds) {
@@ -106,6 +108,7 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
     if (!iv) continue
     if (iv.created > newestInvoice) { newestInvoice = iv.created; invoiceStatus = iv.status ?? null }
     const c = idOf((iv as unknown as { charge?: unknown }).charge); if (c) chargeIds.add(c)
+    if (c && iv.metadata?.withholdPayouts === '1') heldByCharge.set(c, Math.round(Number(iv.metadata?.transferDollars || 0) * 100))
     const p = idOf((iv as unknown as { payment_intent?: unknown }).payment_intent); if (p) piIds.add(p)
   }
   for (const id of piIds) {
@@ -115,6 +118,7 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
 
   let captured = 0, refunded = 0, stripeFee = 0, feeKnown = true
   const chargeGroups = new Set<string>()
+  const held: { charge: string; amount: number; reversed: number }[] = []
   for (const id of chargeIds) {
     const ch = await stripe.charges.retrieve(id, { expand: ['balance_transaction'] })
     if (!ch.paid || !ch.captured) continue
@@ -125,6 +129,15 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
     else feeKnown = false
     const tr = idOf(ch.transfer); if (tr) trIds.add(tr)
     if (ch.transfer_group) chargeGroups.add(ch.transfer_group)
+    // HELD (Hold Payments, Peter 2026-11-10): no transfer was made, but the order must read exactly like any
+    // other order in reports, so its share counts as transferred, and a refund as reversing its proportional
+    // part, as reverse_transfer does on a paid-out charge. Withholding is tracked outside Disco; detail.held
+    // is the only internal mark.
+    const heldCents = !tr ? (ch.metadata?.payoutHeld === '1' ? Math.round(Number(ch.metadata?.restaurantPayoutAmount || 0) * 100) : heldByCharge.get(ch.id) ?? 0) : 0
+    if (heldCents > 0) {
+      const amt = ch.amount_captured ?? ch.amount
+      held.push({ charge: ch.id, amount: heldCents, reversed: amt > 0 ? Math.round(heldCents * Math.min(1, (ch.amount_refunded ?? 0) / amt)) : 0 })
+    }
   }
   // A transfer funded by a charge lands in the CHARGE's transfer group (e.g. a
   // fee true-up top-up), which is not the order's.
@@ -146,9 +159,10 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
       : (t.reversals?.data ?? [])
     reversed += revs.filter(r => r.metadata?.kind !== REFUND_FEE_KIND).reduce((a, r) => a + r.amount, 0)
   }
+  for (const h of held) { transferred += h.amount; reversed += h.reversed }
   return {
     captured, refunded, stripeFee, feeKnown, transferred, reversed, invoiceStatus,
-    detail: { charges: [...chargeIds], transfers: [...trIds], invoices: [...invIds] },
+    detail: { charges: [...chargeIds], transfers: [...trIds], invoices: [...invIds], ...(held.length ? { held } : {}) },
   }
 }
 

@@ -13,7 +13,7 @@ ok(payoutHoldFrom({ money_flow: 'DIRECT', withhold_payouts: true }) === 'withhol
 ok(payoutHoldFrom({ money_flow: 'DIRECT', withhold_payouts: false }) === null && payoutHoldFrom({ money_flow: null }) === null && payoutHoldFrom(undefined) === null, 'otherwise not held')
 
 const held = nativeInvoiceRouting({ connectedAccountId: 'acct_x', withholdPayouts: true }, 100)
-ok(!held.routeToRestaurant && !('transfer_data' in held.params) && !('on_behalf_of' in held.params), 'a held invoice has no destination')
+ok(!held.routeToRestaurant && !('transfer_data' in held.params) && held.params.on_behalf_of === 'acct_x', 'a held invoice is still on the restaurant\'s behalf, with no transfer')
 const open = nativeInvoiceRouting({ connectedAccountId: 'acct_x', withholdPayouts: false }, 100)
 ok(open.routeToRestaurant && open.params.transfer_data?.amount === 10000, 'a not-held invoice routes the share')
 
@@ -24,6 +24,13 @@ ok(!invoiceNeedsManualPayout({ ...meta({ withholdPayouts: '0', connectedAccountI
 ok(!invoiceNeedsManualPayout(meta({ withholdPayouts: '0', connectedAccountId: '', transferDollars: '10' })), 'no account, no payout')
 
 const src = (p: string) => readFileSync(p, 'utf8')
+// Held orders look exactly like normal ones (Peter, 2026-11-10): on_behalf_of whatever the hold, no held
+// marker on the sale row, and reports count the held share as paid out.
+const payment = src('lib/order/native-payment.ts')
+ok(/\.\.\.\(p\.connectedAccountId && p\.onBehalfOf \? \{ on_behalf_of: p\.connectedAccountId \} : \{\}\)/.test(payment), 'card charges are on the restaurant\'s behalf, held or not')
+ok(!/moneyFlow: 'FAMILY_MEAL' \} : input/.test(src('lib/order/native-checkout.ts')), 'a held card order is recorded like any other on the sale row')
+const facts = src('lib/order/stripe-facts.ts')
+ok(/payoutHeld === '1'/.test(facts) && /withholdPayouts === '1'/.test(facts) && /transferred \+= h\.amount/.test(facts), 'report facts count a held share as transferred')
 const pay = src('lib/order/native-payment.ts')
 ok(/SELECT stripe_account_id, withhold_payouts, money_flow FROM disco_restaurant_overrides/.test(pay), 'the config reads Hold Payments (money_flow)')
 ok(!/money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = \$\{restaurantReference\} LIMIT 1\s*`\.catch/.test(pay), 'a failed read is not taken as "not held"')
