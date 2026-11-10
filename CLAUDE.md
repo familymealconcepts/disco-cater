@@ -93,6 +93,14 @@ whose charges are not transferring, is not a bug to fix.
 Reading the setting and reporting what is held is fine. Proposing a change is fine.
 Making it is not, without that OK.
 
+**The one standing exception, approved by Peter (10 Nov 2026):** when someone changes Hold
+Payments directly in FamilyMeal's admin, the 15-minute `refresh-restaurant-admin-list` check
+makes **Disco's** `money_flow` match FamilyMeal's live value (`syncMoneyFlowFromFamilyMeal`,
+`lib/money-flow-sync-server.ts`), audited as `system: familymeal sync`. It never writes
+FamilyMeal and never moves money. Hold Payments changes, from Super Admin or FamilyMeal, are
+audited and never alerted; only a pair that can't be brought back in sync alerts. Don't remove
+the sync or turn changes back into alerts without Peter.
+
 ## NEVER WRITE TO FAMILYMEAL. READ ONLY.
 
 FM is a live platform with thousands of restaurants taking real orders. **A write there

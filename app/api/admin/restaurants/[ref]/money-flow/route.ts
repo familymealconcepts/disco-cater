@@ -3,7 +3,7 @@ import { getAdminAuthHeader, getAdminEmail } from '../../../../../../lib/admin-a
 import { runMigrations } from '../../../../../../lib/db'
 import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 import { parseMoneyFlow, setMoneyFlowEverywhere } from '../../../../../../lib/money-flow-sync'
-import { fmRefFor, moneyFlowDeps } from '../../../../../../lib/money-flow-sync-server'
+import { fmRefFor, moneyFlowDeps, alertMoneyFlowChangeFailed, resolveMoneyFlowChangeFailed } from '../../../../../../lib/money-flow-sync-server'
 
 // "Hold Payments" toggle. FM backs this with the moneyFlow field
 // (restaurant-table.component.ts:387-400, restaurant.service.ts:323-325):
@@ -21,6 +21,12 @@ import { fmRefFor, moneyFlowDeps } from '../../../../../../lib/money-flow-sync-s
 // request released payouts.
 //
 // dryRun=1 reads both systems and returns what would happen, writing nothing anywhere.
+//
+// Alerts (Peter, 2026-11-10): a successful change is NOT an alert, only an audit row (who, when,
+// old and new, source super_admin). Only a change that didn't complete alerts: FamilyMeal refused or
+// couldn't be reached, read back a different value, or Disco's write failed (with FamilyMeal put
+// back). That alert closes on the next successful change or when the 15-minute check finds them
+// in sync.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
@@ -35,10 +41,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     const fmRef = native ? await fmRefFor(ref) : ref
     const deps = moneyFlowDeps(h, { ref, actorEmail: await getAdminEmail(), native, fmRef })
     const result = await setMoneyFlowEverywhere(deps, { ref, fmRef, flow, native, dryRun })
-    if (!result.ok) return NextResponse.json({ ...result, native, fmMoneyFlow: result.fmAfter }, { status: 502 })
+    if (!result.ok) {
+      if (!dryRun) await alertMoneyFlowChangeFailed({ ref, actorEmail: await getAdminEmail(), result }).catch(() => {})
+      return NextResponse.json({ ...result, native, fmMoneyFlow: result.fmAfter }, { status: 502 })
+    }
+    if (!dryRun) await resolveMoneyFlowChangeFailed(ref).catch(() => {})
     return NextResponse.json({ ...result, native, moneyFlow: flow, fmMoneyFlow: result.fmAfter })
   } catch (e) {
     console.error('[money-flow] failed:', e instanceof Error ? e.message : e)
+    // Thrown mid-change (e.g. FamilyMeal unreachable during the PUT): which system holds what is unknown.
+    if (!dryRun) {
+      await alertMoneyFlowChangeFailed({
+        ref, actorEmail: await getAdminEmail().catch(() => null),
+        error: `Asked for ${flow}; the change stopped with an error (${e instanceof Error ? e.message : 'unknown'}).`,
+      }).catch(() => {})
+    }
     return NextResponse.json({ error: 'Unable to update Hold Payments. Nothing was confirmed changed; check both systems.' }, { status: 500 })
   }
 }

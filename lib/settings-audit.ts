@@ -141,8 +141,9 @@ export async function logSettingsChange(params: {
   restaurantReference: string
   actorEmail: string | null
   /** 'disco' | 'fm' for restaurant-portal routes; 'admin' for the super-admin portal;
-   *  'script' for a one-off operational script run from a terminal. */
-  authType: 'disco' | 'fm' | 'admin' | 'script'
+   *  'script' for a one-off operational script run from a terminal; 'system' for an automatic
+   *  job (e.g. the 15-minute Hold Payments sync from FamilyMeal). */
+  authType: 'disco' | 'fm' | 'admin' | 'script' | 'system'
   before: unknown
   after: unknown
   /** Route-specific context worth keeping — e.g. an FM proxy's outcome, a remapped ref. */

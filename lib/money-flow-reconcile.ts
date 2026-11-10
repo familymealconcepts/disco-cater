@@ -2,6 +2,8 @@ import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { alertGroup, syncAlertSet } from './ops-alert'
 import { SUGGESTIONS } from './ops-alert-format'
+import { logSettingsChange } from './settings-audit'
+import { FAMILYMEAL_SYNC_ACTOR } from './money-flow-sync'
 
 // Reconciles disco_restaurant_overrides.money_flow against FM's live moneyFlow.
 // money_flow is written exactly once, as a side effect of the admin ordering
@@ -51,9 +53,11 @@ import { SUGGESTIONS } from './ops-alert-format'
 // Native rows with NO value at all are still COUNTED and returned as
 // `nativeNulls` for a human to decide, and still never written.
 //
-// Alerts (never silently corrects without saying so) on every flip found.
-// DIRECT → FAMILY_MEAL is still called out separately because it is the
-// direction that changes who is merchant-of-record on an FM-backed order.
+// Every value it writes is an audit row in disco_admin_audit (actor
+// 'system: familymeal sync', source familymeal_sync), the same as the 15-minute
+// sync in lib/money-flow-sync-server.ts; neither alerts on a change (Peter,
+// 2026-11-10). DIRECT → FAMILY_MEAL is still called out in the log because it
+// is the direction that changes who is merchant-of-record on an FM-backed order.
 //
 // It no longer gates promo codes: the restaurant-funded promo path used to read
 // this column and decline on FAMILY_MEAL, which is how a stale value silently
@@ -146,13 +150,23 @@ export async function reconcileMoneyFlow(): Promise<MoneyFlowReconcileResult> {
         if (!live) { errored++; continue }
         if (live !== row.money_flow) {
           const wasNull = row.money_flow == null
-          await sql`
+          const wrote = (await sql`
             UPDATE disco_restaurant_overrides SET money_flow = ${live}, updated_at = NOW()
             WHERE restaurant_reference = ${row.restaurant_reference}
               -- Re-checked at write time: this run is long, and a restaurant
               -- converted mid-run is Disco's from that moment.
               AND NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = ${row.restaurant_reference} AND c.is_disco_native)
-          `
+            RETURNING restaurant_reference
+          `) as unknown[]
+          // Logged like the 15-minute sync's own writes (Peter, 2026-11-10): who, when, old, new.
+          if (wrote.length) {
+            await logSettingsChange({
+              action: 'money_flow_update', restaurantReference: row.restaurant_reference,
+              actorEmail: FAMILYMEAL_SYNC_ACTOR, authType: 'system',
+              before: { money_flow: row.money_flow, fm_money_flow: live }, after: { money_flow: live, fm_money_flow: live },
+              extra: { source: 'familymeal_sync', job: 'reconcile-money-flow', native: false },
+            })
+          }
           flips.push({
             restaurantReference: row.restaurant_reference, name: row.name,
             before: row.money_flow, after: live,

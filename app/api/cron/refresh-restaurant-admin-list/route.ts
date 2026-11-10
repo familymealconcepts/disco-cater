@@ -18,7 +18,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isVerifiedSuperAdminRequest } from '../../../../lib/admin-auth'
 import { refreshRestaurantAdminListCache } from '../../../../lib/restaurant-admin-list-cache'
 import { withCronRun } from '../../../../lib/cron-runs'
-import { alertMoneyFlowMismatches } from '../../../../lib/money-flow-sync-server'
+import { syncMoneyFlowFromFamilyMeal } from '../../../../lib/money-flow-sync-server'
+import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,18 +34,24 @@ function hasCronSecret(req: NextRequest): boolean {
 async function handle(): Promise<NextResponse> {
   const result = await refreshRestaurantAdminListCache()
   console.log('[refresh-restaurant-admin-list] done:', JSON.stringify(result))
-  // With FamilyMeal's values fresh, report any restaurant whose Hold Payments differs between Disco
-  // and FamilyMeal (lib/money-flow-sync-server.ts). Report only, never a write; and best-effort, so
-  // the refresh's own result is never affected by it.
+  // With FamilyMeal's values fresh, make Disco's Hold Payments match FamilyMeal's for any restaurant
+  // where they differ (someone changed it in FamilyMeal's own admin). Writes Disco only, audits each
+  // change, and alerts only when a restaurant can't be brought back in sync
+  // (lib/money-flow-sync-server.ts). Best-effort, so the refresh's own result is never affected.
   let moneyFlowMismatches: number | null = null
+  let moneyFlowSynced: number | null = null
+  let moneyFlowUnresolved: number | null = null
   if (result.ok) {
     try {
-      moneyFlowMismatches = (await alertMoneyFlowMismatches()).length
+      const run = await syncMoneyFlowFromFamilyMeal(await getFmServiceAuthHeader())
+      moneyFlowMismatches = run.checked
+      moneyFlowSynced = run.synced.length
+      moneyFlowUnresolved = run.unresolved.length
     } catch (e) {
-      console.error('[refresh-restaurant-admin-list] Hold Payments mismatch check failed:', e instanceof Error ? e.message : e)
+      console.error('[refresh-restaurant-admin-list] Hold Payments sync failed:', e instanceof Error ? e.message : e)
     }
   }
-  return NextResponse.json({ ...result, moneyFlowMismatches }, { status: result.ok ? 200 : 500 })
+  return NextResponse.json({ ...result, moneyFlowMismatches, moneyFlowSynced, moneyFlowUnresolved }, { status: result.ok ? 200 : 500 })
 }
 
 async function runGet(req: NextRequest) {

@@ -20,8 +20,16 @@
 //
 // dryRun does steps 1 and the planning only: no PUT, no Disco write, no audit row.
 //
-// mismatches are never resolved automatically in either direction. Peter decides each one
-// (CLAUDE.md, Hold Payments rule); alertMoneyFlowMismatches() only reports them.
+// ── WHEN FAMILYMEAL WAS CHANGED DIRECTLY (Peter, 2026-11-10) ───────────────────────────────
+// Someone can change Hold Payments in FamilyMeal's own admin, which Disco never hears about. The
+// 15-minute check finds those and syncDiscoToFamilyMeal() makes DISCO match FAMILYMEAL: it re-reads
+// FamilyMeal live (the 15-minute copy can be a few minutes behind a Super Admin change), writes only
+// Disco's money_flow, and only if Disco still holds the value it was checked against, then audits it
+// as actor 'system: familymeal sync'. It never writes FamilyMeal and never moves money.
+//
+// Alerts: a Hold Payments change is not an alert, from either side. Only a pair that can't be
+// brought back in sync is: FamilyMeal unreadable, Disco's write failing, or a Super Admin change
+// that FamilyMeal refused or that was rolled back.
 
 export type MoneyFlow = 'DIRECT' | 'FAMILY_MEAL'
 
@@ -135,4 +143,81 @@ export async function setMoneyFlowEverywhere(
 
 async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
   try { return await fn() } catch { return null }
+}
+
+export const FAMILYMEAL_SYNC_ACTOR = 'system: familymeal sync'
+
+export type DiscoSyncDeps = {
+  /** FamilyMeal's live value (status 404 = no record). */
+  fmGet: MoneyFlowDeps['fmGet']
+  discoGet: MoneyFlowDeps['discoGet']
+  /**
+   * Sets Disco's money_flow to `flow` ONLY while it still equals `expected` (null = unset/no row),
+   * so a Super Admin change landing mid-check is never overwritten. Returns true if it wrote.
+   */
+  discoWriteIf: (ref: string, expected: string | null, flow: MoneyFlow) => Promise<boolean>
+  audit: (row: { ok: boolean; before: { disco: string | null; fm: string | null }; after: { disco: string | null; fm: string | null }; extra: Record<string, unknown> }) => Promise<void>
+}
+
+export type DiscoSyncOutcome =
+  /** Disco now equals FamilyMeal; audited. */
+  | 'synced'
+  /** Live values already agree (the 15-minute copy was behind); nothing written. */
+  | 'already_in_sync'
+  /** Disco changed while we checked; left alone, the next run looks again. */
+  | 'disco_changed'
+  /** FamilyMeal couldn't be read, or gave no valid value: nothing written. Alert. */
+  | 'fm_unreadable'
+  /** Disco's write failed or didn't stick. Alert. */
+  | 'disco_write_failed'
+
+export type DiscoSyncResult = { outcome: DiscoSyncOutcome; discoBefore: string | null; fm: string | null; discoAfter: string | null; error?: string }
+
+/** True for the outcomes that leave Disco and FamilyMeal unconfirmed in sync: the only ones that alert. */
+export const syncNeedsAlert = (o: DiscoSyncOutcome) => o === 'fm_unreadable' || o === 'disco_write_failed'
+
+/** A missing Disco value is read as released (DIRECT), as every reader treats it. */
+const sameFlow = (disco: string | null, fm: string) => (disco ?? 'DIRECT') === fm
+
+/**
+ * Makes Disco's Hold Payments equal FamilyMeal's live value. Writes Disco only; never FamilyMeal.
+ * dryRun reads both and reports what it would do, writing and auditing nothing.
+ */
+export async function syncDiscoToFamilyMeal(
+  deps: DiscoSyncDeps,
+  args: { ref: string; fmRef: string; dryRun?: boolean },
+): Promise<DiscoSyncResult> {
+  const { ref, fmRef } = args
+  let fmRead: { status: number; moneyFlow: string | null }
+  try { fmRead = await deps.fmGet(fmRef) } catch { fmRead = { status: 0, moneyFlow: null } }
+  const fm = fmRead.status >= 200 && fmRead.status < 300 ? parseMoneyFlow(fmRead.moneyFlow) : null
+  const discoBefore = await safe(() => deps.discoGet(ref))
+  if (!fm) {
+    const error = fmRead.status >= 200 && fmRead.status < 300
+      ? `FamilyMeal returned no valid Hold Payments value (${fmRead.moneyFlow ?? 'none'}).`
+      : `FamilyMeal couldn't be read (${fmRead.status || 'unreachable'}).`
+    return { outcome: 'fm_unreadable', discoBefore, fm: null, discoAfter: discoBefore, error }
+  }
+  if (sameFlow(discoBefore, fm)) return { outcome: 'already_in_sync', discoBefore, fm, discoAfter: discoBefore }
+  if (args.dryRun) return { outcome: 'synced', discoBefore, fm, discoAfter: discoBefore }
+
+  const extra = { source: 'familymeal_sync', fmReference: fmRef }
+  let wrote = false
+  let writeError: string | null = null
+  try { wrote = await deps.discoWriteIf(ref, discoBefore, fm) } catch (e) { writeError = e instanceof Error ? e.message : 'error' }
+  const discoAfter = await safe(() => deps.discoGet(ref))
+
+  if (!writeError && !wrote) {
+    // Someone changed Disco between our read and our write (a Super Admin toggle). Not ours to undo.
+    return { outcome: 'disco_changed', discoBefore, fm, discoAfter }
+  }
+  if (writeError || discoAfter !== fm) {
+    const error = writeError
+      ? `Disco couldn't save FamilyMeal's Hold Payments value (${writeError}).`
+      : `Disco shows ${discoAfter ?? 'no value'} after saving ${fm}.`
+    await deps.audit({ ok: false, before: { disco: discoBefore, fm }, after: { disco: discoAfter, fm }, extra: { ...extra, requested: fm, step: 'disco_write', error } }).catch(() => {})
+    return { outcome: 'disco_write_failed', discoBefore, fm, discoAfter, error }
+  }
+  await deps.audit({ ok: true, before: { disco: discoBefore, fm }, after: { disco: fm, fm }, extra: { ...extra, requested: fm } }).catch(() => {})
+  return { outcome: 'synced', discoBefore, fm, discoAfter: fm }
 }
