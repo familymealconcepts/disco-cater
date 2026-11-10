@@ -7,10 +7,20 @@
 //   customer charged  = breakdown.total   (cents)
 //   restaurant payout = breakdown.transfer (cents)  → transfer_data.amount
 //   Disco keeps       = total − transfer            (stays on the platform)
-//   withhold_payouts  → OMIT transfer_data: the whole charge stays on the platform
+//   HELD              → OMIT transfer_data: the whole charge stays on the platform
 //                       (funds held with Disco); the order still completes. The
-//                       intended payout is recorded on disco_sale_transactions for
-//                       a later manual release.
+//                       intended payout is recorded on disco_sale_transactions and
+//                       on the charge's metadata for a later manual release.
+//
+// HELD MEANS HOLD PAYMENTS (Peter, 2026-11-10). A restaurant's payout is held when the Super Admin
+// Hold Payments toggle is on (disco_restaurant_overrides.money_flow = 'FAMILY_MEAL', the value
+// lib/money-flow-sync.ts keeps equal to FamilyMeal's) OR the older withhold_payouts switch is on.
+// Before this only withhold_payouts was read, and it was never set for anyone, so every Disco-checkout
+// order at a held restaurant was paid out anyway (Apollo Bagels - Kips Bay, Maciel's and others).
+// Every payment path reads this one function: card checkout, saved-card and recurring charges, pay by
+// invoice / direct entry, and order edits (card delta and edit invoices, whose metadata the webhook
+// obeys). It is read when the charge or invoice is created, so turning the hold off affects new orders
+// only; an invoice sent while held stays held when it is paid.
 
 import Stripe from 'stripe'
 import { sql } from '../db'
@@ -25,7 +35,17 @@ export function stripeClient(secretKey: string | undefined): Stripe | null {
 
 export interface RestaurantPayoutConfig {
   connectedAccountId: string | null
+  /** The restaurant's share is held on the platform: Hold Payments on, or withhold_payouts. */
   withholdPayouts: boolean
+  /** Why it is held, for the records; null when it is not. */
+  holdSource: 'hold_payments' | 'withhold_payouts' | null
+}
+
+/** Pure: the hold decision from the overrides row. Pinned by scripts/tests/native-hold-payments.test.ts. */
+export function payoutHoldFrom(row: { money_flow?: string | null; withhold_payouts?: boolean | null } | undefined): RestaurantPayoutConfig['holdSource'] {
+  if (row?.money_flow === 'FAMILY_MEAL') return 'hold_payments'
+  if (row?.withhold_payouts === true) return 'withhold_payouts'
+  return null
 }
 
 // Resolve a restaurant's Stripe connected account + payout-hold flag from Neon.
@@ -38,12 +58,16 @@ export interface RestaurantPayoutConfig {
 // called for new orders; it stays untouched for the same reason existing
 // orders' refunds still work after Stripe is disconnected.)
 export async function getRestaurantPayoutConfig(restaurantReference: string): Promise<RestaurantPayoutConfig> {
+  // NOT swallowed: a failed read used to return "not held", which would pay out a held restaurant. A
+  // payment path that cannot read the hold must fail, and every caller surfaces the error as a 500.
   const ovrRows = (await sql`
-    SELECT stripe_account_id, withhold_payouts FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
-  `.catch(() => [])) as { stripe_account_id: string | null; withhold_payouts: boolean | null }[]
+    SELECT stripe_account_id, withhold_payouts, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+  `) as { stripe_account_id: string | null; withhold_payouts: boolean | null; money_flow: string | null }[]
+  const holdSource = payoutHoldFrom(ovrRows[0])
   return {
     connectedAccountId: ovrRows[0]?.stripe_account_id ?? null,
-    withholdPayouts: ovrRows[0]?.withhold_payouts === true,
+    withholdPayouts: holdSource !== null,
+    holdSource,
   }
 }
 
@@ -93,15 +117,49 @@ export async function getOrCreateStripeCustomer(stripe: Stripe, email: string | 
   return id
 }
 
+/**
+ * The money routing of a native invoice (pay by invoice, direct entry): a destination invoice whose charge
+ * moves the restaurant's share itself, or, when the payout is held or there is no account, a plain
+ * platform invoice that keeps the whole payment. Shared by placeNativeInvoiceOrder and the test-mode
+ * check (scripts/verify-native-hold-testmode.ts), so the test exercises what production sends.
+ */
+export function nativeInvoiceRouting(pay: Pick<RestaurantPayoutConfig, 'connectedAccountId' | 'withholdPayouts'>, transferDollars: number): {
+  routeToRestaurant: boolean
+  params: Pick<Stripe.InvoiceCreateParams, 'on_behalf_of' | 'transfer_data'>
+} {
+  const routeToRestaurant = !pay.withholdPayouts && !!pay.connectedAccountId && transferDollars > 0
+  return {
+    routeToRestaurant,
+    params: routeToRestaurant
+      ? { on_behalf_of: pay.connectedAccountId as string, transfer_data: { destination: pay.connectedAccountId as string, amount: cents(transferDollars) } }
+      : {},
+  }
+}
+
+/**
+ * Whether the paid-invoice webhook must push the restaurant's share with its own transfer: only for an
+ * invoice that did not route it (no transfer_data, not 'destination'), that was not created as held, and
+ * that names an account and a positive share. Every native invoice kind (order, reissue, edit) asks this.
+ */
+export function invoiceNeedsManualPayout(invoice: { metadata?: Stripe.Metadata | null; transfer_data?: unknown }): boolean {
+  const m = invoice.metadata ?? {}
+  const stripeMovedIt = !!invoice.transfer_data || m.transferMode === 'destination'
+  const withhold = m.withholdPayouts === '1'
+  return !stripeMovedIt && !withhold && !!m.connectedAccountId && Number(m.transferDollars || 0) > 0
+}
+
 // Build the destination-charge PaymentIntent. When withheld (or no connected
-// account), transfer_data is omitted so the whole charge stays on the platform.
+// account), transfer_data is omitted so the whole charge stays on the platform, and the charge says so
+// in its metadata (payoutHeld, restaurantPayoutAmount: the share owed, like FamilyMeal's
+// restaurant_payout_amount on its held charges).
 export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePaymentParams, idempotencyKey?: string): Promise<Stripe.PaymentIntent> {
   const routeToRestaurant = !p.withholdPayouts && !!p.connectedAccountId
+  const heldMeta: Record<string, string> = routeToRestaurant ? {} : { payoutHeld: '1', restaurantPayoutAmount: (cents(p.transferDollars) / 100).toFixed(2) }
   const params: Stripe.PaymentIntentCreateParams = {
     amount: cents(p.totalDollars),
     currency: 'usd',
     ...(p.description ? { description: p.description } : {}),
-    ...(p.metadata ? { metadata: p.metadata } : {}),
+    ...(p.metadata || !routeToRestaurant ? { metadata: { ...(p.metadata ?? {}), ...heldMeta } } : {}),
     ...(p.customerId ? { customer: p.customerId } : {}),
     ...(p.receiptEmail ? { receipt_email: p.receiptEmail } : {}),
     ...(p.paymentMethodId ? { payment_method: p.paymentMethodId } : {}),

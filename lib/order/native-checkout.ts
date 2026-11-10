@@ -8,7 +8,7 @@ import { MENU_ACTIVE_SQL } from '../menu-state'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
 import { sql, withDiscoTables, runDiscoMenuMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
-import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
+import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer, nativeInvoiceRouting } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
 import { cents, discountedBase, assertFiniteMoney } from '../promo-pricing'
 import { buildNativeChargeDescription } from './charge-description'
@@ -1112,8 +1112,10 @@ export class NativePaymentNotConfiguredError extends Error {
   }
 }
 
-function assertNativePaymentConfigured(pay: { connectedAccountId: string | null; withholdPayouts: boolean }, restaurantReference: string): void {
-  if (!pay.connectedAccountId && !pay.withholdPayouts) throw new NativePaymentNotConfiguredError(restaurantReference)
+function assertNativePaymentConfigured(pay: { connectedAccountId: string | null; holdSource: 'hold_payments' | 'withhold_payouts' | null }, restaurantReference: string): void {
+  // Hold Payments does not excuse a missing account: a held restaurant still has to have connected Stripe
+  // to take orders, as before. Only the explicit withhold_payouts switch charges with no account on file.
+  if (!pay.connectedAccountId && pay.holdSource !== 'withhold_payouts') throw new NativePaymentNotConfiguredError(restaurantReference)
 }
 
 /**
@@ -1174,7 +1176,8 @@ export async function placeAndPayNativeOrder(
   // can never be paid.
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
   assertNativePaymentConfigured(pay, input.restaurantReference)
-  const placed = await placeNativeOrder(input)
+  // A held order is recorded as FamilyMeal records its held ones: money_flow FAMILY_MEAL on the sale row.
+  const placed = await placeNativeOrder(pay.withholdPayouts ? { ...input, moneyFlow: 'FAMILY_MEAL' } : input)
   // Attach the diner to the charge: prefer an explicit test-supplied customerId,
   // otherwise resolve/create a real Stripe Customer from the diner's email so the
   // charge is never customer-less in the Stripe dashboard.
@@ -1265,14 +1268,11 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
     // Omitted when there is no connected account or payouts are withheld — the
     // platform then holds the funds deliberately, which is the existing
     // behaviour and must not change.
-    const routeToRestaurant = !pay.withholdPayouts && !!pay.connectedAccountId && transfer > 0
+    const { routeToRestaurant, params: routing } = nativeInvoiceRouting(pay, transfer)
     const invoice = await stripe.invoices.create({
       customer: customerId,
       collection_method: 'send_invoice',
-      ...(routeToRestaurant ? {
-        on_behalf_of: pay.connectedAccountId as string,
-        transfer_data: { destination: pay.connectedAccountId as string, amount: cents(transfer) },
-      } : {}),
+      ...routing,
       // Due the day it is sent. Stripe accepts days_until_due: 0 and resolves it
       // to end-of-day in the account's timezone (verified against the API), which
       // is what "due today" should mean — an explicit due_date of NOW() would read
@@ -1289,6 +1289,7 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
         transferDollars: String(transfer),
         connectedAccountId: pay.connectedAccountId ?? '',
         withholdPayouts: pay.withholdPayouts ? '1' : '0',
+        ...(pay.withholdPayouts ? { payoutHeld: '1', restaurantPayoutAmount: transfer.toFixed(2) } : {}),
         // 'destination' → Stripe moves the restaurant's share itself and the
         // webhook must NOT transfer again. Absent/'manual' → an invoice created
         // before this change, whose share the webhook still has to push. The
@@ -1332,7 +1333,10 @@ export async function chargeAndPlaceNativeRecurringOrder(
   stripe: Stripe,
   opts: { customerId: string; paymentMethodId: string; idempotencyKey: string },
 ): Promise<NativeRecurringResult> {
-  const placed = await placeNativeOrder(input)
+  // Resolved BEFORE placing, as placeAndPayNativeOrder does, so a held occurrence is recorded as held.
+  const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  assertNativePaymentConfigured(pay, input.restaurantReference)
+  const placed = await placeNativeOrder(pay.withholdPayouts ? { ...input, moneyFlow: 'FAMILY_MEAL' } : input)
 
   const rollback = async () => {
     try {
@@ -1342,8 +1346,6 @@ export async function chargeAndPlaceNativeRecurringOrder(
     } catch (e) { console.error('[native-recurring] rollback failed:', e instanceof Error ? e.message : e) }
   }
 
-  const pay = await getRestaurantPayoutConfig(input.restaurantReference)
-  assertNativePaymentConfigured(pay, input.restaurantReference)
   let pi: Stripe.PaymentIntent
   try {
     pi = await createNativeOrderPaymentIntent(stripe, {

@@ -4,6 +4,7 @@ import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification, sendOrderUpdateEmails } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
+import { invoiceNeedsManualPayout } from '../../../../lib/order/native-payment'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/order/money-alerts'
 import { cancelCourierAndReport } from '../../../../lib/order/courier-sync'
@@ -324,13 +325,10 @@ export async function POST(request: NextRequest) {
         {
           const transferDollars = Number(invoice.metadata?.transferDollars || 0)
           const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
-          const withhold = invoice.metadata?.withholdPayouts === '1'
-          // Same guard as the native-invoice payout below: if the invoice carries
-          // transfer_data, Stripe has already moved the share and a second
-          // transfer here would pay twice.
-          const editStripeMovedIt = !!(invoice as unknown as { transfer_data?: unknown }).transfer_data
-            || invoice.metadata?.transferMode === 'destination'
-          if (!editStripeMovedIt && !withhold && connectedAccountId && transferDollars > 0) {
+          // invoiceNeedsManualPayout (lib/order/native-payment.ts): not when the invoice carries
+          // transfer_data (Stripe already moved the share; a second transfer would pay twice), and not
+          // when it was created HELD (withholdPayouts '1': Hold Payments on, Peter 2026-11-10).
+          if (invoiceNeedsManualPayout(invoice as unknown as { metadata?: Stripe.Metadata | null; transfer_data?: unknown })) {
             const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
             const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
             try {
@@ -419,7 +417,6 @@ export async function POST(request: NextRequest) {
 
           const transferDollars = Number(invoice.metadata?.transferDollars || 0)
           const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
-          const withhold = invoice.metadata?.withholdPayouts === '1'
           const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
           const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
           // ── WHICH INVOICE IS THIS? ──────────────────────────────────────────
@@ -474,7 +471,7 @@ export async function POST(request: NextRequest) {
                     status = 'SUCCEEDED',
                     updated_at = NOW()
             `.catch(e => console.error('[Webhook] destination-invoice payment row insert failed (non-fatal):', e instanceof Error ? e.message : e))
-          } else if (!withhold && connectedAccountId && transferDollars > 0) {
+          } else if (invoiceNeedsManualPayout(invoice as unknown as { metadata?: Stripe.Metadata | null; transfer_data?: unknown })) {
             try {
               // idempotencyKey → a webhook retry can't double-pay the restaurant.
               const payout = await stripe.transfers.create({
