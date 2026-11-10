@@ -43,7 +43,7 @@ export interface OrderStripeFacts {
   transferred: number
   reversed: number
   invoiceStatus: string | null
-  detail: { charges: string[]; transfers: string[]; invoices: string[]; held?: { charge: string; amount: number; reversed: number }[] }
+  detail: { charges: string[]; transfers: string[]; invoices: string[]; held?: { charge: string; amount: number; reversed: number }[]; pendingTransfers?: string[] }
 }
 
 const idOf = (v: unknown): string | null => (typeof v === 'string' ? v : (v as { id?: string } | null)?.id ?? null)
@@ -86,8 +86,16 @@ async function loadLinks(orderReference: string): Promise<OrderLinks | null> {
   return r[0] ?? null
 }
 
+// A destination charge's transfer attaches a few seconds AFTER payment_intent.succeeded (measured
+// 3-4s on #900000794 and #900000866), and Disco's webhook endpoint is not sent charge.updated or
+// transfer.created. So the one refresh an order got ran before its payout existed and recorded
+// $0 transferred for ~30 orders (Gracious Bakery, Peter 2026-11-10). A charge that is to pay a
+// restaurant but has no transfer yet is now re-read until it does; if it still has none, it is
+// recorded as pending (detail.pendingTransfers) and reports treat the payout as not yet known.
+const TRANSFER_WAIT_MS = 20_000
+
 /** Read Stripe's facts for one Disco-processed order. Read-only. */
-export async function collectOrderStripeFacts(stripe: Stripe, orderReference: string): Promise<OrderStripeFacts | null> {
+export async function collectOrderStripeFacts(stripe: Stripe, orderReference: string, opts?: { waitForTransferMs?: number }): Promise<OrderStripeFacts | null> {
   const o = await loadLinks(orderReference)
   if (!o) return null
   const ev = o.ev_text ?? ''
@@ -119,9 +127,18 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
   let captured = 0, refunded = 0, stripeFee = 0, feeKnown = true
   const chargeGroups = new Set<string>()
   const held: { charge: string; amount: number; reversed: number }[] = []
+  const pendingTransfers: string[] = []
+  const waitMs = opts?.waitForTransferMs ?? TRANSFER_WAIT_MS
   for (const id of chargeIds) {
-    const ch = await stripe.charges.retrieve(id, { expand: ['balance_transaction'] })
+    let ch = await stripe.charges.retrieve(id, { expand: ['balance_transaction'] })
     if (!ch.paid || !ch.captured) continue
+    // Only a charge made in the last ten minutes is waited for; an older one without its transfer is pending.
+    const fresh = Date.now() / 1000 - ch.created < 600
+    for (let waited = 0; fresh && !ch.transfer && ch.transfer_data?.destination && waited < waitMs; waited += 2000) {
+      await new Promise(r => setTimeout(r, 2000))
+      ch = await stripe.charges.retrieve(id, { expand: ['balance_transaction'] })
+    }
+    if (!ch.transfer && ch.transfer_data?.destination) pendingTransfers.push(ch.id)
     captured += ch.amount_captured ?? ch.amount
     refunded += ch.amount_refunded ?? 0
     const bt = ch.balance_transaction as Stripe.BalanceTransaction | string | null
@@ -162,13 +179,13 @@ export async function collectOrderStripeFacts(stripe: Stripe, orderReference: st
   for (const h of held) { transferred += h.amount; reversed += h.reversed }
   return {
     captured, refunded, stripeFee, feeKnown, transferred, reversed, invoiceStatus,
-    detail: { charges: [...chargeIds], transfers: [...trIds], invoices: [...invIds], ...(held.length ? { held } : {}) },
+    detail: { charges: [...chargeIds], transfers: [...trIds], invoices: [...invIds], ...(held.length ? { held } : {}), ...(pendingTransfers.length ? { pendingTransfers } : {}) },
   }
 }
 
 /** Collect and store one order's facts. Returns false when the order is not Disco-processed. */
-export async function syncOrderStripeFacts(stripe: Stripe, orderReference: string): Promise<boolean> {
-  const f = await collectOrderStripeFacts(stripe, orderReference)
+export async function syncOrderStripeFacts(stripe: Stripe, orderReference: string, opts?: { waitForTransferMs?: number }): Promise<boolean> {
+  const f = await collectOrderStripeFacts(stripe, orderReference, opts)
   if (!f) return false
   await sql`
     INSERT INTO disco_order_stripe_facts
@@ -195,6 +212,8 @@ export async function syncOrderStripeFacts(stripe: Stripe, orderReference: strin
 //   charge.updated                     the fee, when Stripe attaches it after the charge
 //   invoice.paid / payment_succeeded   an invoice payment and its payout
 //   transfer.reversed                  a payout taken back
+//   transfer.created                   a payout made (only if the endpoint is subscribed; the
+//                                      charge's own refresh waits for it either way, above)
 // FamilyMeal's payments reach the same endpoint (one platform account) and
 // match no Disco-processed order, so they are skipped.
 
@@ -250,6 +269,7 @@ export async function ordersForStripeEvent(stripe: Stripe, event: Stripe.Event):
     case 'invoice.payment_succeeded':
       for (const r of await ordersForInvoice(String(obj.id))) out.add(r)
       break
+    case 'transfer.created':
     case 'transfer.reversed': {
       const { resolveTransferOrder } = await import('./transfer-reversals')
       const direct = await resolveTransferOrder(String(obj.id), (obj.transfer_group as string | null) ?? null)
@@ -275,7 +295,7 @@ export async function ordersForStripeEvent(stripe: Stripe, event: Stripe.Event):
 
 export const STRIPE_FACTS_EVENTS = new Set([
   'payment_intent.succeeded', 'charge.refunded', 'charge.updated',
-  'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed',
+  'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed', 'transfer.created',
 ])
 
 /** Webhook entry point. Refreshes every order the event touches. Never throws. */

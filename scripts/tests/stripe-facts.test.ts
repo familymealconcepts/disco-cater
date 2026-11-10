@@ -122,8 +122,23 @@ check('refreshed by the webhook after each event is handled, never on a schedule
   ok(!read('vercel.json').includes('stripe-facts') && !read('vercel.json').includes('stripe-fee-trueup'), 'no cron')
 })
 check('every event that moves an order\'s money refreshes it', () => {
-  for (const e of ['payment_intent.succeeded', 'charge.refunded', 'charge.updated', 'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed'])
+  for (const e of ['payment_intent.succeeded', 'charge.refunded', 'charge.updated', 'invoice.paid', 'invoice.payment_succeeded', 'transfer.reversed', 'transfer.created'])
     ok(facts.includes(`'${e}'`), e)
+})
+// Gracious Bakery, Peter 2026-11-10: a refresh ran before the payout existed and recorded $0 transferred.
+check('a fresh charge that is to pay a restaurant is re-read until its transfer exists, else recorded pending', () => {
+  ok(/fresh && !ch\.transfer && ch\.transfer_data\?\.destination && waited < waitMs/.test(facts), 'waits for the transfer')
+  ok(/if \(!ch\.transfer && ch\.transfer_data\?\.destination\) pendingTransfers\.push\(ch\.id\)/.test(facts), 'still none: pending')
+})
+const rows = read('lib/reports/order-report-rows.ts')
+check('Payout Adjustment only for a confirmed difference: never unsynced, pending or held', () => {
+  ok(/const confirmedFacts = hasFacts && row\.sf_pending !== true && row\.sf_held !== true/.test(rows), 'confirmed = synced, nothing pending, not held')
+  ok(/: confirmedFacts \? r2\(n\(row\.sf_transferred\)/.test(rows) && /\n\s+: computed\n/.test(rows), 'otherwise the payout is what the figures add up to, never $0')
+  ok(/payoutAdjustment = isNative && paid && confirmedFacts \?/.test(rows), 'adjustment only when confirmed')
+})
+check('every refund is shown, an edit refund too, without being subtracted twice', () => {
+  ok(/refundAmount: isNative \? r2\(Math\.max\(refund, n\(row\.refund\)\)\) : refund/.test(rows), 'full refund shown')
+  ok(/- r\.refundReversal - r\.refundStripeFee/.test(rows) && !/settlement === 'native'[\s\S]{0,400}r\.refundAmount/.test(rows.slice(rows.indexOf('export function reconcileRow'))), 'native payout arithmetic does not use refundAmount')
 })
 check('refund-fee recoveries are not counted twice in the payout', () => ok(facts.includes("r.metadata?.kind !== REFUND_FEE_KIND"), 'excluded from facts'))
 const tu = read('lib/order/stripe-fee-trueup.ts')

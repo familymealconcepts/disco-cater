@@ -316,6 +316,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            sf.order_reference IS NOT NULL AS has_facts, sf.captured AS sf_captured, sf.refunded AS sf_refunded,
            sf.stripe_fee AS sf_stripe_fee, sf.fee_known AS sf_fee_known, sf.transferred AS sf_transferred,
            sf.reversed AS sf_reversed, sf.invoice_status AS sf_invoice_status,
+           (sf.detail ? 'held') AS sf_held, (sf.detail ? 'pendingTransfers') AS sf_pending,
            (o.fm_order_reference IS NULL) AS disco_processed,
            (EXISTS (SELECT 1 FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.status = 'SUCCEEDED')
               OR o.stripe_invoice_status = 'paid') AS paid_in_disco
@@ -414,11 +415,17 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
     const refundReversal = paid && isNative && refund > 0 && origTotal > 0 ? r2(Math.min(refund / origTotal, 1) * origPayout) : 0
     const refundStripeFee = paid && isNative ? n(row.refund_stripe_fee) : 0
     const computed = isNative ? r2(nativeTotalDistributed({ ...row, stripe_fee: stripeFee }) - refundReversal - refundStripeFee) : 0
+    // ── ONLY A CONFIRMED DIFFERENCE IS AN ADJUSTMENT (Peter, 2026-11-10) ──────
+    // Stripe's facts count only once complete: synced, and no payout still pending
+    // (detail.pendingTransfers). A HELD order (Hold Payments) reads like any other
+    // order and never shows an adjustment. Otherwise the payout shown is what the
+    // order's figures add up to, never $0 for data that is missing or not yet synced.
+    const confirmedFacts = hasFacts && row.sf_pending !== true && row.sf_held !== true
     const totalDistributed = !paid ? 0
       : !isNative ? fmTotalDistributed(row, refund)
-      : hasFacts ? r2(n(row.sf_transferred) - n(row.sf_reversed) - n(row.refund_taken_back))
+      : confirmedFacts ? r2(n(row.sf_transferred) - n(row.sf_reversed) - n(row.refund_taken_back))
       : computed
-    const payoutAdjustment = isNative && paid ? r2(totalDistributed - computed) : 0
+    const payoutAdjustment = isNative && paid && confirmedFacts ? r2(totalDistributed - computed) : 0
     // A native subsidy is never negative (the restaurant covers part of the fee or
     // none of it); a stored −$0.01 is the rounding bug's cent, not a subsidy. See
     // the ROUNDING ADJUSTMENT note. FamilyMeal-copied rows keep their figures.
@@ -481,7 +488,9 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
         - n(row.discount),
       ),
       stripeFee: isNative ? stripeFee : n(row.stripe_fee),
-      refundAmount: refund,
+      // Every refund on the order is shown (Peter, 2026-11-10), an edit's too. An edit's refund is
+      // already inside the lowered figures, so the payout arithmetic uses refundReversal, not this.
+      refundAmount: isNative ? r2(Math.max(refund, n(row.refund))) : refund,
       thirdPartySubsidy: roundingCent ? 0 : storedSubsidy,
       roundingAdjustment: roundingCent && paid ? r2(-storedSubsidy) : 0,
       refundStripeFee,
