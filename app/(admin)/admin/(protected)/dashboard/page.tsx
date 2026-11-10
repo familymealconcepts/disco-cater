@@ -156,7 +156,7 @@ export default function AdminDashboard() {
       .catch(() => {})
     loadStats()
     // Auto-refresh stale Stripe-connected statuses (>24h) in the background so the
-    // count stays accurate without a manual "Sync Stripe Status" click, then re-count.
+    // count stays accurate (the manual sync buttons were removed 2026-11-10), then re-count.
     fetch('/api/admin/sync-stripe-status', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staleOnly: true, batchSize: 100 }),
     }).then(r => { if (r.ok) loadStats() }).catch(() => {})

@@ -783,9 +783,6 @@ export default function RestaurantsOrderingPage() {
   // Map/marketplace visibility confirmation modal (Neon visible). next = target on/off.
   const [marketplaceConfirm, setMarketplaceConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
   const [marketplaceBusy, setMarketplaceBusy] = useState(false)
-  const [syncBusy, setSyncBusy] = useState(false)
-  const [syncProgress, setSyncProgress] = useState('')
-  const [fullSyncBusy, setFullSyncBusy] = useState(false)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [enrichBusy, setEnrichBusy] = useState(false)
@@ -1009,8 +1006,9 @@ export default function RestaurantsOrderingPage() {
   // rows are loaded, check ONLY the rows that have never been checked
   // (stripe_checked_at IS NULL → no cached status). Already-connected and
   // already-not-connected rows are trusted forever and never re-checked here.
-  // attemptedRef guards against re-runs / loops; the manual "Sync Stripe Status"
-  // button remains for full re-checks.
+  // attemptedRef guards against re-runs / loops. The manual "Sync Stripe Status" and
+  // "Full Sync" buttons were removed (Peter, 2026-11-10): this check and the dashboard's
+  // 24-hour re-check keep the flag fresh.
   useEffect(() => {
     if (!stripeLoaded || loading || !rows.length) return
     const toCheck = Array.from(new Set(
@@ -1031,7 +1029,8 @@ export default function RestaurantsOrderingPage() {
           const now = new Date().toISOString()
           setStripeMap(prev => {
             const next = { ...prev }
-            for (const ref of toCheck) {
+            // A ref FamilyMeal gave no answer for isn't in `statuses`: it stays Unknown.
+            for (const ref of toCheck.filter(r => r in statuses)) {
               next[ref] = { connected: !!statuses[ref], checkedAt: now, hasStripeAccount: prev[ref]?.hasStripeAccount ?? false }
             }
             return next
@@ -1043,67 +1042,6 @@ export default function RestaurantsOrderingPage() {
       }
     })()
   }, [stripeLoaded, loading, rows, stripeMap, pageSize])
-
-  // Probe FM Stripe Connect status for every visible restaurant, one batch at a
-  // time (each request stays under the function-duration limit), looping until
-  // the route reports done. Stops on the first failed batch.
-  async function syncStripeStatus() {
-    if (!confirm('This will check Stripe Connect status for all visible restaurants. This may take several minutes. Continue?')) return
-    setSyncBusy(true)
-    setSyncProgress('')
-    setError('')
-    const BATCH = 25
-    let offset = 0
-    let connected = 0
-    let notConnected = 0
-    let total = 0
-    try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const res = await fetch('/api/admin/sync-stripe-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ batchSize: BATCH, offset }),
-        })
-        const d = await res.json().catch(() => null)
-        if (!res.ok) throw new Error(d?.error || 'Stripe status sync failed')
-
-        connected += d.connected || 0
-        notConnected += d.notConnected || 0
-        total = d.total || 0
-        setSyncProgress(`Syncing… ${Math.min(d.nextOffset, total)}/${total}`)
-
-        if (d.done) break
-        offset = d.nextOffset
-      }
-      showToast(`Stripe sync complete: ${connected} connected, ${notConnected} not connected (of ${total})`)
-      await loadStripeMap()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : ((e as { error?: string })?.error || String(e))
-      setError(msg || 'Stripe status sync failed')
-    } finally {
-      setSyncBusy(false)
-      setSyncProgress('')
-    }
-  }
-
-  // Full Stripe Connect sync across EVERY FM restaurant (all pages) in one call.
-  async function fullSyncStripe() {
-    if (!confirm('Run a FULL Stripe Connect sync across ALL restaurants? This may take a couple of minutes.')) return
-    setFullSyncBusy(true)
-    setError('')
-    try {
-      const res = await fetch('/api/admin/sync-stripe-status/full', { method: 'POST' })
-      const d = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(d?.error || 'Full sync failed')
-      showToast(`Synced ${d.total} restaurants. ${d.connected} connected.`)
-      await loadStripeMap()
-    } catch (e) {
-      setError((e as Error).message || 'Full sync failed')
-    } finally {
-      setFullSyncBusy(false)
-    }
-  }
 
   // Enrich cache rows missing cuisine/description/image via Google Places, one
   // batch at a time, looping until the route reports done. Stops on first error.
@@ -1208,18 +1146,6 @@ export default function RestaurantsOrderingPage() {
             {refreshingCache ? 'Refreshing…' : 'Refresh List'}
             <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
             <span className="ord-tip">Pull the latest restaurant list from FamilyMeal now, instead of waiting for the next automatic sync (every 15 min)</span>
-          </button>
-          <button className="ord-btn" onClick={syncStripeStatus} disabled={syncBusy}
-            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
-            {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
-            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
-            <span className="ord-tip">Check which restaurants have Stripe Connect set up (required to accept orders)</span>
-          </button>
-          <button className="ord-btn" onClick={fullSyncStripe} disabled={fullSyncBusy}
-            style={{ display: 'inline-flex', alignItems: 'center', background: BLUE, color: '#fff', border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: fullSyncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: fullSyncBusy ? 0.6 : 1 }}>
-            {fullSyncBusy ? 'Full syncing…' : 'Full Sync'}
-            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
-            <span className="ord-tip">Check Stripe Connect for EVERY restaurant (all pages) and update the table</span>
           </button>
           <button className="ord-btn" onClick={refreshMapCache} disabled={cacheBusy}
             style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>

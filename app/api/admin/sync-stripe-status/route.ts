@@ -40,6 +40,27 @@ async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
   return new Set(rows.map(r => r.ref))
 }
 
+// 204 = connected, 404 = not connected. Anything else (an FM error, a timeout, a failed sign-in) is no
+// answer: the previous value stands and stripe_checked_at doesn't move, so the restaurant is re-checked
+// next time instead of dropping off the marketplace (Peter, 2026-11-10).
+async function probeFm(ref: string, auth: { header: Record<string, string> }): Promise<boolean | null> {
+  try {
+    let res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: auth.header, cache: 'no-store' })
+    // Refresh the service token once if it expired mid-run.
+    if (res.status === 401) {
+      auth.header = await getFmServiceAuthHeader(true)
+      res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: auth.header, cache: 'no-store' })
+    }
+    if (res.status === 204) return true
+    if (res.status === 404) return false
+    console.error(`[sync-stripe-status] FM answered ${res.status} for ${ref}; keeping the previous value`)
+    return null
+  } catch (err) {
+    console.error(`[sync-stripe-status] HEAD failed for ${ref}; keeping the previous value:`, err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
@@ -75,32 +96,21 @@ export async function POST(req: NextRequest) {
       // HEAD /api/stripe/{ref} doesn't reflect the disco-side Connect account, so
       // without this the probe would wrongly overwrite stripe_connected=false.
       const discoConnected = await loadDiscoConnectedRefs(explicitRefs)
-      let header = await getFmServiceAuthHeader()
+      const auth = { header: await getFmServiceAuthHeader() }
       let connected = 0
       let notConnected = 0
       for (const ref of explicitRefs) {
-        let isConnected = false
-        try {
-          let res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
-          if (res.status === 401) {
-            header = await getFmServiceAuthHeader(true)
-            res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
-          }
-          isConnected = res.status === 204
-        } catch (err) {
-          console.error(`[sync-stripe-status] HEAD failed for ${ref}:`, err instanceof Error ? err.message : err)
-          isConnected = false
-        }
-        if (discoConnected.has(ref)) isConnected = true
+        const answer = discoConnected.has(ref) ? true : await probeFm(ref, auth)
+        if (answer === null) continue // no answer: nothing written, the UI leaves it Unknown
         // UPSERT — a restaurant with no overrides row still records its status.
         await sql`
           INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, stripe_checked_at, updated_at)
-          VALUES (${ref}, ${isConnected}, NOW(), NOW())
+          VALUES (${ref}, ${answer}, NOW(), NOW())
           ON CONFLICT (restaurant_reference) DO UPDATE
-            SET stripe_connected = ${isConnected}, stripe_checked_at = NOW(), updated_at = NOW()
+            SET stripe_connected = ${answer}, stripe_checked_at = NOW(), updated_at = NOW()
         `
-        statuses[ref] = isConnected
-        if (isConnected) connected++
+        statuses[ref] = answer
+        if (answer) connected++
         else notConnected++
       }
       return NextResponse.json({ statuses, connected, notConnected, done: true, durationMs: Date.now() - startedAt })
@@ -137,33 +147,21 @@ export async function POST(req: NextRequest) {
         `)) as { restaurant_reference: string }[]
 
     const discoConnected = await loadDiscoConnectedRefs(refs.map(r => r.restaurant_reference))
-    let header = await getFmServiceAuthHeader()
+    const auth = { header: await getFmServiceAuthHeader() }
     let connected = 0
     let notConnected = 0
+    let noAnswer = 0
 
     for (const { restaurant_reference: ref } of refs) {
-      let isConnected = false
-      try {
-        let res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
-        // Refresh the service token once if it expired mid-run.
-        if (res.status === 401) {
-          header = await getFmServiceAuthHeader(true)
-          res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
-        }
-        isConnected = res.status === 204
-      } catch (err) {
-        // Network error → treat as not connected (and keep going).
-        console.error(`[sync-stripe-status] HEAD failed for ${ref}:`, err instanceof Error ? err.message : err)
-        isConnected = false
-      }
-      if (discoConnected.has(ref)) isConnected = true
+      const answer = discoConnected.has(ref) ? true : await probeFm(ref, auth)
+      if (answer === null) { noAnswer++; continue }
 
       await sql`
         UPDATE disco_restaurant_overrides
-        SET stripe_connected = ${isConnected}, stripe_checked_at = NOW()
+        SET stripe_connected = ${answer}, stripe_checked_at = NOW()
         WHERE restaurant_reference = ${ref}
       `
-      if (isConnected) connected++
+      if (answer) connected++
       else notConnected++
     }
 
@@ -175,6 +173,7 @@ export async function POST(req: NextRequest) {
       total,
       connected,
       notConnected,
+      noAnswer,
       durationMs: Date.now() - startedAt,
       nextOffset,
       done,

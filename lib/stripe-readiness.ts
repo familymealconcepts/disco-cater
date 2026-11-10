@@ -4,7 +4,7 @@
 // for the marketplace feed, who's a sync candidate) and was hand-copied as
 // raw SQL into 9 separate queries before this: app/api/admin/restaurant-
 // overrides, app/api/admin/sync-stripe-status (×2), app/api/admin/sync-
-// stripe-status/full (×2), app/api/admin/dashboard/stats, app/api/admin/
+// stripe-status/full (×2; removed 2026-11-10), app/api/admin/dashboard/stats, app/api/admin/
 // disco-native-orphans, lib/marketplace-readiness.ts, lib/native-
 // conversion.ts — the exact shape that produced the 5-copy marketplace-
 // visibility bug (each copy needing archived_at added separately). All 9

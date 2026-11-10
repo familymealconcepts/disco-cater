@@ -2,7 +2,7 @@
 // fields and never touches a converted / Disco-native restaurant, and the three remaining fleet-wide buttons
 // record who clicked them in disco_admin_audit. Source checks; no database.
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 let n = 0
 const ok = (c: unknown, m: string) => { assert.ok(c, m); n++ }
@@ -28,5 +28,12 @@ for (const [file, action] of [
   ok(new RegExp(`action: '${action}'`).test(s) && /getAdminEmail\(\)/.test(s), `${action} records who clicked`)
 }
 ok(/'admin_list_refresh' \| 'map_cache_refresh' \| 'google_enrich_run'/.test(src('lib/admin-audit.ts')), 'the three actions are declared')
+
+// Stripe Sync buttons removed (Peter, 2026-11-10, option A); an FM non-answer never records "not connected".
+const ordering = src('app/(admin)/admin/(protected)/manage-restaurants/ordering/page.tsx')
+ok(!/Sync Stripe Status'|'Full Sync'|sync-stripe-status\/full/.test(ordering) && !existsSync('app/api/admin/sync-stripe-status/full/route.ts'), 'no Sync Stripe Status or Full Sync button, and no full-sync route')
+const stripeSync = src('app/api/admin/sync-stripe-status/route.ts')
+ok(/if \(res\.status === 204\) return true\s+if \(res\.status === 404\) return false/.test(stripeSync) && !/isConnected = false/.test(stripeSync), 'only 204 and 404 are answers; an error writes nothing')
+ok((stripeSync.match(/if \(answer === null\)/g) || []).length === 2, 'both check paths skip the write on no answer')
 
 console.log(`admin-restaurant-buttons: ALL PASS ${n} assertions`)
