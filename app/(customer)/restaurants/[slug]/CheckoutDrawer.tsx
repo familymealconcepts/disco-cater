@@ -14,6 +14,7 @@ import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage, postCheckoutContact } from '../../../../lib/utils/funnel-session'
 import { formatTime12 } from '../../../../lib/utils/time'
 import { suggestDinerEmail } from '../../../../lib/diner-email-suggest'
+import { placeRefusalMessage } from '../../../../lib/place-refusal-message'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -1136,12 +1137,7 @@ export default function CheckoutDrawer({
         // is the one message that actually tells them what to do. Falling back
         // to the status only when the body says nothing.
         if (!placeRes.ok) {
-          throw new Error(
-            placeData?.error || placeData?.message ||
-            (placeRes.status === 401 || placeRes.status === 403
-              ? 'Please sign in again to place your order.'
-              : `We could not place your order (error ${placeRes.status}). Please try again.`),
-          )
+          throw new Error(placeRefusalMessage(placeRes.status, placeData))
         }
         finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
         placedOrderNumber = placeData.data?.orderNumber ?? placeData.orderNumber ?? finalRef
