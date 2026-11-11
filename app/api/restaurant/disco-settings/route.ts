@@ -70,6 +70,18 @@ export async function PUT(req: NextRequest) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
   const ref = check.ref
 
+  // A save must state these three, or it would blank them: a missing key reads as
+  // "off" / no recipients below. Clearing one on purpose still works (the full
+  // Settings form always sends all three, empty when cleared). The older
+  // order-settings page PUTs only announcement / menu search / time window, with no
+  // restaurant_reference; it is refused above and, failing that, here (Peter,
+  // 2026-11-10). Audit 2026-11-10: no Disco-native restaurant was ever turned off
+  // or had recipients cleared by a partial save.
+  const missing = ['onlineOrderingEnabled', 'notificationEmails', 'notificationSmsNumbers'].filter(k => !(k in body))
+  if (missing.length) {
+    return NextResponse.json({ error: `Incomplete settings save (missing ${missing.join(', ')}); nothing was changed. Save from Settings instead.` }, { status: 400 })
+  }
+
   // The settings page has one Save button for the whole form, so every save
   // resubmits onlineOrderingEnabled at whatever it currently is — not just
   // when the user actually touches that toggle. Standing rule:
