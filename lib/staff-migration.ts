@@ -33,7 +33,7 @@
 import { sql } from './db'
 import { matchesMasterPassword } from './master-login'
 import { setResetToken } from './disco-restaurant-auth'
-import { getFmSessionPermittedRefs } from './restaurant-auth'
+import { classifyFmRestaurantLogin, fmLoginReachableRefs } from './fm-login-scope'
 import { decodeJwtPayload } from './jwt'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
@@ -88,37 +88,6 @@ async function fmVerify(email: string, password: string): Promise<{
   }
 }
 
-/** Every restaurant this login can reach: its home, plus a System Admin's Disco list. */
-async function fmReachableRefs(v: { role: string; token: string; restaurantRef: string | null }): Promise<string[]> {
-  const out = new Set<string>()
-  if (v.restaurantRef) out.add(v.restaurantRef)
-  if (v.role === 'SYSTEM_ADMIN' || v.role === 'SUPER_ADMIN') {
-    // A GET. Returns an empty set on any failure, which — because the caller
-    // requires EVERY ref to be native and treats an empty result as unknown —
-    // fails closed rather than opening the flow to someone out of scope.
-    const permitted = await getFmSessionPermittedRefs(v.token)
-    for (const r of permitted) out.add(r)
-  }
-  return [...out]
-}
-
-/** True only when EVERY restaurant this person reaches has converted. */
-async function allConverted(refs: string[]): Promise<boolean> {
-  if (!refs.length) return false
-  const rows = (await sql`
-    SELECT count(*)::int AS total,
-           count(*) FILTER (WHERE is_disco_native) ::int AS native
-    FROM disco_restaurant_cache
-    WHERE restaurant_reference::text = ANY(${refs})
-  `.catch(() => [])) as { total: number; native: number }[]
-  const r = rows[0]
-  if (!r) return false
-  // Every ref must be PRESENT in the cache and native. A ref FM knows about that
-  // Disco has never cached is not evidence of conversion — it is the shape of an
-  // FM-backed restaurant blocked in FM, so it must fail closed.
-  return r.total === refs.length && r.native === refs.length
-}
-
 /**
  * Ensure a row exists to hold the token. Mirrors what conversion already writes
  * for an FM authorized user — the role comes from FamilyMeal verbatim, so this
@@ -130,7 +99,8 @@ async function ensureAccountRow(email: string, v: { role: string; firstName: str
   await sql`
     INSERT INTO disco_restaurant_accounts
       (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, role, created_by)
-    VALUES (${email}, ${sentinel}, ${ref}, ${ref}, ${v.firstName}, ${v.lastName}, ${v.role}, ${CREATED_BY_MIGRATION})
+    SELECT ${email}, ${sentinel}, ${ref}, ${ref}, ${v.firstName}, ${v.lastName}, ${v.role}, ${CREATED_BY_MIGRATION}
+     WHERE NOT EXISTS (SELECT 1 FROM disco_restaurant_accounts WHERE lower(email) = lower(${email}))
     ON CONFLICT (email) DO NOTHING
   `
 }
@@ -156,22 +126,40 @@ export async function evaluateStaffPasswordMigration(email: string, password: st
 
   const v = await fmVerify(email, password)
   if (!v) return { kind: 'not-verified' }
+  return beginDiscoPasswordSetup(email, v)
+}
 
-  const refs = await fmReachableRefs(v)
-  if (!(await allConverted(refs))) return { kind: 'out-of-scope' }
+/**
+ * The set-password step for a sign-in FamilyMeal has ALREADY verified. Shared by
+ * the Disco sign-in (above) and the FamilyMeal sign-in (app/api/restaurant-auth),
+ * which hands in FM's own answer instead of asking FM a second time.
+ *
+ * `email` must be the address FamilyMeal just authenticated — never anything the
+ * client sent separately. Returns 'out-of-scope' unless every restaurant this
+ * login reaches is on Disco and the account has no Disco password (the scope
+ * rule lives in lib/fm-login-scope.ts). The role on any row it creates is
+ * FamilyMeal's, verbatim; it never touches grants.
+ */
+export async function beginDiscoPasswordSetup(
+  email: string,
+  v: { role: string; firstName: string | null; lastName: string | null; restaurantRef: string | null },
+): Promise<StaffMigrationOutcome> {
+  const e = email.trim().toLowerCase()
+  const scope = await classifyFmRestaurantLogin({ email: e, role: v.role, homeRef: v.restaurantRef })
+  if (scope !== 'needs-password') return { kind: 'out-of-scope' }
 
-  const home = v.restaurantRef || refs[0]
+  const home = v.restaurantRef || (await fmLoginReachableRefs({ email: e, role: v.role, homeRef: null }))[0]
   if (!home) return { kind: 'out-of-scope' }
 
-  await ensureAccountRow(email, v, home)
+  await ensureAccountRow(e, v, home)
 
   // Re-read rather than trusting the caller: if this account already has a Disco
   // password, it must never be offered a new one. Nothing about that person's
   // login changes.
   const rows = (await sql`
-    SELECT password_set_at, archived_at, restaurant_name, first_name
-    FROM disco_restaurant_accounts WHERE lower(email) = lower(${email}) LIMIT 1
-  `.catch(() => [])) as { password_set_at: string | null; archived_at: string | null; restaurant_name: string | null; first_name: string | null }[]
+    SELECT email, password_set_at, archived_at, restaurant_name, first_name
+    FROM disco_restaurant_accounts WHERE lower(email) = lower(${e}) LIMIT 1
+  `.catch(() => [])) as { email: string; password_set_at: string | null; archived_at: string | null; restaurant_name: string | null; first_name: string | null }[]
   const acct = rows[0]
   if (!acct || acct.archived_at || acct.password_set_at) return { kind: 'out-of-scope' }
 
@@ -180,12 +168,13 @@ export async function evaluateStaffPasswordMigration(email: string, password: st
   `.catch(() => [])) as { name: string | null }[]
 
   // One-time and time-bounded (1 hour), consumed by the existing accept-invite
-  // route. No new token type, no new write path.
-  const token = await setResetToken(email)
+  // route. No new token type, no new write path. Keyed on the row's own email
+  // spelling (setResetToken matches it exactly).
+  const token = await setResetToken(acct.email)
   return {
     kind: 'needs-password',
     token,
-    email,
+    email: acct.email,
     firstName: acct.first_name ?? v.firstName,
     restaurantName: nameRows[0]?.name ?? acct.restaurant_name ?? null,
   }

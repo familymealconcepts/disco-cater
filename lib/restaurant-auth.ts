@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { fmFetch } from './fm-fetch'
 import { verifiedFmClaims } from './fm-token-verify'
 import { sql } from './db'
+import { fmPortalSessionAllowed } from './fm-portal-gate'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -31,7 +32,19 @@ export const RESTAURANT_COOKIE_OPTS = {
 export async function getRestaurantToken(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value ?? null
-  return (await verifiedFmClaims(token)) ? token : null
+  return (await verifiedPortalClaims(token)) ? token : null
+}
+
+// ── AND ONLY A SESSION THE FAMILYMEAL-PASSWORD RULE ALLOWS (11 Nov 2026) ──────
+// A genuine FM token is not enough on its own: the sign-in that produced it must
+// have been cleared to hold an FM session (the team's master password, the team's
+// SUPER_ADMIN accounts, or a user whose restaurants still run on FamilyMeal). A
+// user whose restaurants are all on Disco must use a Disco password, so their FM
+// token yields no header, no claims and no context. See lib/fm-portal-clearance.ts.
+async function verifiedPortalClaims(token: string | null | undefined): Promise<Record<string, unknown> | null> {
+  const claims = await verifiedFmClaims(token)
+  if (!claims || !token) return null
+  return (await fmPortalSessionAllowed(token, claims)) ? claims : null
 }
 
 // Auth header helper — throws unless the token is present AND FamilyMeal
@@ -42,9 +55,9 @@ export async function getRestaurantAuthHeader(): Promise<Record<string, string>>
   return { Authorization: token }
 }
 
-/** The VERIFIED claims of the FM restaurant token, or null. */
+/** The VERIFIED, portal-allowed claims of the FM restaurant token, or null. */
 async function decodeJwt(token: string): Promise<Record<string, unknown> | null> {
-  return verifiedFmClaims(token)
+  return verifiedPortalClaims(token)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { validateDiscoRestaurantSession, getDiscoGroupAccounts } from './disco-restaurant-auth'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { verifiedFmClaims } from './fm-token-verify'
+import { fmPortalSessionAllowed } from './fm-portal-gate'
 import { SELECTED_RESTAURANT_COOKIE, getRestaurantRef } from './restaurant-auth'
 
 export interface RestaurantAuthContext {
@@ -40,7 +41,12 @@ export async function getRestaurantAuthContext(): Promise<RestaurantAuthContext 
   // Only a token FamilyMeal accepts is a session (lib/fm-token-verify.ts). This
   // branch used to accept ANY cookie value, and the Disco-only routes behind it
   // never show the token to FamilyMeal, so a hand-made cookie was a login.
-  if (fmToken && await verifiedFmClaims(fmToken)) {
+  //
+  // And only a session the FamilyMeal-password rule allows (lib/fm-portal-gate.ts):
+  // a user whose restaurants are all on Disco gets no FM context at all until they
+  // sign in with a Disco password. The team's master password is exempt.
+  const fmClaims = fmToken ? await verifiedFmClaims(fmToken) : null
+  if (fmToken && fmClaims && await fmPortalSessionAllowed(fmToken, fmClaims)) {
     return {
       restaurantReference: '', // resolved per-request from the FM token
       email: '',

@@ -126,6 +126,16 @@ export default function RestaurantLoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Sent here by middleware because an FM session could not be used (it predates
+  // the Disco-password rule, or this person must now use a Disco password).
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('reason') === 'signin-again') {
+        setError('Please sign in again. If your restaurant is on Disco Cater, you will be asked to set your Disco Cater password.')
+      }
+    } catch { /* no URL access */ }
+  }, [])
+
   // Already signed in with a Disco-native session? Skip the form.
   useEffect(() => {
     let cancelled = false
@@ -233,6 +243,12 @@ export default function RestaurantLoginPage() {
       const data = await res.json()
       if (!res.ok) {
         setError(data.error || 'Login failed. Please check your credentials.')
+        return
+      }
+      // The FamilyMeal sign-in reaches the same set-password step when this
+      // person's restaurants are all on Disco Cater. No session was issued.
+      if (data.needsPasswordSetup) {
+        setSetup({ token: data.setupToken, email: data.email, firstName: data.firstName, restaurantName: data.restaurantName })
         return
       }
       localStorage.setItem('restaurant_user', JSON.stringify(data))

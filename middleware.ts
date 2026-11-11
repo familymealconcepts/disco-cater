@@ -1,4 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { FM_PORTAL_CLEARANCE_COOKIE, FM_SESSION_REFUSED, verifyClearance, fmTokenEmail } from './lib/fm-portal-clearance'
+
+// ── A FAMILYMEAL SESSION NEEDS ITS SIGN-IN CLEARANCE (11 Nov 2026) ───────────
+// See lib/fm-portal-clearance.ts. An fm_restaurant_token is only usable on the
+// portal beside a signed clearance for the same email, issued by
+// app/api/restaurant-auth to the team's master password, the team's SUPER_ADMIN
+// accounts, and users whose restaurants still run on FamilyMeal. A user whose
+// restaurants are all on Disco is never issued one, so their FM token opens
+// nothing; every FM session from before this rule has none either and signs in
+// again once. Edge-only check (HMAC); lib/fm-portal-gate.ts repeats it server-side.
+async function fmSessionCleared(req: NextRequest, token: string): Promise<boolean> {
+  return !!(await verifyClearance(req.cookies.get(FM_PORTAL_CLEARANCE_COOKIE)?.value, fmTokenEmail(token)))
+}
+
+function clearFmCookies(res: NextResponse): NextResponse {
+  for (const name of ['fm_restaurant_token', 'fm_restaurant_refresh', FM_PORTAL_CLEARANCE_COOKIE]) {
+    res.cookies.set(name, '', { path: '/', maxAge: 0 })
+  }
+  return res
+}
+
+// Portal APIs that must answer with no session at all (the set-password step's
+// own API, which is how an un-migrated user leaves this state).
+const PUBLIC_RESTAURANT_APIS = ['/api/restaurant/accept-invite']
 
 function decodeTokenRole(token: string): string | null {
   try {
@@ -96,6 +120,22 @@ export async function middleware(req: NextRequest) {
       url.pathname = '/restaurant/login'
       return NextResponse.redirect(url)
     }
+    if (!(await fmSessionCleared(req, restaurantToken))) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/restaurant/login'
+      url.search = '?reason=signin-again'
+      return clearFmCookies(NextResponse.redirect(url))
+    }
+    return NextResponse.next()
+  }
+
+  // Portal APIs: the same rule, answered as 403 with the reason. A Disco session
+  // passes at the edge exactly as it does for pages (validated in the route).
+  if (pathname.startsWith('/api/restaurant/') && !PUBLIC_RESTAURANT_APIS.includes(pathname)) {
+    const restaurantToken = req.cookies.get('fm_restaurant_token')?.value
+    if (restaurantToken && !req.cookies.get('disco_restaurant_token')?.value && !(await fmSessionCleared(req, restaurantToken))) {
+      return clearFmCookies(NextResponse.json(FM_SESSION_REFUSED, { status: 403 }))
+    }
     return NextResponse.next()
   }
 
@@ -136,5 +176,6 @@ export const config = {
     '/portal/:path*',
     '/restaurant/:path*',
     '/admin/:path*',
+    '/api/restaurant/:path*',
   ],
 }

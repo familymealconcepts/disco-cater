@@ -9,6 +9,7 @@ import {
   RESTAURANT_REFRESH_COOKIE,
   RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/restaurant-auth'
+import { FM_PORTAL_CLEARANCE_COOKIE } from '../../../../lib/fm-portal-clearance'
 
 export const runtime = 'nodejs'
 
@@ -32,5 +33,6 @@ export async function POST(req: NextRequest) {
   // Legacy FM cookies (covers FM-authed restaurant users).
   res.cookies.set(RESTAURANT_TOKEN_COOKIE, '', { ...RESTAURANT_COOKIE_OPTS, maxAge: 0 })
   res.cookies.set(RESTAURANT_REFRESH_COOKIE, '', { ...RESTAURANT_COOKIE_OPTS, maxAge: 0 })
+  res.cookies.set(FM_PORTAL_CLEARANCE_COOKIE, '', { ...RESTAURANT_COOKIE_OPTS, maxAge: 0 })
   return res
 }
