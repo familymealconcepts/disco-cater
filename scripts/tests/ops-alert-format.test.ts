@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  renderAlert, renderReply, renderTopLevelResolve, emailSide, maskDinerEmail, bounceReason, formatWhen, formatDay,
+  renderAlert, renderReply, renderTopLevelResolve, emailSide, maskDinerEmail, bounceReason, isPastBounce, formatWhen, formatDay,
   orderLink, money, shortError, haltReasonInWords, jobFailureAlert, jobRecoveredText, JOBS,
 } from '../../lib/ops-alert-format'
 import { stripeSaid } from '../../lib/order/money-alerts'
@@ -80,6 +80,12 @@ check('bounce reasons from the real #ops-alerts failures', () => {
   eq(bounceReason('550 JunkMail rejected - v5241.v51e342bd.use4.send.mailgun.net [69.72.42.241]:53668 is in an RBL:', 'stucity@hugos.us'), 'Their mail server blocked it as spam (our sending server was on a blocklist).', 'RBL')
   eq(bounceReason('550 permanent failure for one or more recipients (dayanaral@prudentialuniforms.com:blocked)', 'd@p.com'), 'Their mail server refused it.', 'blocked')
   ok(bounceReason('451 try later', 'a@b.c').startsWith('Mailgun said: "451 try later"'), 'fallback')
+})
+check('a bounced-before address is said as such (Onion Tree, 2026-11-13)', () => {
+  const r = '605 Not delivering to previously bounced address'
+  ok(isPastBounce(r), '605')
+  ok(!isPastBounce('602 Too old') && !isPastBounce('550 blocked'), 'others')
+  eq(bounceReason(r, 'apaar@theoniontree.com'), "Mailgun didn't send it because this address bounced before.", 'wording')
 })
 check('Stripe errors from the real #ops-alerts failures', () => {
   eq(stripeSaid(new Error('Transfers using this transaction as a source must not exceed the source amount of $385.90.')), 'Stripe said the transfer was larger than the payment ($385.90).', 'over')

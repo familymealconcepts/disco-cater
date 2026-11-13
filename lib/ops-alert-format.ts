@@ -190,10 +190,18 @@ export function bounceReason(reason: string, recipient: string): string {
   if (/mailbox (unavailable|not found|does not exist)|user unknown|no such user|recipient.*(unknown|not found|rejected)|5\.1\.1/i.test(r)) {
     return "That mailbox doesn't exist."
   }
+  if (isPastBounce(r)) {
+    return "Mailgun didn't send it because this address bounced before."
+  }
   if (/\b550\b|blocked|refused|rejected|denied/i.test(r)) {
     return 'Their mail server refused it.'
   }
   return `Mailgun said: "${shortError(r)}"`
+}
+
+/** Mailgun skipped the send because the address is on its bounced-before list (code 605). */
+export function isPastBounce(reason: string): boolean {
+  return /^605\b|previously bounced/i.test(reason || '')
 }
 
 // ── Transient failures ────────────────────────────────────────────────────────

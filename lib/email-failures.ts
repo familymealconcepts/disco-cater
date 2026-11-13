@@ -1,6 +1,6 @@
 import { sql } from './db'
 import { alertOnce, openAlertKeys, resolveAlert } from './ops-alert'
-import { emailSide, maskDinerEmail, bounceReason, orderLink, formatDay, type OpsAlert } from './ops-alert-format'
+import { emailSide, maskDinerEmail, bounceReason, isPastBounce, orderLink, formatDay, type OpsAlert } from './ops-alert-format'
 import { orderFacts, orderLine } from './ops-alert-facts'
 
 /**
@@ -88,11 +88,15 @@ function reasonOf(ev: MgEvent): string {
   return ds.code ? `${ds.code} ${text}` : text
 }
 
-async function fetchPermanentFailures(sinceSec: number): Promise<MgEvent[]> {
+function mailgunAuth(): string {
   const key = process.env.MAILGUN_API_KEY
+  if (!key || !process.env.MAILGUN_DOMAIN) throw new Error('MAILGUN_API_KEY / MAILGUN_DOMAIN not set')
+  return 'Basic ' + Buffer.from(`api:${key}`).toString('base64')
+}
+
+async function fetchPermanentFailures(sinceSec: number): Promise<MgEvent[]> {
+  const auth = mailgunAuth()
   const domain = process.env.MAILGUN_DOMAIN
-  if (!key || !domain) throw new Error('MAILGUN_API_KEY / MAILGUN_DOMAIN not set')
-  const auth = 'Basic ' + Buffer.from(`api:${key}`).toString('base64')
   const out: MgEvent[] = []
   let url: string | null = `https://api.mailgun.net/v3/${domain}/events?` + new URLSearchParams({
     event: 'failed', severity: 'permanent', begin: String(Math.floor(sinceSec)), ascending: 'yes', limit: '300',
@@ -200,6 +204,17 @@ export async function emailFailureAlert(f: EmailFailure): Promise<OpsAlert> {
       link, context,
     }
   }
+  // A bounced-before address skipped while the order's other restaurant addresses
+  // got the email (Peter, 2026-11-13: Onion Tree's apaar@ while raquel@ was notified).
+  const notifiedVia = side === 'restaurant' && isPastBounce(f.reason) ? await restaurantDeliveredTo(f.orderReference, f.recipient) : []
+  if (notifiedVia.length) {
+    return {
+      severity: 'email', headline: `One restaurant address didn't get the new-order email — #${f.orderNumber}`,
+      lines: [who, sent],
+      action: `nothing for this order: restaurant still notified via ${notifiedVia.join(', ')}. Remove or fix ${f.recipient} in the restaurant's notification emails.`,
+      link, context: { ...context, notifiedVia },
+    }
+  }
   if (side === 'restaurant') {
     return {
       severity: 'email', headline: `Restaurant didn't get the new-order email — #${f.orderNumber}`,
@@ -213,6 +228,40 @@ export async function emailFailureAlert(f: EmailFailure): Promise<OpsAlert> {
     lines: [who, sent, "Couldn't tell whether this was the diner's or the restaurant's copy."],
     action: 'call the restaurant to make sure they have the order, and check the diner has their receipt.',
     link, context,
+  }
+}
+
+/**
+ * The order's other restaurant addresses whose new-order email Mailgun confirms
+ * delivered (recorded sends and resends, checked by message id). Empty on any
+ * doubt, so the alert falls back to "call the restaurant".
+ */
+async function restaurantDeliveredTo(orderReference: string | null, failedRecipient: string): Promise<string[]> {
+  if (!orderReference) return []
+  try {
+    const rows = (await sql`
+      SELECT event_data FROM disco_order_events
+       WHERE order_reference = ${orderReference}::uuid AND event_type IN ('ORDER_CONFIRMATIONS_SENT', 'ORDER_EMAIL_RESENT')`) as Array<{ event_data: { recipients?: Array<{ kind?: string; to?: string; id?: string; ok?: boolean }> } | null }>
+    const sends = new Map<string, string[]>()
+    for (const r of rows) {
+      for (const s of r.event_data?.recipients ?? []) {
+        const to = String(s.to || '').trim().toLowerCase()
+        if (s.kind !== 'restaurant' || !s.ok || !s.id || !to || to === failedRecipient.trim().toLowerCase()) continue
+        sends.set(to, [...(sends.get(to) ?? []), s.id.replace(/^<|>$/g, '')])
+      }
+    }
+    const out: string[] = []
+    for (const [to, ids] of sends) {
+      for (const id of ids) {
+        const res = await fetch(`https://api.mailgun.net/v3/${process.env.MAILGUN_DOMAIN}/events?` + new URLSearchParams({ event: 'delivered', 'message-id': id, recipient: to }), { headers: { Authorization: mailgunAuth() } })
+        if (!res.ok) throw new Error(`Mailgun events ${res.status}`)
+        if (((await res.json()) as { items?: unknown[] }).items?.length) { out.push(to); break }
+      }
+    }
+    return out
+  } catch (e) {
+    console.error('[email-failures] could not check the other restaurant addresses:', e instanceof Error ? e.message : e)
+    return []
   }
 }
 
