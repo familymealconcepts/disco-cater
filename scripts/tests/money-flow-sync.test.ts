@@ -45,7 +45,9 @@ async function main() {
     for (const bad of [null, '', 'held', 'direct', 'ON', undefined]) eq(parseMoneyFlow(bad), null, String(bad))
     const page = readFileSync('app/(admin)/admin/(protected)/manage-restaurants/ordering/page.tsx', 'utf8')
     ok(/Toggle checked=\{effectiveMoneyFlow\(r, ov\) === 'FAMILY_MEAL'\}/.test(page), 'toggle ON must render FAMILY_MEAL')
-    ok(/return setMoneyFlow\(r, held \? 'DIRECT' : 'FAMILY_MEAL'\)/.test(page), 'flipping held must send DIRECT and vice versa')
+    // Since 5a23f18 (Peter, 2026-11-16) the flip opens a confirmation first and the save runs on "Hold/Release payouts".
+    ok(/setMoneyFlowConfirm\(\{ r, next: held \? 'DIRECT' : 'FAMILY_MEAL' \}\)/.test(page), 'flipping held must send DIRECT and vice versa')
+    ok(/await setMoneyFlow\(moneyFlowConfirm\.r, moneyFlowConfirm\.next\)/.test(page), 'the confirmed choice is what is saved')
     const route = readFileSync('app/api/admin/restaurants/[ref]/money-flow/route.ts', 'utf8')
     ok(!/\|\| 'DIRECT'/.test(route), 'the route must not default a missing value to DIRECT')
   })
