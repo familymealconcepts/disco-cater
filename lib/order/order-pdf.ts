@@ -305,7 +305,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const PADX = 7, PADY = 6, LH = 4
   const brk = (need: number) => { if (y - need < M) { page = doc.addPage([W, H]); y = H - M } }
   // EVERY string reaching pdf-lib goes through pdfSafe() first, in all three of
-  // these and nowhere else — `text`, `textR` and `trunc` are the only callers of
+  // these and nowhere else — `text`, `textR` and `wrap` are the only callers of
   // drawText/widthOfTextAtSize in this file (the wordmark on the logo-fallback
   // line measures the literal 'disco'). pdf-lib THROWS on a character WinAnsi
   // cannot encode rather than substituting one, so without this a single
@@ -317,22 +317,77 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
     const s = pdfSafe(t)
     return page.drawText(s, { x: xr - f.widthOfTextAtSize(s, size), y: atY, size, font: f, color })
   }
-  const trunc = (raw: string, f: PDFFont, size: number, maxW: number) => {
-    // Sanitised BEFORE measuring, not after: widthOfTextAtSize throws on an
-    // unencodable character just as drawText does, so measuring the raw string
-    // would crash here instead.
-    const t = pdfSafe(raw)
-    if (maxW <= 0 || f.widthOfTextAtSize(t, size) <= maxW) return t
-    let s = t; while (s.length > 1 && f.widthOfTextAtSize(s + '…', size) > maxW) s = s.slice(0, -1); return s + '…'
+  // WRAP, NEVER TRUNCATE (Peter, 2026-11-16). This used to cut every line at the
+  // box edge with "…", which on #900001339 (EggBred Chino Hills) hid most of an
+  // option's description AND its "($1.00 each)" price. Every line now wraps onto
+  // as many lines as it needs, and boxes and item rows that outgrow the page
+  // continue on the next one. `keep` is a tail that must stay whole at the end of
+  // the last line (an option's price), never split across two lines.
+  // Sanitised BEFORE measuring: widthOfTextAtSize throws on an unencodable
+  // character just as drawText does.
+  const wrap = (raw: string, f: PDFFont, size: number, maxW: number, keep = ''): string[] => {
+    const GLUE = '\u0001'
+    const body = pdfSafe(raw).replace(/\s+/g, ' ').trim()
+    const tail = pdfSafe(keep).trim()
+    const words = body ? body.split(' ') : []
+    if (tail) words.push(tail.replace(/ /g, GLUE))
+    const w = (s: string) => f.widthOfTextAtSize(s.replace(new RegExp(GLUE, 'g'), ' '), size)
+    const out: string[] = []
+    let cur = ''
+    for (let word of words) {
+      // A single word wider than the line (a long URL, an unbroken string) is cut
+      // by characters, so nothing runs off the page. The kept tail is not cut.
+      while (!word.includes(GLUE) && w(word) > maxW && word.length > 1) {
+        if (cur) { out.push(cur); cur = '' }
+        let n = word.length - 1
+        while (n > 1 && w(word.slice(0, n)) > maxW) n--
+        out.push(word.slice(0, n)); word = word.slice(n)
+      }
+      const next = cur ? `${cur} ${word}` : word
+      if (!cur || w(next) <= maxW) cur = next
+      else { out.push(cur); cur = word }
+    }
+    if (cur || !out.length) out.push(cur)
+    return out.map((s) => s.replace(new RegExp(GLUE, 'g'), ' '))
   }
+  /** Each Ln wrapped to the box's inner width, keeping its style on every line. */
+  const expand = (lines: Ln[], w: number): Ln[] => lines.flatMap((l) => {
+    const s = l.s ?? 10, f = (l.b || l.label) ? bold : font
+    return wrap(l.t, f, s, w - PADX * 2).map((t) => ({ ...l, t }))
+  })
   const boxH = (lines: Ln[]) => Math.max(PADY * 2 + lines.reduce((a, l) => a + (l.s ?? 10) + LH, 0) - LH, 20)
   const cell = (x: number, top: number, w: number, lines: Ln[], h: number, fill?: ReturnType<typeof rgb>) => {
     page.drawRectangle({ x, y: top - h, width: w, height: h, borderColor: BORDER, borderWidth: 1.2, ...(fill ? { color: fill } : {}) })
     let ty = top - PADY - (lines[0]?.s ?? 10)
-    for (const l of lines) { const s = l.s ?? 10, f = (l.b || l.label) ? bold : font; text(trunc(l.t, f, s, w - PADX * 2), x + PADX, ty, s, f, l.c ?? DARK); ty -= s + LH }
+    for (const l of lines) { const s = l.s ?? 10, f = (l.b || l.label) ? bold : font; text(l.t, x + PADX, ty, s, f, l.c ?? DARK); ty -= s + LH }
   }
-  const fullBox = (lines: Ln[], fill?: ReturnType<typeof rgb>) => { const h = boxH(lines); brk(h); cell(LEFT, y, CW, lines, h, fill); y -= h }
-  const splitBox = (l: Ln[], r: Ln[], leftFrac = 0.5) => { const h = Math.max(boxH(l), boxH(r)); brk(h); const lw = CW * leftFrac; cell(LEFT, y, lw, l, h); cell(LEFT + lw, y, CW - lw, r, h); y -= h }
+  const newPage = () => { page = doc.addPage([W, H]); y = H - M }
+  // A full-width box of already-wrapped lines. When it does not fit, it moves to
+  // a new page; when it is taller than a whole page (a very long note), it is
+  // drawn in pieces, one box per page.
+  const flowBox = (lines: Ln[], fill?: ReturnType<typeof rgb>) => {
+    let rest = lines
+    while (rest.length) {
+      if (boxH(rest) <= y - M) { const h = boxH(rest); cell(LEFT, y, CW, rest, h, fill); y -= h; return }
+      if (y < H - M && boxH(rest) <= H - 2 * M) { newPage(); continue }
+      let n = rest.length
+      while (n > 1 && boxH(rest.slice(0, n)) > y - M) n--
+      if (boxH(rest.slice(0, n)) > y - M) { newPage(); continue }
+      const h = boxH(rest.slice(0, n)); cell(LEFT, y, CW, rest.slice(0, n), h, fill); y -= h
+      rest = rest.slice(n)
+      if (rest.length) newPage()
+    }
+  }
+  const fullBox = (lines: Ln[], fill?: ReturnType<typeof rgb>) => flowBox(expand(lines, CW), fill)
+  const splitBox = (l: Ln[], r: Ln[], leftFrac = 0.5) => {
+    const lw = CW * leftFrac
+    const le = expand(l, lw), re = expand(r, CW - lw)
+    const h = Math.max(boxH(le), boxH(re))
+    // Side by side when the pair fits on a page; one under the other, each free to
+    // continue onto the next page, when it cannot.
+    if (h > H - 2 * M) { flowBox(le); flowBox(re); return }
+    brk(h); cell(LEFT, y, lw, le, h); cell(LEFT + lw, y, CW - lw, re, h); y -= h
+  }
 
   // ── Disco Cater logo — the SAME asset used in the transactional-email header
   //    (public/disco-cater-logo-white-bg.png), embedded as an image. Falls back to
@@ -413,49 +468,69 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 
   // ── Items table (bordered rows) ──
   const IROW = 20, itemMaxW = CW - 92
-  brk(IROW)
+  brk(IROW + 40) // the header never sits alone at the foot of a page
   page.drawRectangle({ x: LEFT, y: y - IROW, width: CW, height: IROW, borderColor: BORDER, borderWidth: 1.2, color: FILL })
   text('ITEM', LEFT + PADX, y - 14, 9, bold, DARK)
   textR('PRICE', RIGHT - PADX, y - 14, 9, bold, DARK)
   y -= IROW
-  const SUBROW = 16
+  // One item row is a list of text lines, each with the gap above its baseline:
+  // 14 to the name, 13 between wrapped name lines, 14 to the first sub-line, 16
+  // between sub-lines and 12 within one that wrapped. An item that wraps nothing
+  // keeps the old row height exactly (20 + 16 per sub-line).
+  type RowLine = { gap: number; t: string; x: number; size: number; color: ReturnType<typeof rgb>; marker?: string }
+  const ROW_BOTTOM = (lines: RowLine[]) => (lines.length > 1 ? 8 : 6)
+  const rowH = (lines: RowLine[]) => lines.reduce((a, l) => a + l.gap, 0) + ROW_BOTTOM(lines)
+  const drawRow = (lines: RowLine[], price?: string) => {
+    const h = rowH(lines)
+    page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 1.2 })
+    let ly = y
+    lines.forEach((l, i) => {
+      ly -= l.gap
+      if (l.marker) text(l.marker, LEFT + PADX + 8, ly, l.size, font, l.color)
+      text(l.t, l.x, ly, l.size, font, l.color)
+      if (i === 0 && price) textR(price, RIGHT - PADX, ly, 10.5, font, DARK)
+    })
+    y -= h
+  }
+  const bx = LEFT + PADX + 18
   for (const it of d.items) {
     const addOns = it.addOns ?? []
+    const lines: RowLine[] = wrap(`(${it.quantity}) ${it.name}`, font, 10.5, itemMaxW)
+      .map((t, i) => ({ gap: i ? 13 : 14, t, x: LEFT + PADX, size: 10.5, color: DARK }))
+    const sub = (t: string, x: number, marker?: string, keep = '') => {
+      wrap(t, font, 9, RIGHT - PADX - x, keep).forEach((part, i) => {
+        lines.push({ gap: i ? 12 : lines[lines.length - 1].size === 10.5 ? 14 : 16, t: part, x, size: 9, color: GREY, marker: i ? undefined : marker })
+      })
+    }
     // "Each includes:" heads the options when the item is ordered more than once:
     // an option's quantity is PER ITEM, not for the whole line.
-    const eachLine = addOns.length && it.quantity > 1 ? 1 : 0
-    const subLineCount = eachLine + addOns.length + (it.note ? 1 : 0)
-    const h = IROW + subLineCount * SUBROW
-    brk(h)
-    page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 1.2 })
-    text(trunc(`(${it.quantity}) ${it.name}`, font, 10.5, itemMaxW), LEFT + PADX, y - 14, 10.5, font, DARK)
+    if (addOns.length && it.quantity > 1) sub('Each includes:', bx - 10)
+    // Options: "+ 4 × Carne Asada ($16.00 each)" — quantity and price, no
+    // right-hand amount (it is already inside the item's price). The price stays
+    // whole at the end of the option's last line.
+    for (const a of addOns) sub(`${a.quantity} × ${a.name.trim()}`, bx, '+', a.price ? `(${money(a.price)} each)` : '')
+    // Item note: indented with a dash marker so it reads as a sub-line, not an item.
+    if (it.note) sub(it.note, bx, '–')
     // The item's FULL price: (base + Σ option price × option qty) × qty — the
     // same figure the order subtotal is made of. This printed the base price
     // alone and each option as price × its qty with no × item qty, so a second
     // Burrito Box's $290 read as $0.00 plus $145 of options (#900000724).
     const unit = it.price + addOns.reduce((t, a) => t + a.price * a.quantity, 0)
-    textR(money(unit * it.quantity), RIGHT - PADX, y - 14, 10.5, font, DARK)
-    const bx = LEFT + PADX + 18
-    let subY = y - 28
-    if (eachLine) {
-      text('Each includes:', bx - 10, subY, 9, font, GREY)
-      subY -= SUBROW
+    const price = money(unit * it.quantity)
+    // Whole row on this page, else on a fresh one; a row taller than a page is
+    // drawn in pieces, the price on the first.
+    if (rowH(lines) > y - M && rowH(lines) <= H - 2 * M) newPage()
+    let rest = lines, first = true
+    while (rest.length) {
+      let n = rest.length
+      while (n > 1 && rowH(rest.slice(0, n)) > y - M) n--
+      if (rowH(rest.slice(0, n)) > y - M && y < H - M) { newPage(); continue }
+      const piece = rest.slice(0, n).map((l, i) => (i === 0 && !first ? { ...l, gap: 14 } : l))
+      drawRow(piece, first ? price : undefined)
+      first = false
+      rest = rest.slice(n)
+      if (rest.length) newPage()
     }
-    // Options: "+ 4 × Carne Asada ($16.00 each)" — quantity and price, no
-    // right-hand amount (it is already inside the item's price).
-    for (const a of addOns) {
-      const label = `${a.quantity} × ${a.name.trim()}${a.price ? ` (${money(a.price)} each)` : ''}`
-      text('+', LEFT + PADX + 8, subY, 9, font, GREY)
-      text(trunc(label, font, 9, RIGHT - PADX - bx), bx, subY, 9, font, GREY)
-      subY -= SUBROW
-    }
-    // Item note: indented with a dash marker so it reads as a sub-line, not an item.
-    if (it.note) {
-      text('–', LEFT + PADX + 8, subY, 9, font, GREY)
-      text(trunc(it.note, font, 9, RIGHT - PADX - bx), bx, subY, 9, font, GREY)
-      subY -= SUBROW
-    }
-    y -= h
   }
 
   // ── Totals (right half) — Subtotal, Taxes, Fees, Delivery Fee, Tips, Total ──
