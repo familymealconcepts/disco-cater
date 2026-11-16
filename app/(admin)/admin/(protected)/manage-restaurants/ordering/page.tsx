@@ -514,9 +514,18 @@ export default function RestaurantsOrderingPage() {
   // WHEN THE TWO ALREADY DIFFER, the toggle is not offered: "flip it" has no single meaning when
   // Disco says one thing and FamilyMeal the other (flipping Disco's held could release FamilyMeal,
   // or the reverse). The row shows both values and two explicit buttons instead.
+  //
+  // Every change goes through a confirmation pop-up first (moneyFlowConfirm); Cancel saves nothing.
   function toggleMoneyFlow(r: Restaurant) {
     const held = effectiveMoneyFlow(r, overrideMap[r.reference]) === 'FAMILY_MEAL'
-    return setMoneyFlow(r, held ? 'DIRECT' : 'FAMILY_MEAL')
+    setMoneyFlowConfirm({ r, next: held ? 'DIRECT' : 'FAMILY_MEAL' })
+  }
+
+  async function confirmMoneyFlow() {
+    if (!moneyFlowConfirm) return
+    setMoneyFlowBusy(true)
+    try { await setMoneyFlow(moneyFlowConfirm.r, moneyFlowConfirm.next) }
+    finally { setMoneyFlowBusy(false); setMoneyFlowConfirm(null) }
   }
 
   async function setMoneyFlow(r: Restaurant, next: 'DIRECT' | 'FAMILY_MEAL') {
@@ -782,6 +791,8 @@ export default function RestaurantsOrderingPage() {
   const [orderingWarning, setOrderingWarning] = useState<string | null>(null)
   // Map/marketplace visibility confirmation modal (Neon visible). next = target on/off.
   const [marketplaceConfirm, setMarketplaceConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
+  const [moneyFlowConfirm, setMoneyFlowConfirm] = useState<{ r: Restaurant; next: 'DIRECT' | 'FAMILY_MEAL' } | null>(null)
+  const [moneyFlowBusy, setMoneyFlowBusy] = useState(false)
   const [marketplaceBusy, setMarketplaceBusy] = useState(false)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
@@ -1386,7 +1397,7 @@ export default function RestaurantsOrderingPage() {
                       if (!fm) return <Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" />
                       const disco = effectiveMoneyFlow(r, ov)
                       const pill = (target: 'FAMILY_MEAL' | 'DIRECT', text: string) => (
-                        <button type="button" onClick={() => setMoneyFlow(r, target)}
+                        <button type="button" onClick={() => setMoneyFlowConfirm({ r, next: target })}
                           style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6, border: '1px solid #E53935', background: '#fff', color: '#B71C1C', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                           {text}
                         </button>
@@ -1509,6 +1520,31 @@ export default function RestaurantsOrderingPage() {
               <button onClick={confirmOnlineOrdering} disabled={orderingBusy}
                 style={{ background: orderingConfirm.next ? '#1D9E75' : '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: orderingBusy ? 'wait' : 'pointer', fontFamily: F, opacity: orderingBusy ? 0.7 : 1 }}>
                 {orderingBusy ? 'Saving…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {moneyFlowConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
+          <div data-testid="money-flow-confirm" style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 440, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>
+              {moneyFlowConfirm.next === 'FAMILY_MEAL' ? 'Hold' : 'Release'} payouts for {moneyFlowConfirm.r.businessName}?
+            </div>
+            <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.55, margin: '0 0 22px' }}>
+              {moneyFlowConfirm.next === 'FAMILY_MEAL'
+                ? <>New orders will be charged normally, but the restaurant&apos;s share stays in Disco&apos;s Stripe account until released.</>
+                : <>New orders will pay the restaurant normally. Money already held stays held until released by hand.</>}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setMoneyFlowConfirm(null)} disabled={moneyFlowBusy}
+                style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: moneyFlowBusy ? 'default' : 'pointer', fontFamily: F, color: '#555' }}>
+                Cancel
+              </button>
+              <button onClick={confirmMoneyFlow} disabled={moneyFlowBusy}
+                style={{ background: moneyFlowConfirm.next === 'FAMILY_MEAL' ? '#C98A12' : '#1D9E75', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: moneyFlowBusy ? 'wait' : 'pointer', fontFamily: F, opacity: moneyFlowBusy ? 0.7 : 1 }}>
+                {moneyFlowBusy ? 'Saving…' : moneyFlowConfirm.next === 'FAMILY_MEAL' ? 'Hold payouts' : 'Release payouts'}
               </button>
             </div>
           </div>
