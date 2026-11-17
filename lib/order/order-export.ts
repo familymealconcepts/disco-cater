@@ -5,7 +5,8 @@
 //            compact block per order, stacked, opened straight into the print dialog (jsPDF autoPrint).
 //   DETAILS  "Print Order Details .PDF" — FamilyMeal's /public-api/order/pdf: every order's own order PDF in
 //            one file. Here that is renderOrderPdf, the wrapping layout, so nothing is cut off.
-//   XLSX     "Export .XLSX" — all-orders-template.component.html: one row per order, eight columns.
+//   XLSX     "Export .XLSX" — all-orders-template.component.html: one row per order, FamilyMeal's eight columns
+//            after Name and Email.
 //
 // FOLLOWS FAMILYMEAL'S CODE, not the older "Order Summary Print" doc: ORDER TIME and a PICKUP / DELIVERY
 // PICKUP drop-off line rather than PREPARE BY, no TYPE line, and the service charge, promo and refund lines.
@@ -222,7 +223,8 @@ export async function renderDetailsPdf(orders: ExportOrder[]): Promise<Uint8Arra
 
 // ── XLSX (all-orders-template.component.html) ───────────────────────────────────────────────────────
 
-export const XLSX_COLUMNS = ['Order', 'Prepare by', 'Drop off time', 'Service', 'Items', 'Type', 'Total', 'Status'] as const
+// Name and Email lead (Peter, 2026-11-17, Kealoha's layout); the eight after them are FamilyMeal's.
+export const XLSX_COLUMNS = ['Name', 'Email', 'Order', 'Prepare by', 'Drop off time', 'Service', 'Items', 'Type', 'Total', 'Status'] as const
 
 /** The Items cell, FamilyMeal's text: "Name - 2 ( Option- 1, ), Other - 1". */
 export function itemsCell(items: OrderPdfData['items']): string {
@@ -231,6 +233,8 @@ export function itemsCell(items: OrderPdfData['items']): string {
 
 export function xlsxRow(o: ExportOrder): (string | number)[] {
   return [
+    fullName(o),
+    o.pdf.customerEmail || '',
     [fullName(o), `Order ID: ${o.pdf.orderNumber}`, receivedOn(o.placedAt, o.timezone)].filter(Boolean).join('\n'),
     [o.orderTime ? formatTime12(o.orderTime) : '', o.orderDate ? shortDate(o.orderDate) : ''].filter(Boolean).join('\n'),
     o.dropOffTime ? formatTime12(o.dropOffTime) : '',
@@ -246,10 +250,10 @@ export async function renderXlsx(orders: ExportOrder[]): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Disco Cater'
   const ws = wb.addWorksheet('Orders')
-  ws.columns = XLSX_COLUMNS.map((header, i) => ({ header, width: [34, 14, 14, 20, 60, 10, 12, 12][i] }))
+  ws.columns = XLSX_COLUMNS.map((header, i) => ({ header, width: [22, 30, 34, 14, 14, 20, 60, 10, 12, 12][i] }))
   ws.getRow(1).font = { bold: true }
   for (const o of orders) ws.addRow(xlsxRow(o))
-  ws.getColumn(7).numFmt = '$#,##0.00'
+  ws.getColumn(XLSX_COLUMNS.indexOf('Total') + 1).numFmt = '$#,##0.00'
   ws.eachRow((row, n) => { if (n > 1) row.alignment = { vertical: 'top', wrapText: true } })
   return new Uint8Array(await wb.xlsx.writeBuffer())
 }

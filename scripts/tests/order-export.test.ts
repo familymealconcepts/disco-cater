@@ -17,7 +17,7 @@ function check(name: string, fn: () => void) {
 function eq(a: unknown, b: unknown, msg: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
 
 const order = (o: Partial<ExportOrder> = {}): ExportOrder => ({
-  pdf: { orderNumber: '43997813', items: [{ name: 'BBQ Sampler for 4', quantity: 1, price: 80, addOns: [{ name: 'Large French Fries', price: 5, quantity: 2 }] }, { name: 'Burger Package', quantity: 2, price: 20 }], total: 87.97 } as ExportOrder['pdf'],
+  pdf: { orderNumber: '43997813', customerEmail: 'bob@example.com', items: [{ name: 'BBQ Sampler for 4', quantity: 1, price: 80, addOns: [{ name: 'Large French Fries', price: 5, quantity: 2 }] }, { name: 'Burger Package', quantity: 2, price: 20 }], total: 87.97 } as ExportOrder['pdf'],
   firstName: 'Bob', lastName: 'Mulry', orderStatus: 'DUE', orderType: 'PICKUP', deliveryType: null, orderDate: '2026-11-25', orderTime: '10:00:00',
   dropOffTime: null, placedAt: '2026-11-11T03:02:12.000Z', timezone: 'America/New_York', purchaseType: null, serviceChargeName: null, ...o,
 })
@@ -30,13 +30,14 @@ check("FamilyMeal's type and status labels", () => {
 check("FamilyMeal's date, Items cell and columns", () => {
   eq(longDate('2026-11-05'), 'Thursday, November 05, 2026', "'dddd, MMMM DD, YYYY'")
   eq(itemsCell(order().pdf.items), 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'items')
-  eq([...XLSX_COLUMNS], ['Order', 'Prepare by', 'Drop off time', 'Service', 'Items', 'Type', 'Total', 'Status'], 'columns')
+  eq([...XLSX_COLUMNS], ['Name', 'Email', 'Order', 'Prepare by', 'Drop off time', 'Service', 'Items', 'Type', 'Total', 'Status'], 'columns')
 })
 check('the XLSX row: name without a hyphen, received when placed, prepare-by time then date', () => {
   const r = xlsxRow(order())
-  eq(r[0], 'Bob Mulry\nOrder ID: 43997813\nReceived on 11/10/26 at 10:02 PM', 'Order cell')
-  eq(r.slice(1), ['10:00 AM\n11/25/26', '', 'Pickup', 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'Items', 87.97, 'Due'], 'rest')
-  eq(xlsxRow(order({ orderType: 'DELIVERY', deliveryType: 'OWN_DELIVERY' }))[3], 'Self-Delivery', 'delivery service')
+  eq(r.slice(0, 2), ['Bob Mulry', 'bob@example.com'], 'Name and Email lead')
+  eq(r[2], 'Bob Mulry\nOrder ID: 43997813\nReceived on 11/10/26 at 10:02 PM', 'Order cell')
+  eq(r.slice(3), ['10:00 AM\n11/25/26', '', 'Pickup', 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'Items', 87.97, 'Due'], 'rest')
+  eq(xlsxRow(order({ orderType: 'DELIVERY', deliveryType: 'OWN_DELIVERY' }))[5], 'Self-Delivery', 'delivery service')
   eq(receivedOn(null, 'America/New_York'), '', 'no time, no text')
 })
 check('file names: the right month, FamilyMeal shapes', () => {
