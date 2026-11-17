@@ -4,7 +4,8 @@
 //   1. FamilyMeal's labels: the fmTypes pipe, its status names, its date and Items-cell text, its eight columns.
 //   2. The two FamilyMeal bugs stay fixed: the file name's month, and "Received on" is when the order was placed.
 //   3. Names print "Bob Mulry", never FamilyMeal's "Bob-Mulry".
-//   4. The export reads the Orders list through the list route itself (same scope, permissions and filters)
+//   4. Special instructions print in both PDFs: each item's under it, the order note, delivery instructions.
+//   5. The export reads the Orders list through the list route itself (same scope, permissions and filters)
 //      without starting a FamilyMeal sync per page; the button is on Active and History.
 import { readFileSync } from 'node:fs'
 import { XLSX_COLUMNS, exportFileName, summaryRange, summaryRestaurant, fmType, itemsCell, longDate, receivedOn, statusLabel, xlsxRow, type ExportOrder } from '../../lib/order/order-export'
@@ -63,6 +64,15 @@ check('summary branding: logo header with restaurant and date range, footer with
   const lib = readFileSync('lib/order/order-export.ts', 'utf8')
   if (!lib.includes('Disco Cater · discocater.com · Page ${i + 1} of ${pages.length}') || !lib.includes('DISCO_LOGO_PNG_BASE64')) throw new Error('header/footer')
   if (!/const newPage = \(\) => \{ page = doc\.addPage\(TABLOID\); header\(page\)/.test(lib)) throw new Error('header on every page')
+})
+check('special instructions in both PDFs: item notes under the item, the order note, delivery instructions, wrapped', () => {
+  const lib = readFileSync('lib/order/order-export.ts', 'utf8')
+  if (!/if \(it\.note\) push\(\{ value: wrap\(it\.note,/.test(lib)) throw new Error('summary: item note under its item')
+  if (!lib.includes("labelled('NOTE:', d.note)") || !lib.includes("labelled('DELIVERY INSTRUCTIONS:', d.deliveryInstructions)")) throw new Error('summary: order note and delivery instructions')
+  if (!/push\(\{ label, lx: 175, value: wrap\(value, vx, 650\), vx \}\)/.test(lib)) throw new Error('summary: wrapped, never cut')
+  const pdf = readFileSync('lib/order/order-pdf.ts', 'utf8')
+  for (const s of ["if (d.note) fullBox([labelLine('Note:')", "if (d.deliveryInstructions) fullBox([labelLine('Delivery Instructions:')", "if (it.note) sub(it.note"])
+    if (!pdf.includes(s)) throw new Error(`details: ${s}`)
 })
 check('the route reads the list through the list route, without a sync per page', () => {
   const route = readFileSync('app/api/restaurant/orders/export/route.ts', 'utf8')

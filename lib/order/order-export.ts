@@ -206,6 +206,14 @@ export async function renderSummaryPdf(orders: ExportOrder[], range: { from?: st
       push({ label: del ? 'DELIVERY PICKUP:' : 'PICKUP:', lx: 175, value: [formatTime12(o.dropOffTime)], vx: del ? 252 : 212 })
     }
     if (d.deliveryAddress) push({ label: 'DELIVERY ADDRESS:', lx: 175, value: wrap(d.deliveryAddress, 265, 650), vx: 265 })
+    // The order note and delivery instructions (FamilyMeal's summary had neither), wrapped like every value.
+    const labelled = (label: string, value?: string) => {
+      if (!value?.trim()) return
+      const vx = Math.ceil(175 + bold.widthOfTextAtSize(label, SIZE) + 5)
+      push({ label, lx: 175, value: wrap(value, vx, 650), vx })
+    }
+    labelled('NOTE:', d.note)
+    labelled('DELIVERY INSTRUCTIONS:', d.deliveryInstructions)
     rows.push({ gap: 5, rule: [0.565, 1] }, { gap: 5 })
     d.items.forEach((it, i) => {
       push({ value: wrap(`(${it.quantity}) ${it.name}`, 175, 447), vx: 175, label2: '', l2x: 455, value2: money(it.price * it.quantity), v2x: 455 })
