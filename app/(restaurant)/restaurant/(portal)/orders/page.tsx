@@ -297,6 +297,20 @@ function isPastPickup(order: Order): boolean {
 // Fulfillment labels come from lib/order/fulfillment-label.ts — see that file for
 // why the local DELIVERY_LABEL map that used to live here was removed.
 
+// The list's status dropdown. It used to fire the request and ignore the reply, so a refused change (a
+// FamilyMeal-processed order FamilyMeal won't move) looked like it worked until the list reloaded.
+async function putListStatus(orderRef: string, status: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}`, { method: 'PUT' })
+    if (res.ok) return true
+    const d = await res.json().catch(() => ({}))
+    toast(d?.error || `Could not update the order (HTTP ${res.status}).`, { kind: 'error' })
+  } catch (e) {
+    toast(`Could not update the order: ${e instanceof Error ? e.message : 'request failed'}`, { kind: 'error' })
+  }
+  return false
+}
+
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 }
@@ -1991,13 +2005,12 @@ function OrdersContent() {
                                 setConfirm({
                                   msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
                                   action: async () => {
-                                    await fetch(`/api/restaurant/orders/${order.orderReference}/status?orderStatus=${newStatus}`, { method: 'PUT' })
+                                    await putListStatus(order.orderReference, newStatus)
                                     loadOrders()
                                   },
                                 })
                               } else {
-                                fetch(`/api/restaurant/orders/${order.orderReference}/status?orderStatus=${newStatus}`, { method: 'PUT' })
-                                  .then(() => loadOrders())
+                                void putListStatus(order.orderReference, newStatus).then(() => loadOrders())
                               }
                             }}
                             style={{ border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, background: '#fff', color: DARK, outline: 'none', cursor: 'pointer' }}

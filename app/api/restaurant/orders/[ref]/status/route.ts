@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext, getFmHeaderForRestaurant } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
-import { fmFetch } from '../../../../../../lib/fm-fetch'
+import { setFamilyMealOrderStatus } from '../../../../../../lib/order/fm-order-status'
 import { applyNativeStatusChange, voidInvoiceBeforeCancel, normalizeOrderStatus, ALLOWED_ORDER_STATUSES } from '../../../../../../lib/order/native-status-change'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 
@@ -42,8 +41,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Remove either and cancelling silently becomes a trap again.
 // Neon (disco_orders) is the source of truth — a Disco-native session (no FM
 // cookie) used to silently 401 here, so status changes (Complete/Cancel) never
-// persisted. We now write Neon directly and attempt the FM proxy best-effort for
-// FM-synced orders; an FM failure never blocks the Neon write.
+// persisted. A Disco-native order is written to Neon directly. A FamilyMeal-processed
+// order must take in FamilyMeal first; a refusal is returned and nothing changes.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -64,17 +63,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   const v = await voidInvoiceBeforeCancel(ref, status)
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.status })
 
-  // Best-effort FM proxy (FM-synced orders). Uses the user's FM token when present,
-  // else the SUPER_ADMIN service account. Never fatal.
-  try {
-    const headers = await getFmHeaderForRestaurant(ctx)
-    const res = await fmFetch(`${FM}/api/orders/${ref}/updateStatus?orderStatus=${encodeURIComponent(raw)}`, {
-      method: 'PUT', headers,
-    })
-    if (!res.ok) console.error('[orders/status] FM updateStatus non-OK (non-fatal):', res.status)
-  } catch (e) {
-    console.error('[orders/status] FM updateStatus failed (non-fatal):', e instanceof Error ? e.message : e)
-  }
+  // FamilyMeal FIRST for a FamilyMeal-processed order, and Disco only if it took (lib/order/fm-order-status.ts).
+  // This was a "best-effort, never fatal" proxy, so a refusal still showed the restaurant "Cancelled" and the
+  // FamilyMeal sync later undid it (#43997813, 15 Nov 2026). A refusal is now the restaurant's error message.
+  const fm = await setFamilyMealOrderStatus(ref, status)
+  if (!fm.ok) return NextResponse.json({ error: fm.error }, { status: fm.status })
 
   // Neon write, invoice void, event and cancellation email all live in ONE
   // place now, shared with the super-admin route — see lib/order/native-status-change.ts.
