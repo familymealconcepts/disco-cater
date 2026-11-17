@@ -46,13 +46,17 @@ export function fmRefusalMessage(target: string, current: string | null, fmLabel
 
 export type FmStatusResult = { ok: true; fm: boolean } | { ok: false; status: number; error: string }
 
-export async function setFamilyMealOrderStatus(ref: string, status: string): Promise<FmStatusResult> {
+/**
+ * `restaurantRef`: Super Admin passes the order's restaurant, so an order FamilyMeal has but Disco has not
+ * mirrored yet still reaches FamilyMeal (the ref is then FamilyMeal's own).
+ */
+export async function setFamilyMealOrderStatus(ref: string, status: string, restaurantRef?: string | null): Promise<FmStatusResult> {
   const rows = (await sql`
     SELECT fm_order_reference::text AS fm, restaurant_reference::text AS rr
       FROM disco_orders WHERE (reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid) AND is_deleted = false
      LIMIT 1
   `) as { fm: string | null; rr: string | null }[]
-  const o = rows[0]
+  const o = rows[0] ?? (restaurantRef ? { fm: ref, rr: restaurantRef } : undefined)
   if (!o?.fm) return { ok: true, fm: false }
   if (!o.rr) return { ok: false, status: 409, error: fmRefusalMessage(fmStatusFor(status), null, null) }
 

@@ -43,6 +43,14 @@ check('the refusal says what happened and what to do', () => {
   ok(fmRefusalMessage('COMPLETED', 'CANCELED', 'STATUS_CHANGE_NOT_ALLOWED').includes('from Cancelled to Completed'), 'names both statuses')
   ok(fmRefusalMessage('CANCELED', null, null).includes('nothing was changed'), 'unknown failure still says nothing changed')
 })
+check('Super Admin goes through the same FamilyMeal-first path (no made-up endpoint)', () => {
+  const admin = readFileSync('app/api/admin/orders/[ref]/status/route.ts', 'utf8')
+  const fm = admin.indexOf('await setFamilyMealOrderStatus(ref, next, restaurantRef)')
+  const stop = admin.indexOf('if (!fm.ok) return NextResponse.json({ error: fm.error }, { status: fm.status })')
+  const disco = admin.indexOf("await applyNativeStatusChange(ref, next, 'ADMIN_STATUS'")
+  ok(fm > 0 && stop > fm && disco > stop, 'FamilyMeal, refusal return, then Disco')
+  ok(!admin.replace(/\/\/.*$/gm, '').includes('/updateStatus?status='), 'the endpoint FamilyMeal does not have is gone')
+})
 check("the list's dropdown shows a refusal", () => {
   ok(page.includes('async function putListStatus(') && page.includes('putListStatus(order.orderReference, newStatus)'), 'helper used')
   ok(!/fetch\(`\/api\/restaurant\/orders\/\$\{order\.orderReference\}\/status/.test(page), 'no fire-and-forget status fetch left in the list')
