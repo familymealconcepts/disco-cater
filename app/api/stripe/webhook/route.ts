@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
+import { sql, runDiscoOrderMigrations, runStripeCapabilityMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification, sendOrderUpdateEmails } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
@@ -45,30 +45,42 @@ async function recordEvent(
   `
 }
 
-// Fires the "Stripe Connected" Slack ping the moment a restaurant's connected
-// account FIRST transitions to fully connected (charges_enabled + payouts_enabled
-// + details_submitted all true) — for every restaurant going forward, native-first
-// or FM-converted alike, not just Almost Home. Reuses FM's own documented
-// stripe-connected-path webhook (same channel FM used to notify on this exact
-// event), confirmed still live.
+// Fires the "Stripe Connected" Slack ping ONCE per restaurant, when its account CHANGES from unable to
+// able to accept payments (charges_enabled false -> true). Reuses FM's own documented
+// stripe-connected-path webhook (same channel FM used to notify on this exact event).
 //
-// Duplicate guard: the UPDATE ... WHERE stripe_connected_notified_at IS NULL ...
-// RETURNING is the actual guard, not just a courtesy check — Stripe re-sends
-// account.updated on every subsequent capability ping (and can redeliver the same
-// event), so this must be atomic. Only the row transitioning NULL -> NOW() in
-// THIS call proceeds to notify; every later call (same account, already
-// connected) matches zero rows and no-ops.
-export async function notifyStripeConnectedIfNewlyFullyConnected(account: Stripe.Account): Promise<void> {
-  const fullyConnected = account.charges_enabled === true && account.payouts_enabled === true && account.details_submitted === true
-  if (!fullyConnected) return
+// Why a change and not "seen connected": the old rule alerted the first time Disco saw an account fully
+// connected. Restaurants that connected long ago but were linked in Disco later (conversion, link
+// reconcile) fired the alert on their next account.updated, which Stripe sends around new orders
+// (Crispy Karma, The Onion Tree - Sea Cliff, Son del North - West Village).
+//
+// The previous state is stripe_webhook_charges_enabled, written only here. When it is NULL (never seen),
+// Stripe's own previous_attributes says whether this event is the change. With neither, the state is
+// recorded and nothing is sent. stripe_connected_notified_at records the alert; the claim is one
+// conditional UPDATE, so a redelivered or concurrent event matches zero rows.
+export async function notifyStripeConnectedOnChange(
+  account: Stripe.Account,
+  previous?: Partial<Stripe.Account> | null,
+): Promise<void> {
+  await runStripeCapabilityMigrations()
+  const able = account.charges_enabled === true
+  const wasAbleInEvent = previous && 'charges_enabled' in previous ? previous.charges_enabled === true : null
 
-  const claimed = (await sql`
-    UPDATE disco_restaurant_overrides
-    SET stripe_connected_notified_at = NOW()
-    WHERE stripe_account_id = ${account.id} AND stripe_connected_notified_at IS NULL
-    RETURNING restaurant_reference
-  `) as { restaurant_reference: string | null }[]
-  if (claimed.length === 0) return // no matching restaurant, or already notified
+  const claimed = able
+    ? ((await sql`
+        UPDATE disco_restaurant_overrides
+        SET stripe_connected_notified_at = NOW(), stripe_webhook_charges_enabled = true
+        WHERE stripe_account_id = ${account.id} AND stripe_connected_notified_at IS NULL
+          AND (stripe_webhook_charges_enabled = false
+               OR (stripe_webhook_charges_enabled IS NULL AND ${wasAbleInEvent}::boolean = false))
+        RETURNING restaurant_reference
+      `) as { restaurant_reference: string | null }[])
+    : []
+  await sql`
+    UPDATE disco_restaurant_overrides SET stripe_webhook_charges_enabled = ${able}
+    WHERE stripe_account_id = ${account.id} AND stripe_webhook_charges_enabled IS DISTINCT FROM ${able}
+  `
+  if (claimed.length === 0) return // no change from unable to able, or already alerted
 
   const url = process.env.SLACK_STRIPE_CONNECTED_WEBHOOK_URL
   if (!url) {
@@ -604,7 +616,7 @@ export async function POST(request: NextRequest) {
           },
           'STRIPE_WEBHOOK',
         )
-        await notifyStripeConnectedIfNewlyFullyConnected(account)
+        await notifyStripeConnectedOnChange(account, event.data.previous_attributes as Partial<Stripe.Account> | undefined)
         break
       }
 

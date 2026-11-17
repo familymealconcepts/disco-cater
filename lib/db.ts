@@ -337,7 +337,7 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_account_id TEXT`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_onboarding_complete BOOLEAN DEFAULT false`,
     // Moved alongside stripe_account_id, same reason: the "Stripe Connected" Slack
-    // dedup guard (notifyStripeConnectedIfNewlyFullyConnected) is inherently
+    // dedup guard (notifyStripeConnectedOnChange) is inherently
     // restaurant-scoped, not per-admin — a restaurant with several admin rows
     // must fire the notification once, not once per row.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected_notified_at TIMESTAMPTZ`,
@@ -811,6 +811,10 @@ export async function runStripeCapabilityMigrations(): Promise<void> {
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status TEXT`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status_reason TEXT`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status_checked_at TIMESTAMPTZ`,
+    // charges_enabled as the account.updated webhook last saw it. Written ONLY by the webhook, so the
+    // "Stripe Connected" alert compares against the previous event, never against the job above (which
+    // could record "able" before the webhook arrives and swallow a real change). NULL = never seen.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_webhook_charges_enabled BOOLEAN`,
   ]
   for (const s of statements) await sql.query(s)
   stripeCapabilityMigrated = true
