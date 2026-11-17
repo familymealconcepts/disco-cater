@@ -24,6 +24,7 @@ import { sql } from '../db'
 import { pdfSafe } from '../pdf-text'
 import { formatTime12 } from '../utils/time'
 import { loadOrderPdfData, renderOrderPdf, wrapPdfText, type OrderPdfData } from './order-pdf'
+import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 
 export const EXPORT_FORMATS = ['SUMMARY', 'DETAILS', 'XLSX'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
@@ -140,16 +141,50 @@ export async function loadExportOrders(refs: string[], concurrency = 6): Promise
 // ── SUMMARY PDF (print-template.component.ts printPDFUpdates) ───────────────────────────────────────
 
 const TABLOID: [number, number] = [792, 1224]
-const TOP = 45, BOTTOM = 45, LH = 12, SIZE = 8
+const BOTTOM = 45, LH = 12, SIZE = 8
+// Disco Cater branding (Peter, 2026-11-17): every page carries a header (the order PDF's logo, the restaurant,
+// the date range) and a footer ("Disco Cater · discocater.com · Page X of Y"). The order blocks start below the
+// header; FamilyMeal's block layout and its keep-a-block-on-one-page rule are unchanged.
+const HEADER_TOP = 30, HEADER_H = 50
+const TOP = HEADER_TOP + HEADER_H + 15
 
-export async function renderSummaryPdf(orders: ExportOrder[]): Promise<Uint8Array> {
+/** The export's date range: the filter's dates, else the first and last order dates. MM/DD/YYYY. */
+export function summaryRange(orders: ExportOrder[], from?: string, to?: string): string {
+  const days = orders.map((o) => o.orderDate).filter(Boolean).sort()
+  const a = from || days[0] || '', b = to || days[days.length - 1] || a
+  const us = (iso: string) => { const [y, m, d] = iso.split('-'); return y ? `${m}/${d}/${y}` : '' }
+  return a ? `Date range: ${us(a)} - ${us(b)}` : ''
+}
+
+/** One restaurant's name, or how many locations an all-locations export covers. */
+export function summaryRestaurant(orders: ExportOrder[]): string {
+  const names = [...new Set(orders.map((o) => o.pdf.restaurantName).filter(Boolean))]
+  return names.length === 1 ? names[0] : `${names.length} locations`
+}
+
+export async function renderSummaryPdf(orders: ExportOrder[], range: { from?: string; to?: string } = {}): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
   const H = TABLOID[1]
+  const logo = await doc.embedPng(Buffer.from(DISCO_LOGO_PNG_BASE64, 'base64')).catch(() => null)
+  const restaurant = summaryRestaurant(orders), dates = summaryRange(orders, range.from, range.to)
+  const header = (p: PDFPage) => {
+    const lw = 110, lh = lw * (DISCO_LOGO_H / DISCO_LOGO_W)
+    if (logo) p.drawImage(logo, { x: 135, y: H - HEADER_TOP - lh, width: lw, height: lh })
+    else p.drawText('disco cater', { x: 135, y: H - HEADER_TOP - 18, size: 18, font: bold, color: rgb(0.42, 0.43, 0.98) })
+    const right = (t: string, top: number, f: PDFFont, size: number) => {
+      const s = pdfSafe(t)
+      p.drawText(s, { x: 650 - f.widthOfTextAtSize(s, size), y: H - top, size, font: f, color: rgb(0.1, 0.06, 0.16) })
+    }
+    right(restaurant, HEADER_TOP + 14, bold, 12)
+    if (dates) right(dates, HEADER_TOP + 30, font, 9)
+    p.drawLine({ start: { x: 135, y: H - HEADER_TOP - HEADER_H }, end: { x: 650, y: H - HEADER_TOP - HEADER_H }, thickness: 1, color: rgb(0.42, 0.43, 0.98) })
+  }
   let page: PDFPage = doc.addPage(TABLOID)
+  header(page)
   let y = TOP // distance from the top, as jsPDF counts it
-  const newPage = () => { page = doc.addPage(TABLOID); y = TOP }
+  const newPage = () => { page = doc.addPage(TABLOID); header(page); y = TOP }
   const room = () => H - BOTTOM - y
   const text = (t: string, x: number, f: PDFFont = font) => page.drawText(pdfSafe(t), { x, y: H - y, size: SIZE, font: f, color: rgb(0, 0, 0) })
   const line = (grey: number, width = 1) => page.drawLine({ start: { x: 135, y: H - (y + 5) }, end: { x: 650, y: H - (y + 5) }, thickness: width, color: rgb(grey, grey, grey) })
@@ -206,6 +241,11 @@ export async function renderSummaryPdf(orders: ExportOrder[]): Promise<Uint8Arra
     }
   }
   // FamilyMeal's doc.autoPrint(): open straight into the print dialog, where the viewer honours it.
+  const pages = doc.getPages()
+  pages.forEach((p, i) => {
+    const s = `Disco Cater · discocater.com · Page ${i + 1} of ${pages.length}`
+    p.drawText(s, { x: (TABLOID[0] - font.widthOfTextAtSize(s, 8)) / 2, y: 22, size: 8, font, color: rgb(0.45, 0.45, 0.5) })
+  })
   doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj({ Type: 'Action', S: 'Named', N: 'Print' }))
   return doc.save()
 }

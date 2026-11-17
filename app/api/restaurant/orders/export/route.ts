@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   const orders = await loadExportOrders(shown.map((o) => o.orderReference))
   if (!orders.length) return NextResponse.json({ error: 'No orders for this date range' }, { status: 404 })
-  const bytes = format === 'SUMMARY' ? await renderSummaryPdf(orders) : format === 'DETAILS' ? await renderDetailsPdf(orders) : await renderXlsx(orders)
+  const bytes = format === 'SUMMARY' ? await renderSummaryPdf(orders, { from: sp.get('fromDate') || undefined, to: sp.get('toDate') || undefined }) : format === 'DETAILS' ? await renderDetailsPdf(orders) : await renderXlsx(orders)
   const name = exportFileName(format, orders, {
     fromDate: sp.get('fromDate') || undefined, toDate: sp.get('toDate') || undefined,
     desc: (sp.get('sort') || 'order_date,desc').toLowerCase().endsWith(',desc'),

@@ -7,7 +7,7 @@
 //   4. The export reads the Orders list through the list route itself (same scope, permissions and filters)
 //      without starting a FamilyMeal sync per page; the button is on Active and History.
 import { readFileSync } from 'node:fs'
-import { XLSX_COLUMNS, exportFileName, fmType, itemsCell, longDate, receivedOn, statusLabel, xlsxRow, type ExportOrder } from '../../lib/order/order-export'
+import { XLSX_COLUMNS, exportFileName, summaryRange, summaryRestaurant, fmType, itemsCell, longDate, receivedOn, statusLabel, xlsxRow, type ExportOrder } from '../../lib/order/order-export'
 
 let passed = 0
 const failures: string[] = []
@@ -52,6 +52,17 @@ check('the summary never hyphenates the name and opens to print', () => {
   const lib = readFileSync('lib/order/order-export.ts', 'utf8')
   if (/firstName\s*\+\s*'-'/.test(lib)) throw new Error('hyphenated name')
   if (!/N: 'Print'/.test(lib)) throw new Error('no print-on-open')
+})
+check('summary branding: logo header with restaurant and date range, footer with page numbers', () => {
+  eq(summaryRange([order({ orderDate: '2026-11-24' }), order()]), 'Date range: 11/24/2026 - 11/25/2026', 'range from the orders')
+  eq(summaryRange([order()], '2026-11-20', '2026-11-30'), 'Date range: 11/20/2026 - 11/30/2026', 'range from the filter')
+  const one = order(); one.pdf = { ...one.pdf, restaurantName: 'Westwoods' }
+  const two = order(); two.pdf = { ...two.pdf, restaurantName: 'Other' }
+  eq(summaryRestaurant([one, one]), 'Westwoods', 'one restaurant')
+  eq(summaryRestaurant([one, two]), '2 locations', 'all locations')
+  const lib = readFileSync('lib/order/order-export.ts', 'utf8')
+  if (!lib.includes('Disco Cater · discocater.com · Page ${i + 1} of ${pages.length}') || !lib.includes('DISCO_LOGO_PNG_BASE64')) throw new Error('header/footer')
+  if (!/const newPage = \(\) => \{ page = doc\.addPage\(TABLOID\); header\(page\)/.test(lib)) throw new Error('header on every page')
 })
 check('the route reads the list through the list route, without a sync per page', () => {
   const route = readFileSync('app/api/restaurant/orders/export/route.ts', 'utf8')
