@@ -292,7 +292,10 @@ export async function GET(req: NextRequest) {
   // page load. An order placed seconds ago appears on the next refresh rather
   // than this one. The hourly cron and POST /api/admin/sync/fm-orders remain the
   // full-backfill paths.
-  if (scopeRef && UUID_RE.test(scopeRef)) {
+  // noSync=1: the Export Orders route reads the list through this handler page by page
+  // (app/api/restaurant/orders/export), after the page itself has already loaded and synced. Each read would
+  // otherwise start another FamilyMeal sync, which is the load that froze FamilyMeal on 2026-09-20.
+  if (scopeRef && UUID_RE.test(scopeRef) && sp.get('noSync') !== '1') {
     const syncRef = scopeRef
     waitUntil(
       (async () => {

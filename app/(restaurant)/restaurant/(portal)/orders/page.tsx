@@ -463,6 +463,40 @@ function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onCo
   )
 }
 
+// ─── Export Orders ────────────────────────────────────────────────────────────
+// FamilyMeal's Export Orders pop-up (shared/export-orders): three choices, Summary picked first, Cancel /
+// Submit. The files are built by /api/restaurant/orders/export from the orders this tab is showing.
+const EXPORT_OPTIONS = [
+  { value: 'SUMMARY', title: 'Print Order Summary .PDF' },
+  { value: 'DETAILS', title: 'Print Order Details .PDF' },
+  { value: 'XLSX', title: 'Export .XLSX' },
+] as const
+
+function ExportOrdersDialog({ busy, onSubmit, onCancel }: { busy: boolean; onSubmit: (format: string) => void; onCancel: () => void }) {
+  const [choice, setChoice] = useState<string>('SUMMARY')
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div role="dialog" aria-label="Export Orders" style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 380, width: '90%', fontFamily: F, position: 'relative' }}>
+        <button onClick={onCancel} aria-label="Close" disabled={busy}
+          style={{ position: 'absolute', top: 12, right: 14, border: 'none', background: 'none', fontSize: 20, color: '#888', cursor: 'pointer' }}>×</button>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '0 0 16px' }}>Export Orders</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 22 }}>
+          {EXPORT_OPTIONS.map(o => (
+            <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: DARK, cursor: 'pointer' }}>
+              <input type="radio" name="export-orders" value={o.value} checked={choice === o.value} onChange={() => setChoice(o.value)} disabled={busy} />
+              {o.title}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} disabled={busy} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
+          <button onClick={() => onSubmit(choice)} disabled={busy} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 13, cursor: busy ? 'wait' : 'pointer', fontFamily: F, fontWeight: 600, opacity: busy ? 0.7 : 1 }}>{busy ? 'Preparing…' : 'Submit'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Edit History Panel ───────────────────────────────────────────────────────
 // Right slide-in panel showing the edit timeline for an order. The FM wire
 // shape for an edit record is unconfirmed, so each field is read defensively
@@ -1523,6 +1557,8 @@ function OrdersContent() {
   const [appliedTo, setAppliedTo] = useState('')
   // Client-side recurring filter over the loaded page of orders.
   const [recurringFilter, setRecurringFilter] = useState<'all' | 'recurring' | 'onetime'>('all')
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [loading, setLoading] = useState(false)
   // Silent auto-refresh: backgroundRefreshing never drives the skeleton. When a
   // background poll surfaces genuinely new orders, we stash them in `pending` and
@@ -1703,6 +1739,39 @@ function OrdersContent() {
     setDrawerRef(order.orderReference)
   }
 
+  // Export Orders: the same query the table just ran (tab statuses, sort, search, dates) plus the two filters
+  // the table applies in the browser, so the file holds exactly the orders on screen.
+  async function exportOrders(format: string) {
+    setExporting(true)
+    try {
+      const p = new URLSearchParams({ format, tab, recurring: recurringFilter })
+      statuses.forEach(s => p.append('orderStatuses', s))
+      p.append('sort', `${sortField},${sortDir}`)
+      if (sortField === 'order_date') p.append('sort', `order_time,${sortDir}`)
+      if (sortField === 'first_name') p.append('sort', `last_name,${sortDir}`)
+      if (search) p.set('search', search)
+      if (appliedFrom) p.set('fromDate', appliedFrom)
+      if (appliedTo) p.set('toDate', appliedTo)
+      const res = await fetch(`/api/restaurant/orders/export?${p}`)
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast(d?.error || `Could not export the orders (HTTP ${res.status}).`, { kind: 'error' })
+        return
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'Orders'
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url; a.download = name
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      setExportOpen(false)
+    } catch (e) {
+      toast(`Could not export the orders: ${e instanceof Error ? e.message : 'request failed'}`, { kind: 'error' })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function handleMarkAllComplete() {
     setConfirm({
       msg: 'Mark all active orders as complete? This will complete all DUE/PAID orders.',
@@ -1848,6 +1917,11 @@ function OrdersContent() {
                 Mark all complete
               </button>
             )}
+            <button onClick={() => setExportOpen(true)} disabled={exporting}
+              style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginLeft: tab === 'active' ? 0 : 'auto' }}>
+              Export Orders
+            </button>
+            {exportOpen && <ExportOrdersDialog busy={exporting} onSubmit={exportOrders} onCancel={() => setExportOpen(false)} />}
           </div>
 
           {/* Table */}

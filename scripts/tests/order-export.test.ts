@@ -1,0 +1,71 @@
+// Guards for Export Orders (lib/order/order-export.ts, app/api/restaurant/orders/export).
+// Run: npx tsx scripts/tests/order-export.test.ts
+//
+//   1. FamilyMeal's labels: the fmTypes pipe, its status names, its date and Items-cell text, its eight columns.
+//   2. The two FamilyMeal bugs stay fixed: the file name's month, and "Received on" is when the order was placed.
+//   3. Names print "Bob Mulry", never FamilyMeal's "Bob-Mulry".
+//   4. The export reads the Orders list through the list route itself (same scope, permissions and filters)
+//      without starting a FamilyMeal sync per page; the button is on Active and History.
+import { readFileSync } from 'node:fs'
+import { XLSX_COLUMNS, exportFileName, fmType, itemsCell, longDate, receivedOn, statusLabel, xlsxRow, type ExportOrder } from '../../lib/order/order-export'
+
+let passed = 0
+const failures: string[] = []
+function check(name: string, fn: () => void) {
+  try { fn(); passed++; console.log(`  ok  ${name}`) } catch (e) { failures.push(name); console.log(`  FAIL ${name}: ${(e as Error).message}`) }
+}
+function eq(a: unknown, b: unknown, msg: string) { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
+
+const order = (o: Partial<ExportOrder> = {}): ExportOrder => ({
+  pdf: { orderNumber: '43997813', items: [{ name: 'BBQ Sampler for 4', quantity: 1, price: 80, addOns: [{ name: 'Large French Fries', price: 5, quantity: 2 }] }, { name: 'Burger Package', quantity: 2, price: 20 }], total: 87.97 } as ExportOrder['pdf'],
+  firstName: 'Bob', lastName: 'Mulry', orderStatus: 'DUE', orderType: 'PICKUP', deliveryType: null, orderDate: '2026-11-25', orderTime: '10:00:00',
+  dropOffTime: null, placedAt: '2026-11-11T03:02:12.000Z', timezone: 'America/New_York', purchaseType: null, serviceChargeName: null, ...o,
+})
+
+console.log('\n=== Export Orders ===')
+check("FamilyMeal's type and status labels", () => {
+  eq(['OWN_DELIVERY', 'NASH_DELIVERY', 'DOOR_DASH_DELIVERY', 'MEAL_PACKAGES', 'CLASSICS_MEAL_PACKAGES', 'SUBSCRIPTION'].map(fmType), ['Self-Delivery', 'Third-Party Delivery', 'Third-Party Delivery', 'Items', 'Items, Modifiers', 'Subscription'], 'fmTypes')
+  eq(['DUE', 'REOPEN', 'CANCELED', 'CANCELLED', 'VOIDED', 'PARTIAL_REFUND'].map(statusLabel), ['Due', 'Reopened', 'Canceled', 'Canceled', 'Voided', 'Partial refunded'], 'statuses')
+})
+check("FamilyMeal's date, Items cell and columns", () => {
+  eq(longDate('2026-11-05'), 'Thursday, November 05, 2026', "'dddd, MMMM DD, YYYY'")
+  eq(itemsCell(order().pdf.items), 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'items')
+  eq([...XLSX_COLUMNS], ['Order', 'Prepare by', 'Drop off time', 'Service', 'Items', 'Type', 'Total', 'Status'], 'columns')
+})
+check('the XLSX row: name without a hyphen, received when placed, prepare-by time then date', () => {
+  const r = xlsxRow(order())
+  eq(r[0], 'Bob Mulry\nOrder ID: 43997813\nReceived on 11/10/26 at 10:02 PM', 'Order cell')
+  eq(r.slice(1), ['10:00 AM\n11/25/26', '', 'Pickup', 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'Items', 87.97, 'Due'], 'rest')
+  eq(xlsxRow(order({ orderType: 'DELIVERY', deliveryType: 'OWN_DELIVERY' }))[3], 'Self-Delivery', 'delivery service')
+  eq(receivedOn(null, 'America/New_York'), '', 'no time, no text')
+})
+check('file names: the right month, FamilyMeal shapes', () => {
+  const f = { fromDate: '2026-11-25', toDate: '2026-11-25', desc: true, today: '2026-11-17' }
+  eq(exportFileName('XLSX', [order()], f), 'OrderSummary_11172026.xlsx', 'xlsx (FamilyMeal printed 10172026)')
+  eq(exportFileName('DETAILS', [order()], f), 'OrderDetails_112526-112526.pdf', 'details')
+  eq(exportFileName('DETAILS', [order()], { ...f, fromDate: undefined }), 'OrderDetails.pdf', 'details, no range')
+  eq(exportFileName('SUMMARY', [order({ orderDate: '2026-11-24' }), order()], f), 'OrderSummary_11252026-11242026.pdf', 'summary, newest first')
+  eq(exportFileName('SUMMARY', [order({ orderDate: '2026-11-24' }), order()], { ...f, desc: false }), 'OrderSummary_11242026-11252026.pdf', 'summary, oldest first')
+})
+check('the summary never hyphenates the name and opens to print', () => {
+  const lib = readFileSync('lib/order/order-export.ts', 'utf8')
+  if (/firstName\s*\+\s*'-'/.test(lib)) throw new Error('hyphenated name')
+  if (!/N: 'Print'/.test(lib)) throw new Error('no print-on-open')
+})
+check('the route reads the list through the list route, without a sync per page', () => {
+  const route = readFileSync('app/api/restaurant/orders/export/route.ts', 'utf8')
+  const list = readFileSync('app/api/restaurant/orders/route.ts', 'utf8')
+  if (!route.includes("import { GET as listOrders } from '../route'") || !route.includes("q.set('noSync', '1')")) throw new Error('route')
+  if (!list.includes("sp.get('noSync') !== '1'")) throw new Error('list route ignores noSync')
+})
+check('the button is on Active and History', () => {
+  const page = readFileSync('app/(restaurant)/restaurant/(portal)/orders/page.tsx', 'utf8')
+  const i = page.indexOf('Export Orders\n            </button>')
+  if (i < 0) throw new Error('no button')
+  // It sits in the filter bar shared by both tabs, not inside a tab === 'active' block.
+  const before = page.slice(page.lastIndexOf('{/* Filter Bar */}', i), i)
+  if (/\{tab === 'active' && \(\s*<button onClick=\{\(\) => setExportOpen/.test(before)) throw new Error('Active only')
+})
+
+console.log(`\n${passed} passed, ${failures.length} failed`)
+if (failures.length) process.exit(1)

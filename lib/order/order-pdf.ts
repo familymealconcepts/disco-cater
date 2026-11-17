@@ -263,6 +263,36 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   }
 }
 
+/**
+ * Word-wrap `raw` to `maxW` at `size` (see the WRAP, NEVER TRUNCATE note in renderOrderPdf). Shared with
+ * the Export Orders summary PDF (lib/order/order-export.ts) so the two can never wrap differently.
+ */
+export function wrapPdfText(raw: string, f: PDFFont, size: number, maxW: number, keep = ''): string[] {
+  const GLUE = '\u0001'
+  const body = pdfSafe(raw).replace(/\s+/g, ' ').trim()
+  const tail = pdfSafe(keep).trim()
+  const words = body ? body.split(' ') : []
+  if (tail) words.push(tail.replace(/ /g, GLUE))
+  const w = (s: string) => f.widthOfTextAtSize(s.replace(new RegExp(GLUE, 'g'), ' '), size)
+  const out: string[] = []
+  let cur = ''
+  for (let word of words) {
+    // A single word wider than the line (a long URL, an unbroken string) is cut
+    // by characters, so nothing runs off the page. The kept tail is not cut.
+    while (!word.includes(GLUE) && w(word) > maxW && word.length > 1) {
+      if (cur) { out.push(cur); cur = '' }
+      let n = word.length - 1
+      while (n > 1 && w(word.slice(0, n)) > maxW) n--
+      out.push(word.slice(0, n)); word = word.slice(n)
+    }
+    const next = cur ? `${cur} ${word}` : word
+    if (!cur || w(next) <= maxW) cur = next
+    else { out.push(cur); cur = word }
+  }
+  if (cur || !out.length) out.push(cur)
+  return out.map((s) => s.replace(new RegExp(GLUE, 'g'), ' '))
+}
+
 const GRAD = rgb(0.42, 0.43, 0.98)   // disco wordmark indigo #6B6EF9
 const CATER = rgb(0.60, 0.60, 0.66)  // "cater" grey
 const DARK = rgb(0.10, 0.06, 0.16)   // #1A1028
@@ -325,31 +355,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   // the last line (an option's price), never split across two lines.
   // Sanitised BEFORE measuring: widthOfTextAtSize throws on an unencodable
   // character just as drawText does.
-  const wrap = (raw: string, f: PDFFont, size: number, maxW: number, keep = ''): string[] => {
-    const GLUE = '\u0001'
-    const body = pdfSafe(raw).replace(/\s+/g, ' ').trim()
-    const tail = pdfSafe(keep).trim()
-    const words = body ? body.split(' ') : []
-    if (tail) words.push(tail.replace(/ /g, GLUE))
-    const w = (s: string) => f.widthOfTextAtSize(s.replace(new RegExp(GLUE, 'g'), ' '), size)
-    const out: string[] = []
-    let cur = ''
-    for (let word of words) {
-      // A single word wider than the line (a long URL, an unbroken string) is cut
-      // by characters, so nothing runs off the page. The kept tail is not cut.
-      while (!word.includes(GLUE) && w(word) > maxW && word.length > 1) {
-        if (cur) { out.push(cur); cur = '' }
-        let n = word.length - 1
-        while (n > 1 && w(word.slice(0, n)) > maxW) n--
-        out.push(word.slice(0, n)); word = word.slice(n)
-      }
-      const next = cur ? `${cur} ${word}` : word
-      if (!cur || w(next) <= maxW) cur = next
-      else { out.push(cur); cur = word }
-    }
-    if (cur || !out.length) out.push(cur)
-    return out.map((s) => s.replace(new RegExp(GLUE, 'g'), ' '))
-  }
+  const wrap = wrapPdfText
   /** Each Ln wrapped to the box's inner width, keeping its style on every line. */
   const expand = (lines: Ln[], w: number): Ln[] => lines.flatMap((l) => {
     const s = l.s ?? 10, f = (l.b || l.label) ? bold : font
