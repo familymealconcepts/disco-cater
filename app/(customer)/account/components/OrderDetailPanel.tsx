@@ -59,6 +59,8 @@ export interface FmOrderDetail {
   phoneNumber?: string
   restaurant?: OrderRestaurant
   deliveryAddress?: { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string }
+  /** Expedite's tracking page; the API sends it only for third-party (Expedite) delivery orders. */
+  deliveryTrackingUrl?: string
   subtotal?: number
   total?: number
   fee?: number
@@ -377,14 +379,16 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                 </>
               )}
 
-              {/* A "Track your delivery" link used to sit here, gated on
-                  detail.nashDeliveryPublicTrackingUrl. That field was PHANTOM —
-                  no route has ever emitted it — so the link could never render
-                  and the promise it implies was never kept. Removed as dead
-                  code rather than left looking like a working feature. It was
-                  the last surviving nashDelivery* reference in the codebase.
-                  Customer-facing courier tracking would need a real field fed
-                  from Expedite's response (see disco_expedite_deliveries). */}
+              {/* Expedite's tracking page, saved from the courier booking
+                  (lib/order/delivery-tracking.ts). The API sends it only for
+                  third-party delivery orders, so pickup and self-delivery
+                  never show it. */}
+              {detail.deliveryTrackingUrl && /^https:\/\//i.test(detail.deliveryTrackingUrl) && (
+                <div style={{ fontSize: 13, color: DARK, marginBottom: 18 }}>
+                  Track your delivery{' '}
+                  <a href={detail.deliveryTrackingUrl} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontWeight: 700 }}>here</a>.
+                </div>
+              )}
 
               {detail.note && (
                 <>

@@ -18,6 +18,7 @@ import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
 import { openCourierAlert, expediteTurnedDownLine } from './order/courier-alert'
 import { fulfillmentDateTime } from './order/fulfillment-time'
+import { trackingUrlFromExpediteResponse } from './order/delivery-tracking'
 
 export const BASE_URL = 'https://api.dlivrd.app/batch/deliveries'
 
@@ -429,6 +430,8 @@ export interface ExpediteCreateResult {
   /** A courier status if the response carries one. */
   status?: string
   delivery_fee?: number
+  /** Expedite's tracking page for the diner (data.result_tracking_link), when the response carries one. */
+  trackingUrl?: string
 }
 
 // Keys checked for Expedite's own delivery id and status. A batch endpoint may
@@ -483,7 +486,8 @@ export async function createDelivery(payload: ExpediteOrder): Promise<ExpediteCr
     if (providerDeliveryId && providerDeliveryId === payload.external_delivery_id) providerDeliveryId = undefined
 
     console.log(`[expedite] createDelivery ok for ${payload.external_delivery_id} (status=${courierStatus ?? 'n/a'} providerId=${providerDeliveryId ?? 'n/a'} fee=${delivery_fee ?? 'n/a'}) body=${body.slice(0, 400)}`)
-    return { success: true, httpStatus: status, body, json, providerDeliveryId, status: courierStatus, delivery_fee }
+    const trackingUrl = trackingUrlFromExpediteResponse(json) ?? undefined
+    return { success: true, httpStatus: status, body, json, providerDeliveryId, status: courierStatus, delivery_fee, trackingUrl }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     console.error('[expedite] createDelivery error:', error)
@@ -586,7 +590,8 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
         SET expedite_delivery_id = ${payload.external_delivery_id},
             expedite_provider_delivery_id = ${result.providerDeliveryId ?? null},
             expedite_status = COALESCE(${result.status ?? null}, expedite_status),
-            expedite_delivery_fee = ${result.delivery_fee ?? null}, updated_at = NOW()
+            expedite_delivery_fee = ${result.delivery_fee ?? null},
+            expedite_tracking_url = COALESCE(${result.trackingUrl ?? null}, expedite_tracking_url), updated_at = NOW()
         WHERE id = ${orderId}
       `.catch(e => console.error('[expedite] native row update failed:', e instanceof Error ? e.message : e))
       console.log('[expedite] native delivery dispatched for', reference)

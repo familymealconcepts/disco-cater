@@ -252,6 +252,14 @@ function renderNote(p: BaseOrderParams): string {
   return `<p style="margin:0;"><strong>Order Notes:</strong> ${escapeHtml(p.note)}</p>${HR}`
 }
 
+// "Track your delivery here" — FamilyMeal's line (user-order-confirm.ftl), with Expedite's tracking page.
+// Empty unless a link is passed, and callers pass one ONLY for third-party (Expedite) delivery orders
+// (lib/order/delivery-tracking.ts), so pickup and self-delivery emails are unchanged.
+function trackingLine(url: string | undefined, who: 'customer' | 'restaurant'): string {
+  if (!url) return ''
+  return `<p style="margin-top:20px;">${who === 'customer' ? 'Track your delivery' : 'Track this delivery'} <a href="${escapeHtml(url)}" style="color:#5B6FE8;">here</a>.</p>`
+}
+
 // ── 1. Customer order confirmation (user-order-confirm.ftl) ──────────────────
 
 // Returns sendEmail's full SendResult, not just {success}: these two are the
@@ -295,7 +303,7 @@ ${HR}
 <p style="margin:0;">Order ID: ${escapeHtml(p.orderNumber)}</p>
 ${p.taxExemptId ? `<p style="margin:8px 0 0 0;"><strong>Tax Exempt #: ${escapeHtml(p.taxExemptId)}</strong></p>` : ''}
 ${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${escapeHtml(p.taxExemptState)}</strong></p>` : ''}
-${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track your delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
+${trackingLine(p.deliveryTrackingUrl, 'customer')}
 ${anyQuestions(p)}
 `
     return await sendEmail({ orderNumber: p.orderNumber,
@@ -389,7 +397,7 @@ ${HR}
 ${p.taxExemptId ? `<p style="margin:8px 0 0 0;"><strong>Tax Exempt #: ${escapeHtml(p.taxExemptId)}</strong></p>` : ''}
 ${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${escapeHtml(p.taxExemptState)}</strong></p>` : ''}
 ${p.deliveryId ? `<p style="margin-top:20px;">Delivery Id: ${escapeHtml(p.deliveryId)}</p>` : ''}
-${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
+${trackingLine(p.deliveryTrackingUrl, 'restaurant')}
 `
     return await sendEmail({ orderNumber: p.orderNumber,
       to: p.restaurantEmail,
@@ -430,7 +438,7 @@ ${HR}
 ${renderTotals(p)}
 ${HR}
 <p style="margin:0;">Order ID: ${escapeHtml(p.orderNumber)}</p>
-${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track your delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
+${trackingLine(p.deliveryTrackingUrl, 'customer')}
 ${anyQuestions(p)}
 `
     return await sendEmail({ orderNumber: p.orderNumber,
@@ -480,6 +488,7 @@ ${HR}
 ${renderTotals(p)}
 ${HR}
 <p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong></p>
+${trackingLine(p.deliveryTrackingUrl, 'restaurant')}
 `
     return await sendEmail({ orderNumber: p.orderNumber,
       to: p.to,
@@ -898,6 +907,7 @@ export async function sendOrderUpdated(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number
   paymentOutcome?: EditPaymentOutcome
+  deliveryTrackingUrl?: string
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -910,6 +920,7 @@ ${renderEditItems(p.items)}
 ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
 <p style="margin:6px 0 0 0;">${paymentSummary(p.delta, p.paymentOutcome)}</p>
+${trackingLine(p.deliveryTrackingUrl, 'customer')}
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Your order has been updated | Disco Cater', html: layout(content) })
   } catch (err) {
@@ -945,6 +956,7 @@ ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 export async function sendCustomerInvoiceReminder(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
   amountDue: number; orderDate?: string; invoiceUrl?: string
+  deliveryTrackingUrl?: string
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -953,6 +965,7 @@ export async function sendCustomerInvoiceReminder(params: {
 <p style="margin:0 0 12px 0;">This is a reminder that your order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}${p.orderDate ? ` for ${escapeHtml(p.orderDate)}` : ''} is still awaiting payment of <strong>${money(p.amountDue)}</strong>.</p>
 <p style="margin:0;">Please pay the invoice below so ${escapeHtml(p.businessName)} can confirm your order.</p>
 ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
+${trackingLine(p.deliveryTrackingUrl, 'customer')}
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Reminder: payment due for order #${p.orderNumber} | Disco Cater`, html: layout(content) })
   } catch (err) {
@@ -964,6 +977,7 @@ ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 export async function sendOrderEditPaymentConfirmed(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; orderType?: string | null; items?: EditItem[]; newTotal?: number
+  deliveryTrackingUrl?: string
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -973,6 +987,7 @@ export async function sendOrderEditPaymentConfirmed(params: {
 ${dateTimeLine(p.orderDate, p.orderTime, p.orderType)}
 ${p.items && p.items.length ? `${HR}${renderEditItems(p.items)}` : ''}
 ${p.newTotal != null ? `${HR}<p style="margin:0;"><strong>Total: ${money(p.newTotal)}</strong></p>` : ''}
+${trackingLine(p.deliveryTrackingUrl, 'customer')}
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: 'Order update confirmed | Disco Cater', html: layout(content) })
   } catch (err) {
@@ -1025,6 +1040,7 @@ export async function sendOrderUpdatedRestaurant(params: {
   orderDate?: string; orderTime?: string; orderType?: string | null; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
   paymentOutcome?: EditPaymentOutcome
   attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
+  deliveryTrackingUrl?: string
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -1037,6 +1053,7 @@ ${renderEditItems(p.items)}
 ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
 <p style="margin:6px 0 0 0;">${paymentSummary(p.delta, p.paymentOutcome)}</p>
+${trackingLine(p.deliveryTrackingUrl, 'restaurant')}
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content), attachments: p.attachments })
   } catch (err) {
@@ -1101,6 +1118,7 @@ export async function sendCustomerItemUnavailableRefund(params: {
  */
 export async function sendRestaurantInvoicePaid(params: {
   to: string; orderNumber: string | number; total: number; customerName?: string; orderDate?: string
+  deliveryTrackingUrl?: string
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -1109,6 +1127,7 @@ export async function sendRestaurantInvoicePaid(params: {
 <p style="margin:0 0 12px 0;">The invoice for order <strong>#${escapeHtml(p.orderNumber)}</strong>${who}${p.orderDate ? ` (for ${escapeHtml(p.orderDate)})` : ''} has been <strong>paid</strong>.</p>
 <p style="margin:0 0 12px 0;">Amount: <strong>$${p.total.toFixed(2)}</strong></p>
 <p style="margin:0;">No action needed — you already received the order confirmation when it was placed. This is confirmation that payment has cleared.</p>
+${trackingLine(p.deliveryTrackingUrl, 'restaurant')}
 `
     return await sendEmail({ orderNumber: p.orderNumber, to: p.to, subject: `Invoice paid — order #${p.orderNumber} | Disco Cater`, html: layout(content) })
   } catch (err) {

@@ -25,6 +25,7 @@ import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
 import { restaurantDisplayAddress } from './address-display'
 import { notifyNmOrderEvent } from './nm-order-event'
+import { loadDeliveryTrackingUrl } from './order/delivery-tracking'
 
 // Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
 // creates for a login-disabled holder row — provably never deliverable (confirmed
@@ -621,6 +622,8 @@ export async function dispatchOrderConfirmations(
       persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
       companyName: o.company_name ? String(o.company_name) : undefined,
       note: o.note ? String(o.note) : undefined,
+      // Expedite's tracking page — third-party delivery orders only (undefined otherwise).
+      deliveryTrackingUrl: await loadDeliveryTrackingUrl({ id: orderId }),
       // Prefer the canonical cache name; fall back to the order's stored name.
       businessName: cacheName || (o.restaurant_name ? String(o.restaurant_name) : '') || 'the restaurant',
       // Store contact (FM format) — canonical in disco_restaurant_cache.
@@ -925,6 +928,7 @@ export async function dispatchInvoicePaidRestaurantNotification(orderId: number)
     }
 
     const customerName = [o.customer_first_name, o.customer_last_name].filter(Boolean).map(String).join(' ').trim()
+    const deliveryTrackingUrl = await loadDeliveryTrackingUrl({ id: orderId })
     for (const to of Array.from(new Set(recipientList.map((e) => e.toLowerCase())))) {
       pending.push(sendRestaurantInvoicePaid({
         to,
@@ -932,6 +936,7 @@ export async function dispatchInvoicePaidRestaurantNotification(orderId: number)
         total: num(o.total),
         customerName: customerName || undefined,
         orderDate: o.order_date ? fmtDate(o.order_date) : undefined,
+        deliveryTrackingUrl,
       }).catch((err) => console.error('[order-notifications] invoice-paid restaurant email failed:', err)))
     }
   } catch (err) {

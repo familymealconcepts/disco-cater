@@ -14,6 +14,7 @@ import { dispatchOrderConfirmations, dispatchInventoryUnavailableNotification } 
 import { checkOrderInventoryAtPayment } from './native-inventory'
 import { refundNativeOrder } from './native-refund'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
+import { bookCourierThenConfirm } from './delivery-tracking'
 import { alertSoldOutRefundFailed } from './money-alerts'
 import { waitUntil } from '@vercel/functions'
 
@@ -154,10 +155,18 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
   // dispatch — the guard ensures it only ever fires once per order, so a
   // sweep-triggered call here is safe even if the webhook eventually also
   // fires for the same PaymentIntent.
-  waitUntil(dispatchOrderConfirmations(order.id, source))
-
+  //
   // Native third-party-delivery orders complete here (not via the FM confirm-
   // payment path), so dispatch their courier here too. OFF by default (real
   // courier cost). Idempotent + strict THIRD_PARTY_DELIVERY guard inside.
-  if (nativeDispatchEnabled()) waitUntil(dispatchExpediteForOrder(order.id))
+  //
+  // The courier is booked FIRST so the confirmation can carry Expedite's
+  // tracking link, as FamilyMeal's does. The confirmation waits at most ~10
+  // seconds for the booking, then goes out without the link; a failed booking
+  // sends it at once. Pickup and self-delivery orders are refused by the
+  // booking's claim immediately, so their confirmations are not delayed.
+  waitUntil(bookCourierThenConfirm(
+    nativeDispatchEnabled() ? () => dispatchExpediteForOrder(order.id) : null,
+    () => dispatchOrderConfirmations(order.id, source),
+  ))
 }

@@ -5,6 +5,7 @@ import { sql } from '../../../../lib/db'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 import { loadCurrentBreakdown } from '../../../../lib/order/current-breakdown'
 import { editRefundedFor } from '../../../../lib/order/refundable'
+import { loadDeliveryTrackingUrl } from '../../../../lib/order/delivery-tracking'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -73,6 +74,8 @@ async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextRespons
     refund: dnum(nr.refund),
     editRefunded,
     note: nr.note || '',
+    // Expedite's tracking page — third-party delivery orders only (undefined otherwise).
+    deliveryTrackingUrl: await loadDeliveryTrackingUrl({ id: nr.id as number }),
     // 1P (FAMILYMEAL, the restaurant's own /order/ link) or 3P (DISCO). "Order
     // again" returns a 1P customer to the restaurant's own link.
     sourceOfOrder: nr.source_of_order || null,
@@ -151,6 +154,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ref:
             } catch { /* best-effort enrichment */ }
           }
           if (nr?.source_of_order && !data.sourceOfOrder) data.sourceOfOrder = nr.source_of_order
+          if (nr && data && typeof data === 'object' && !data.deliveryTrackingUrl) {
+            const url = await loadDeliveryTrackingUrl({ id: nr.id as number })
+            if (url) data.deliveryTrackingUrl = url
+          }
           return NextResponse.json(data)
         }
         // FM non-OK (e.g. the restaurant/order was deleted) → fall through to Neon.

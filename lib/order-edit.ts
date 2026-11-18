@@ -9,6 +9,7 @@ import { resolveRestaurantNotificationEmails, sendOrderUpdateEmails, type OrderU
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
 import { formatTime12 } from './utils/time'
 import { assertFiniteMoney } from './promo-pricing'
+import { loadDeliveryTrackingUrl } from './order/delivery-tracking'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTimeHuman = formatTime12
@@ -662,6 +663,8 @@ export async function applyPendingEdit(args: {
   // keeps the instance alive (see sendOrderUpdateEmails).
   const emails: OrderUpdateEmail[] = []
   const customerEmail = String(p.customerEmail || '')
+  // Expedite's tracking page — third-party delivery orders only, read after the edit is applied.
+  const deliveryTrackingUrl = await loadDeliveryTrackingUrl({ reference: orderReference })
   if (customerEmail) {
     emails.push({ kind: 'customer', to: customerEmail, email: 'edit_payment_confirmed', send: () => sendOrderEditPaymentConfirmed({
       to: customerEmail, firstName: String(p.firstName || ''),
@@ -669,6 +672,7 @@ export async function applyPendingEdit(args: {
       orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime), orderType: typeof p.orderType === 'string' ? p.orderType : null,
       items: Array.isArray(p.newItems) ? (p.newItems as EditItem[]) : undefined,
       newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
+      deliveryTrackingUrl,
     }) })
   }
 
@@ -685,7 +689,7 @@ export async function applyPendingEdit(args: {
     }
     for (const to of restaurantEmails) {
       emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({
-        to,
+        to, deliveryTrackingUrl,
         orderNumber: String(p.orderNumber || ''),
         businessName: String(p.businessName || 'the restaurant'),
         orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime), orderType: typeof p.orderType === 'string' ? p.orderType : null,

@@ -10,6 +10,7 @@ import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { fmtDateHuman, type ExpediteSyncResult } from '../../../../../../lib/order-edit'
 import { syncCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { formatTime12 as fmtTimeHuman } from '../../../../../../lib/utils/time'
+import { loadDeliveryTrackingUrl } from '../../../../../../lib/order/delivery-tracking'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -42,12 +43,15 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
     }))
     const dateStr = fmtDateHuman(orderDate)
     const timeStr = fmtTimeHuman(orderTime)
+    // Expedite's tracking page — third-party delivery orders only.
+    const deliveryTrackingUrl = await loadDeliveryTrackingUrl({ id: o.id })
 
     if (o.customer_email) {
       await sendOrderUpdated({
         to: o.customer_email, firstName: o.customer_first_name || '',
         orderNumber: o.order_number, businessName: o.business_name,
         orderDate: dateStr, orderTime: timeStr, orderType: o.order_type, items, newTotal: o.total, delta: 0,
+        deliveryTrackingUrl,
       }).catch(e => console.error('[admin/orders/date-time] customer email:', e))
     }
 
@@ -68,7 +72,7 @@ async function notifyDateTimeChanged(orderRef: string, orderDate: string, orderT
         to, orderNumber: o.order_number, businessName: o.business_name,
         orderDate: dateStr, orderTime: timeStr, orderType: o.order_type, items, newTotal: o.total, delta: 0,
         changeSummary: `The date and time changed to ${dateStr} at ${timeStr}.`,
-        attachments,
+        attachments, deliveryTrackingUrl,
       }).catch(e => console.error('[admin/orders/date-time] restaurant email:', e))
     }
   } catch (e) {

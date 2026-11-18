@@ -10,6 +10,7 @@ import Stripe from 'stripe'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 import { withCronRun } from '../../../../lib/cron-runs'
+import { loadDeliveryTrackingUrl } from '../../../../lib/order/delivery-tracking'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -197,6 +198,7 @@ async function runInvoiceReminders(): Promise<{ candidates: number; sent: number
       amountDue: num(o.total),
       orderDate: o.order_date ? fmtDate(String(o.order_date)) : undefined,
       invoiceUrl,
+      deliveryTrackingUrl: await loadDeliveryTrackingUrl({ reference: String(o.reference) }),
     })
     if (res.success) sent++; else skipped++
   }
@@ -283,6 +285,8 @@ async function runGet(req: NextRequest) {
       const packages = await loadPackages(o.id)
       const res = await sendCustomerOrderReminder({
         to: o.customer_email as string,
+        // Expedite's tracking page — third-party delivery orders only (undefined otherwise).
+        deliveryTrackingUrl: await loadDeliveryTrackingUrl({ id: o.id }),
         firstName: o.customer_first_name || undefined,
         lastName: o.customer_last_name || undefined,
         orderService: fulfillmentLabel(o.delivery_type, o.order_type),
@@ -363,10 +367,12 @@ async function runGet(req: NextRequest) {
 
       const packages = await loadPackages(o.id)
       const addr = deliveryAddress(o)
+      const deliveryTrackingUrl = await loadDeliveryTrackingUrl({ id: o.id })
       let anySent = false
       for (const to of recipients) {
         const res = await sendRestaurantOrderReminder({
           to,
+          deliveryTrackingUrl,
           firstName: o.customer_first_name || undefined,
           lastName: o.customer_last_name || undefined,
           userEmail: o.customer_email || undefined,

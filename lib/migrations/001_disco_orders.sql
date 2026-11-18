@@ -709,6 +709,9 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS menu_reference UUID;
 -- learn their id if the create response carries it, which is exactly what
 -- disco_expedite_deliveries (below) exists to establish.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_provider_delivery_id TEXT;
+-- Expedite's tracking page (booking response data.result_tracking_link), shown to the diner on
+-- third-party delivery orders only (lib/order/delivery-tracking.ts).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_tracking_url TEXT;
 
 -- Full request/response capture for every Expedite dispatch attempt.
 --

@@ -63,6 +63,7 @@ async function createExpediteDelivery(orderId: number, orderReference: string): 
         UPDATE disco_orders
         SET expedite_delivery_id = ${payload.external_delivery_id},
             expedite_delivery_fee = ${result.delivery_fee ?? null},
+            expedite_tracking_url = COALESCE(${result.trackingUrl ?? null}, expedite_tracking_url),
             delivery_type = 'THIRD_PARTY_DELIVERY',
             updated_at = NOW()
         WHERE id = ${orderId}

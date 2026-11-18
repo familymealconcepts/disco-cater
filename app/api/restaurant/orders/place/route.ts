@@ -11,6 +11,7 @@ import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../
 import { parseTaxExempt } from '../../../../../lib/order/tax-exempt'
 import { dispatchOrderConfirmations } from '../../../../../lib/order-notifications'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../lib/expedite'
+import { bookCourierThenConfirm } from '../../../../../lib/order/delivery-tracking'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { assertRestaurantAcceptsDirectEntry, orderableErrorBody, staffPaymentNotConfiguredBody } from '../../../../../lib/restaurant-orderable'
 import { NativePaymentNotConfiguredError } from '../../../../../lib/order/native-checkout'
@@ -370,7 +371,9 @@ export async function POST(req: NextRequest) {
       // the customer cannot receive two confirmations for one order. FM's
       // separate invoice-paid restaurant email is kept and fires there instead --
       // see dispatchInvoicePaidRestaurantNotification.
-      waitUntil(dispatchOrderConfirmations(r.orderId, 'NATIVE_INVOICE_PLACED'))
+      //
+      // THE COURIER IS BOOKED FIRST (bookCourierThenConfirm, below), so the confirmation can carry
+      // Expedite's tracking link. It waits at most ~10 seconds for the booking, then goes out anyway.
 
       // ── DISPATCH THE COURIER AT PLACEMENT, EXACTLY AS FAMILYMEAL DOES ───────
       // FM books dlivrd when the INVOICE IS CREATED, not when it is paid.
@@ -406,7 +409,10 @@ export async function POST(req: NextRequest) {
       // path finds the row already claimed and returns without calling dlivrd.
       // The claim deliberately does not test order_status, which is why it works
       // on an order that is still UNPAID.
-      if (nativeDispatchEnabled()) waitUntil(dispatchExpediteForOrder(r.orderId))
+      waitUntil(bookCourierThenConfirm(
+        nativeDispatchEnabled() ? () => dispatchExpediteForOrder(r.orderId) : null,
+        () => dispatchOrderConfirmations(r.orderId, 'NATIVE_INVOICE_PLACED'),
+      ))
 
       return NextResponse.json({
         native: true, invoice: true,

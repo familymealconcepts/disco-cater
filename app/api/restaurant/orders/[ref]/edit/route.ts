@@ -57,6 +57,7 @@ import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../
 import { formatTime12 } from '../../../../../../lib/utils/time'
 import { timeAfterFulfillmentSwitch } from '../../../../../../lib/scheduling/cutoffs'
 import { cartSubtotal } from '../../../../../../lib/pricing/cart'
+import { loadDeliveryTrackingUrl } from '../../../../../../lib/order/delivery-tracking'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTime = formatTime12
@@ -868,8 +869,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // Every email this edit sends, sent together under waitUntil below (see
     // sendOrderUpdateEmails for why they are no longer fire-and-forget).
     const emails: OrderUpdateEmail[] = [...earlyEmails]
+    // Read after the edit is saved, so an order switched to pickup or self-delivery gets no tracking line.
+    const deliveryTrackingUrl = await loadDeliveryTrackingUrl({ reference: discoOrder?.reference || ref })
     if (customerEmail) {
-      emails.push({ kind: 'customer', to: customerEmail, email: 'order_updated', send: () => sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
+      emails.push({ kind: 'customer', to: customerEmail, email: 'order_updated', send: () => sendOrderUpdated({ to: customerEmail, firstName, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, paymentOutcome: { action: paymentAction, status: paymentStatus }, deliveryTrackingUrl }) })
       // GATED ON paymentStatus, NOT paymentAction. This used to read
       // `paymentAction === 'refund'`, which is set BEFORE the refund is
       // attempted — so a refund that failed still told the customer their money
@@ -907,7 +910,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       for (const to of restaurantEmails) {
-        emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus } }) })
+        emails.push({ kind: 'restaurant', to, email: 'order_updated', send: () => sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, orderType: newOrderType, items: newItems, newTotal, delta, attachments, paymentOutcome: { action: paymentAction, status: paymentStatus }, deliveryTrackingUrl }) })
       }
     }
     waitUntil(sendOrderUpdateEmails(discoOrder?.reference || ref, 'DISCO_EDIT', emails))
