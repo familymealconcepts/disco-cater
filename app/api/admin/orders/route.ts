@@ -182,6 +182,18 @@ export async function GET(req: NextRequest) {
         } catch (e) {
           console.error('[admin/orders] delivery address lookup failed (non-fatal):', e instanceof Error ? e.message : e)
         }
+        // Disco-funded free delivery (lib/promotions/diner-promotions.ts): the fee the diner didn't pay.
+        try {
+          const waived = (await sql`
+            SELECT o.reference::text AS ref, t.disco_promo_delivery_waived::float8 AS waived
+              FROM disco_orders o JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+             WHERE o.reference = ANY(${refs}::uuid[]) AND t.disco_promo_delivery_waived > 0
+          `) as { ref: string; waived: number }[]
+          const w = new Map(waived.map(x => [x.ref.toLowerCase(), Number(x.waived)]))
+          for (const r of rows) { const v = w.get(refOf(r)); if (v) r.discoPromoDeliveryWaived = v }
+        } catch (e) {
+          console.error('[admin/orders] free delivery lookup failed (non-fatal):', e instanceof Error ? e.message : e)
+        }
       }
     }
 

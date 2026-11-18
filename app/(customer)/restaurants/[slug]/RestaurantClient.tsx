@@ -1229,7 +1229,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // touching FM, so it doesn't change what "display-only, never read/stored"
   // means for the pricing data above: the orderRef is still ignored client-side,
   // this is only recording that a checkout-ready cart existed at this moment.
-  const [pricingPreview, setPricingPreview] = useState<{ subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null } | null>(null)
+  const [pricingPreview, setPricingPreview] = useState<{ subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null; freeDeliveryWaived?: number | null } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const previewAbortRef = useRef<AbortController | null>(null)
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1365,7 +1365,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       const money = extractPreviewMoney(data)
       const meaningful = money.total != null || money.subtotal != null || money.tax > 0 || money.fee > 0
       if (!meaningful) { setPricingPreview(null); return }
-      setPricingPreview(money)
+      // A Disco "Free delivery" promotion priced in (priceNativeFmDto's freeDelivery sibling).
+      const fd = data?.freeDelivery
+      setPricingPreview({ ...money, freeDeliveryWaived: fd?.applied && typeof fd.waivedFee === 'number' ? fd.waivedFee : null })
     } catch (err: any) {
       if (err?.name === 'AbortError') return // superseded by a fresh debounce
       // eslint-disable-next-line no-console
@@ -2071,6 +2073,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span style={{ color: '#555' }}>Delivery fee</span>
                   {previewLoading
                     ? priceSkeleton
+                    : previewDelivery === 0 && pricingPreview?.freeDeliveryWaived
+                      ? <span style={{ fontWeight: 600 }}><span style={{ textDecoration: 'line-through', color: '#9a9aa6', fontWeight: 500, marginRight: 6 }}>{formatPrice(pricingPreview.freeDeliveryWaived)}</span><span style={{ color: '#15803D' }}>Free delivery applied</span></span>
                     : previewDelivery === 0
                       ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
                       : <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(previewDelivery as number)}</span>}

@@ -966,3 +966,37 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS acq_captured_at TIMESTAMPTZ; -
 -- data at all"; both are tiny scans today (46 3P orders all-time) but this
 -- keeps them honest as volume grows.
 CREATE INDEX IF NOT EXISTS idx_disco_orders_acq_source ON disco_orders (acq_source) WHERE acq_source IS NOT NULL;
+
+-- ── Diner promotions (Peter, 2026-11-18) ─────────────────────────────────────
+-- "Free delivery on your next order from [restaurant]": given by a Super Admin to one diner account,
+-- activated by the diner, used once on that restaurant's next third-party delivery order. DISCO funds
+-- it: the diner's delivery fee goes to 0, the restaurant's payout is unchanged, Disco still pays the
+-- courier. EXPIRED is not stored — an unused promotion past expires_at reads as Expired.
+-- See lib/promotions/diner-promotions.ts.
+CREATE TABLE IF NOT EXISTS disco_diner_promotions (
+  id SERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  promotion_type TEXT NOT NULL DEFAULT 'FREE_DELIVERY' CHECK (promotion_type IN ('FREE_DELIVERY')),
+  customer_id INTEGER NOT NULL,
+  customer_email TEXT NOT NULL,
+  restaurant_reference UUID NOT NULL,
+  status TEXT NOT NULL DEFAULT 'OFFERED' CHECK (status IN ('OFFERED', 'ACTIVATED', 'USED', 'CANCELLED')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  note TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  emailed_at TIMESTAMPTZ,
+  activated_at TIMESTAMPTZ,
+  used_at TIMESTAMPTZ,
+  order_reference UUID,
+  order_number BIGINT,
+  waived_amount NUMERIC(10,2),
+  cancelled_at TIMESTAMPTZ,
+  cancelled_by TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_diner_promotions_customer ON disco_diner_promotions (customer_id, restaurant_reference);
+CREATE INDEX IF NOT EXISTS idx_disco_diner_promotions_order ON disco_diner_promotions (order_reference) WHERE order_reference IS NOT NULL;
+-- The third-party delivery fee Disco waived on this order (a free-delivery diner promotion). The
+-- order's third_party_delivery_fee is what the diner paid (0); reports show this as Disco-funded.
+ALTER TABLE disco_sale_transactions ADD COLUMN IF NOT EXISTS disco_promo_delivery_waived NUMERIC(10,2) NOT NULL DEFAULT 0;

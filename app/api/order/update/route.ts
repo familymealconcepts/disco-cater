@@ -4,6 +4,7 @@ import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
 import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
+import { previewHasFreeDelivery } from '../../../../lib/promotions/checkout-preview'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -101,7 +102,7 @@ export async function PUT(req: NextRequest) {
 
     // ── Disco-native path: re-price the FM-shaped DTO in Neon (zero FM). ──
     if (await isDiscoNativeRestaurant(restaurantRef)) {
-      return NextResponse.json(await priceNativeFmDto(body))
+      return NextResponse.json(await priceNativeFmDto(body, { freeDelivery: await previewHasFreeDelivery(req, String(restaurantRef), body) }))
     }
 
     // Whitelist: keep only FM's standard checkout-DTO fields; drop everything else.

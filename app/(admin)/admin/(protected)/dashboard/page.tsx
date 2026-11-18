@@ -93,6 +93,7 @@ interface AdminSaleStatsRaw {
   thirdPartyDeliveryFeeSum?: number
   refundSum?: number
   serviceChargesSum?: number
+  discoPromoDeliveryWaivedSum?: number
   leadgenonediscofee?: number
   leadgentwodiscofee?: number
   platformFees?: number
@@ -437,6 +438,7 @@ export default function AdminDashboard() {
         <SaleCard title="Stripe Fees" value={saleRaw.stripeFeeSum} />
         <SaleCard title="Refunds" value={saleRaw.refundSum} />
         {hasServiceCharges && <SaleCard title="Service Charges" value={saleRaw.serviceChargesSum} />}
+        {(saleRaw.discoPromoDeliveryWaivedSum ?? 0) > 0 && <SaleCard title="Free Delivery (Disco Promotion)" value={saleRaw.discoPromoDeliveryWaivedSum} />}
         {hasLeadGen1 && <SaleCard title="Lead Gen 1" value={saleRaw.leadgenonediscofee} />}
         {hasLeadGen2 && <SaleCard title="Lead Gen 2" value={saleRaw.leadgentwodiscofee} />}
       </div>

@@ -87,6 +87,8 @@ interface Order {
   deliveryState?: string | null
   deliveryZip?: string | null
   deliveryInstructions?: string | null
+  // A Disco-funded free-delivery promotion's waived fee (app/api/admin/orders/route.ts).
+  discoPromoDeliveryWaived?: number
 }
 
 // FM returns the order reference under `reference`; every consumer here (the Edit
@@ -428,6 +430,7 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {order.orderType === 'DELIVERY' && order.deliveryInstructions && detailRow('Delivery instructions', order.deliveryInstructions)}
           {detailRow('Status', order.orderStatus || '—')}
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
+          {(order.discoPromoDeliveryWaived ?? 0) > 0 && detailRow('Free delivery (Disco promotion)', `${fmtCurrency(order.discoPromoDeliveryWaived ?? 0)} delivery fee waived, paid by Disco`)}
           {(order.refundFeeRecovered ?? 0) > 0 && detailRow('Stripe fee on refund (paid by restaurant)', fmtCurrency(order.refundFeeRecovered ?? 0))}
           {(order.refundFeeUncollected ?? 0) > 0 && detailRow('Stripe fee on refund (Disco covering)', <span style={{ color: '#B26A00', fontWeight: 700 }}>{fmtCurrency(order.refundFeeUncollected ?? 0)}</span>)}
           {order.emailFailures?.length ? (

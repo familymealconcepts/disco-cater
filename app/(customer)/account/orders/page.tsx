@@ -4,6 +4,7 @@ import Link from 'next/link'
 import OrderDetailPanel from '../components/OrderDetailPanel'
 import NewOrderDialog from './components/NewOrderDialog'
 import { getOrderSourceBadge } from '../../../../lib/order-utils'
+import { HomePromotions } from '../components/PromotionCards'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -516,6 +517,9 @@ export default function OrdersPage() {
           </Link>
         </div>
       </div>
+
+      {/* Open promotions (lib/promotions/diner-promotions.ts) — nothing renders when there are none. */}
+      <HomePromotions />
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>

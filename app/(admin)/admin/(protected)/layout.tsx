@@ -32,6 +32,7 @@ const NAV: NavItem[] = [
   { title: 'Menus', path: '/admin/manage-menus' },
   { title: 'Menu Builder', path: '/admin/menu-builder' },
   { title: 'Promo Codes', path: '/admin/promo-codes' },
+  { title: 'Promotions', path: '/admin/promotions' },
   { title: 'Testing', path: '/admin/testing' },
 ]
 

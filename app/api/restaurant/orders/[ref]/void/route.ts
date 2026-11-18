@@ -4,6 +4,7 @@ import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { cancelCourierAndReport } from '../../../../../../lib/order/courier-sync'
 import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
+import { releaseForCancelledOrder } from '../../../../../../lib/promotions/diner-promotions'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,6 +59,8 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
     // Cancel the Expedite delivery if one was dispatched (best-effort).
     // Recorded on the order and alerted on failure (lib/order/courier-sync.ts).
     if (o.expedite_delivery_id) await cancelCourierAndReport(reference, 'DISCO_VOID', 'voided')
+    // A diner's free-delivery promotion used by this order goes back to Activated (before delivery only).
+    await releaseForCancelledOrder(reference, 'DISCO_VOID')
 
     // Notify the customer their order was canceled (best-effort — never block the void).
     //

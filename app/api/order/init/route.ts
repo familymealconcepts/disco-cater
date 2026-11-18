@@ -6,6 +6,7 @@ import { isDiscoNativeRestaurant, priceNativeFmDto, isNativeOrderingOpen } from 
 import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
 import { recordFunnelStage, isTrackableInitStage } from '../../../../lib/checkout-funnel'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
+import { previewHasFreeDelivery } from '../../../../lib/promotions/checkout-preview'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     // funnel* fields are the checkout-funnel-capture signal (lib/checkout-funnel.ts)
     // — also Disco-only, also never forwarded.
     const {
-      restaurantRef, restaurantPromoCode: _rpc, serviceChargePct: _scp, userEmail: _ue,
+      restaurantRef, restaurantPromoCode: _rpc, serviceChargePct: _scp, userEmail: _ue, discoDirectEntry: _dde,
       funnelSessionId, funnelStage, funnelCartValueCents, funnelItemCount, funnelFulfillmentType,
       ...orderBody
     } = body
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
       if (!(await isNativeOrderingOpen(restaurantRef))) {
         return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
       }
-      const priced = await priceNativeFmDto(body)
+      const priced = await priceNativeFmDto(body, { freeDelivery: await previewHasFreeDelivery(req, restaurantRef, body) })
       trackInit()
       return NextResponse.json(priced)
     }

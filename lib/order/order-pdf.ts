@@ -17,6 +17,7 @@ import { formatTimeWindow } from '../utils/deliveryTimeWindow'
 import { loadOrderItemsWithAddOns } from '../order-items'
 import { formatTime12 } from '../utils/time'
 import { restaurantDisplayAddress } from '../address-display'
+import { waivedForOrder } from '../promotions/diner-promotions'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -104,6 +105,8 @@ export interface OrderPdfData {
   taxes: number | null
   fees: number
   deliveryFee: number
+  /** A Disco-funded free-delivery promotion's waived fee (lib/promotions/diner-promotions.ts). */
+  freeDeliveryWaived?: number
   tip: number
   promo: number
   refund: number
@@ -260,6 +263,7 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
     items: items.map((it) => ({ name: it.name, quantity: it.quantity, price: it.pricePerUnit, note: it.notes ?? undefined, addOns: it.addOns.length ? it.addOns : undefined })),
     subtotal, serviceCharge, taxes, fees, deliveryFee, tip, promo, refund, total,
+    freeDeliveryWaived: isDelivery ? await waivedForOrder(String(o.reference ?? '')) : 0,
   }
 }
 
@@ -546,6 +550,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   else if (d.taxes) totals.push(['Taxes', d.taxes])
   if (d.fees) totals.push(['Fees', d.fees])
   if (d.deliveryFee) totals.push(['Delivery Fee', d.deliveryFee])
+  else if (d.freeDeliveryWaived) totals.push(['Delivery Fee (free delivery)', 0])
   if (d.tip) totals.push(['Tips', d.tip])
   if (d.promo) totals.push(['Discount', -Math.abs(d.promo)])
   // ── THE REFUND MUST COME OFF THE TOTAL ──────────────────────────────────

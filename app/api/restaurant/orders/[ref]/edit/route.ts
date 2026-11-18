@@ -58,6 +58,7 @@ import { formatTime12 } from '../../../../../../lib/utils/time'
 import { timeAfterFulfillmentSwitch } from '../../../../../../lib/scheduling/cutoffs'
 import { cartSubtotal } from '../../../../../../lib/pricing/cart'
 import { loadDeliveryTrackingUrl } from '../../../../../../lib/order/delivery-tracking'
+import { releaseForOrder, waivedForOrder } from '../../../../../../lib/promotions/diner-promotions'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTime = formatTime12
@@ -445,6 +446,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       // would otherwise recompute tax from the live rate and silently reinstate
       // it on an order the customer is exempt on.
       taxExempt: !!(discoOrder as { tax_exempt_id?: string | null }).tax_exempt_id,
+      // A Disco free-delivery promotion's waived fee stays frozen, so an edit never moves the
+      // restaurant's payout because of it (lib/promotions/diner-promotions.ts).
+      discoWaivedDeliveryFee: fulfillment === 'THIRD_PARTY_DELIVERY' ? await waivedForOrder(discoOrder.reference) : 0,
     }
     if (tipReq) {
       newTipDollars = tipReq.type === 'AMOUNT'
@@ -765,6 +769,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     }
     if (fulfillmentAfter === 'THIRD_PARTY_DELIVERY' && nativeDispatchEnabled()) {
       waitUntil(dispatchExpediteForOrder(discoOrder.id))
+    }
+    // Off third-party delivery: the diner's free-delivery promotion goes back to Activated.
+    if (oldFulfillment === 'THIRD_PARTY_DELIVERY' && fulfillmentAfter !== 'THIRD_PARTY_DELIVERY') {
+      await releaseForOrder(discoOrder.reference, 'switched off third-party delivery', 'PORTAL_EDIT')
     }
   }
 

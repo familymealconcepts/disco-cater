@@ -43,8 +43,12 @@ export default function HomeClient() {
     const params = new URLSearchParams(window.location.search)
     const login = params.get('login')
     if (login === 'true' || login === '1') {
-      openAuthModal(undefined, 'login')
+      // A promotion email's Activate link (middleware.ts): back to it once signed in.
+      const next = params.get('next') || ''
+      const back = /^\/account\/promotions(\?activate=[0-9a-fA-F-]{36})?$/.test(next) ? next : ''
+      openAuthModal(back ? () => router.push(back) : undefined, 'login')
       params.delete('login')
+      params.delete('next')
       const qs = params.toString()
       router.replace(qs ? `/?${qs}` : '/')
     }

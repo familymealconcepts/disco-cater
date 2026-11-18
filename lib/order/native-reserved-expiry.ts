@@ -17,6 +17,7 @@ import Stripe from 'stripe'
 import { sql } from '../db'
 import { handleNativePaymentIntentSucceeded, recordOrderEvent } from './native-payment-succeeded'
 import { releaseNativeRestaurantPromoUse } from '../promo-native'
+import { releaseForOrder } from '../promotions/diner-promotions'
 
 export const DEFAULT_RESERVED_EXPIRY_MINUTES = 30
 
@@ -131,6 +132,8 @@ export async function expireStaleNativeReservedOrders(
     // completed the charge. Genuinely dead.
     await sql`UPDATE disco_orders SET order_status = 'EXPIRED', updated_at = NOW() WHERE id = ${row.id}`
     const releasedPromos = await releasePromoForOrder(row.reference)
+    // An abandoned checkout gives the diner's free-delivery promotion back too.
+    await releaseForOrder(row.reference, 'checkout never paid', 'RESERVED_EXPIRY_SWEEP')
     await recordOrderEvent(row.reference, 'RESERVED_EXPIRED', {
       paymentIntentId: pi.id, paymentIntentStatus: pi.status, ageMinutes: minutes, promoUsesReleased: releasedPromos,
     }, 'RESERVED_EXPIRY_SWEEP')

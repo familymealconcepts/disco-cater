@@ -439,6 +439,8 @@ export async function POST(req: NextRequest) {
         // Restaurant-funded promo (M6): honored for native like FM's Path C. The
         // client sends this only for the marketplace flow (not Direct Entry).
         restaurantPromoCode: (body?.restaurantPromoCode ?? null) as string | null,
+        // The signed-in diner's free-delivery promotion (lib/promotions/diner-promotions.ts).
+        dinerPromotionEmail: session.email,
         stripe,
         savedOpts,
       })

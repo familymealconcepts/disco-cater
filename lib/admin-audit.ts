@@ -63,6 +63,8 @@ export type AdminAuditAction =
   // Super Admin → Restaurants buttons that act on every restaurant at once (Peter, 2026-11-10): who
   // clicked and when. restaurant_reference is NULL on these rows; detail carries the run's result.
   | 'admin_list_refresh' | 'map_cache_refresh' | 'google_enrich_run'
+  // Super Admin → Promotions (lib/promotions/diner-promotions.ts): a diner promotion given or cancelled.
+  | 'diner_promotion_create' | 'diner_promotion_cancel'
 
 let auditTableEnsured = false
 export async function ensureAuditTable(): Promise<void> {

@@ -31,6 +31,7 @@ import { alertOps, alertOnce, resolveAlert } from '../ops-alert'
 import { orderLink, money, shortError } from '../ops-alert-format'
 import { orderFacts, orderLine } from '../ops-alert-facts'
 import { cancelCourierAndReport } from './courier-sync'
+import { releaseForCancelledOrder } from '../promotions/diner-promotions'
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 export const ALLOWED_ORDER_STATUSES = new Set([
@@ -220,6 +221,12 @@ export async function applyNativeStatusChange(
     // query and not a guess — the same reason disco_mirror_alerts exists.
     if ((status === 'CANCELED' || status === 'CANCELLED') && rows[0].expedite_delivery_id) {
       await cancelCourierAndReport(rows[0].reference, source, 'cancelled')
+    }
+
+    // A diner's free-delivery promotion used by this order goes back to Activated when the order is
+    // cancelled before its delivery time (lib/promotions/diner-promotions.ts). Never throws.
+    if (status === 'CANCELED' || status === 'CANCELLED' || status === 'VOID' || status === 'VOIDED') {
+      await releaseForCancelledOrder(rows[0].reference, source)
     }
 
     let deferred = false

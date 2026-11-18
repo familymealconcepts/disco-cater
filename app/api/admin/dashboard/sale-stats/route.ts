@@ -42,8 +42,15 @@ async function nativeSaleStats(fromIso: string | null, toIso_: string | null, re
       COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
       COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "thirdPartyTipsOrdersSum",
       COALESCE(SUM(st.third_party_delivery_fee), 0)::float8 AS "thirdPartyDeliveryFeeSum",
-      COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum"
+      COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum",
+      -- Disco-funded free delivery (lib/promotions/diner-promotions.ts): the fee the diner didn't pay,
+      -- recorded on the order's ORIGINAL row only.
+      COALESCE(SUM(pw.waived), 0)::float8 AS "discoPromoDeliveryWaivedSum"
     FROM disco_orders o
+    LEFT JOIN LATERAL (
+      SELECT x.disco_promo_delivery_waived AS waived FROM disco_sale_transactions x
+       WHERE x.order_id = o.id AND x.transaction_type = 'ORIGINAL' LIMIT 1
+    ) pw ON true
     LEFT JOIN LATERAL (
       -- The order's CURRENT figures: newest edit breakdown, else checkout (lib/order/
       -- current-breakdown.ts). Checkout only left paid edits out (#900000522 +$65.97).
@@ -136,6 +143,8 @@ export async function GET(req: NextRequest) {
     thirdPartyTipsOrdersSum: fmThirdPartyTips + n(native.thirdPartyTipsOrdersSum),
     thirdPartyDeliveryFeeSum: fmThirdPartyDelivery + n(native.thirdPartyDeliveryFeeSum),
     serviceChargesSum: n(data.serviceChargesSum) + n(native.serviceChargesSum),
+    // Disco-only: FamilyMeal has no diner promotions.
+    discoPromoDeliveryWaivedSum: n(native.discoPromoDeliveryWaivedSum),
     stripeFeeSum: n(data.stripeFeeSum) + n(native.stripeFeeSum),
     platformFees: fmPlatformFees + n(native.feeSum),
     platformFeesEstimated: !hasFmRealFee,

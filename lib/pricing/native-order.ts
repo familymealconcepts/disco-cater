@@ -149,10 +149,12 @@ export function routeFulfillment(input: {
   deliveryFee?: number
   thirdPartyDeliverySubsiding?: number
   tip: { custom: boolean; amount?: number; pct?: number }
+  discoWaivedDeliveryFee?: number
 }): PricingOrder {
   const fee = input.deliveryFee ?? 0
   const isThirdParty = input.fulfillment === 'THIRD_PARTY_DELIVERY'
   return {
+    discoWaivedDeliveryFee: isThirdParty ? (input.discoWaivedDeliveryFee ?? 0) : 0,
     subtotal: input.subtotal,
     ownDeliveryFee: input.fulfillment === 'OWN_DELIVERY' ? fee : 0,
     thirdPartyDeliveryFee: isThirdParty ? fee : 0,
@@ -181,6 +183,8 @@ export interface NativeOrderInput {
   sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
   /** Tax exemption for THIS order. True zeroes the three sales-tax components. */
   taxExempt?: boolean
+  /** Third-party delivery fee Disco waived (diner promotion); deliveryFee is already 0. */
+  discoWaivedDeliveryFee?: number
 }
 
 export interface NativePricedOrder extends Breakdown {
@@ -209,6 +213,8 @@ export interface FrozenEditContext {
   orderType: 'PICKUP' | 'DELIVERY'
   /** Frozen from the order — an exempt order stays exempt through an edit. */
   taxExempt?: boolean
+  /** Frozen from the order's diner promotion: the delivery fee Disco waived (third-party only). */
+  discoWaivedDeliveryFee?: number
 }
 
 // Re-price an already-placed native order at a NEW subtotal (an item edit),
@@ -233,6 +239,7 @@ export async function priceNativeOrderAtSubtotal(
     deliveryFee,
     thirdPartyDeliverySubsiding: ctx.thirdPartyDeliverySubsiding,
     tip: { custom: true, amount: ctx.tipDollars },
+    discoWaivedDeliveryFee: ctx.discoWaivedDeliveryFee,
   })
   // THE EDIT PATH RE-APPLIES IT. Without this, changing a line would recompute
   // tax from the rate and silently reinstate it on an exempt order.

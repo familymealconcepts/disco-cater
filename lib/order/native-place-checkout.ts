@@ -11,6 +11,7 @@ import { effectiveOrderMinimum, orderMinimumMessage } from './platform-minimums'
 import { checkItemInventoryAvailability } from './native-inventory'
 import { checkCartMinimums } from './native-minimums'
 import { readyTimeForSlot } from '../scheduling/cutoffs'
+import { findActivatedFreeDelivery, reserveForOrder, releaseReservation, finalizeForOrder } from '../promotions/diner-promotions'
 import {
   reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse,
   type NativePromoResolution,
@@ -59,9 +60,15 @@ export interface NativeCheckoutParams {
    * of the two and was verified independently rather than assumed to inherit it.
    */
   isDirectEntry?: boolean
+  /**
+   * The SIGNED-IN diner's email, for their "Free delivery" promotion (lib/promotions/diner-promotions.ts).
+   * Set ONLY by the diner's own checkout (/api/order/place, from the session) — never by direct entry
+   * or the restaurant's invoice path, so a promotion is only ever used by the account it was given to.
+   */
+  dinerPromotionEmail?: string | null
 }
 
-interface BuiltNativeOrder { input: NativePlaceInput; promo: NativePromoResolution | null }
+interface BuiltNativeOrder { input: NativePlaceInput; promo: NativePromoResolution | null; freeDeliveryPromotionId: number | null }
 type BuildOutcome = { ok: true; built: BuiltNativeOrder } | { ok: false; status: number; error: string }
 
 // Shared prelude for BOTH native money paths (card charge + invoice): the
@@ -297,6 +304,11 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
 
   const tip = tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips }
 
+  // The diner's activated free-delivery promotion for this restaurant (diner checkout only).
+  const freeDeliveryPromotion = params.dinerPromotionEmail && params.isDirectEntry !== true
+    ? await findActivatedFreeDelivery(params.dinerPromotionEmail, ref)
+    : null
+
   // Resolve the promo + fulfillment + delivery fee TOGETHER, off the discounted
   // subtotal — priceNativeCart is the exact same function the pricing preview
   // calls (native-checkout.ts), so what the customer saw before placing cannot
@@ -315,6 +327,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     taxExempt: params.taxExempt === true,
     sourceOfOrder,
     isDirectEntry: params.isDirectEntry === true,
+    freeDelivery: !!freeDeliveryPromotion,
   })
   if (!priced.deliveryValid) {
     return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
@@ -371,6 +384,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     tip,
     deliveryFee: priced.deliveryFee,
     thirdPartyDeliverySubsiding: priced.thirdPartyDeliverySubsiding,
+    discoWaivedDeliveryFee: priced.discoWaivedDeliveryFee,
     discountPct: promo?.pct ?? 0,
     scPct: await loadRestaurantServiceChargePct(ref, menuReference),
     orderDate,
@@ -385,7 +399,8 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     taxExemptId: params.taxExemptId ?? null,
     taxExemptState: params.taxExemptState ?? null,
   }
-  return { ok: true, built: { input, promo } }
+  // Only a promotion that actually waived a fee is taken (a pickup or self-delivery order leaves it Activated).
+  return { ok: true, built: { input, promo, freeDeliveryPromotionId: priced.discoWaivedDeliveryFee > 0 && freeDeliveryPromotion ? freeDeliveryPromotion.id : null } }
 }
 
 // Reserve the promo's cap slot BEFORE any charge is attempted — this is the
@@ -416,17 +431,33 @@ async function reservePromoOrFail(promo: NativePromoResolution | null, params: N
 export async function placeNativeCheckout(params: NativeCheckoutParams): Promise<NativeCheckoutOutcome> {
   const b = await buildNativePlaceInput(params)
   if (!b.ok) return b
-  const { input, promo } = b.built
+  const { input, promo, freeDeliveryPromotionId } = b.built
 
   const reserved = await reservePromoOrFail(promo, params, input.restaurantReference)
   if (!reserved.ok) return reserved
+
+  // Take the free-delivery promotion BEFORE any charge, like the promo code above. Lost to a
+  // concurrent order or its expiry in the moment since pricing: refuse rather than charge a total
+  // the diner wasn't shown.
+  if (freeDeliveryPromotionId != null && !(await reserveForOrder(freeDeliveryPromotionId))) {
+    if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
+    return { ok: false, status: 409, error: 'Your free delivery promotion is no longer available. Please review your order total and try again.' }
+  }
 
   let result: NativePlaceAndPayResult
   try {
     result = await placeAndPayNativeOrder(input, params.stripe, params.savedOpts)
   } catch (e) {
     if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
+    if (freeDeliveryPromotionId != null) await releaseReservation(freeDeliveryPromotionId)
     throw e
+  }
+
+  if (freeDeliveryPromotionId != null) {
+    await finalizeForOrder(freeDeliveryPromotionId, {
+      orderReference: result.orderReference, orderNumber: result.orderNumber,
+      waived: input.discoWaivedDeliveryFee ?? 0, source: 'NATIVE_CHECKOUT',
+    }).catch((e) => console.error('[native-place-checkout] free delivery finalize failed:', e instanceof Error ? e.message : e))
   }
 
   if (reserved.reservationId != null) {

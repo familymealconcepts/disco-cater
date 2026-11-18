@@ -158,7 +158,12 @@ export async function middleware(req: NextRequest) {
   if (['/account', '/portal'].some(p => pathname.startsWith(p)) && !customerToken) {
     const url = req.nextUrl.clone()
     url.pathname = '/'
+    // The promotion email's Activate link: come back to it after signing in
+    // (HomeClient honors only this one path).
+    const back = pathname.startsWith('/account/promotions') ? pathname + req.nextUrl.search : ''
+    url.search = ''
     url.searchParams.set('login', '1')
+    if (back) url.searchParams.set('next', back)
     return NextResponse.redirect(url)
   }
 

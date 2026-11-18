@@ -62,6 +62,13 @@ export interface NativeCheckoutInput {
   tip?: NativeTip
   deliveryFee?: number                 // customer-facing delivery fee (third-party: net of subsidy)
   thirdPartyDeliverySubsiding?: number // restaurant's subsidy share (off its payout)
+  /**
+   * The third-party delivery fee Disco waived for this diner (a "Free delivery" diner promotion,
+   * lib/promotions/diner-promotions.ts). deliveryFee is 0 when this is set. Recorded on the sale
+   * transaction as disco_promo_delivery_waived and used only to keep the restaurant's payout
+   * exactly what it would have been with the fee charged.
+   */
+  discoWaivedDeliveryFee?: number
   discountPct?: number
   scPct?: number
   // 1P Direct URL ('FAMILYMEAL') vs 3P marketplace URL ('DISCO', default). Drives
@@ -643,6 +650,12 @@ export interface PriceNativeCartInput {
    * travels as a parameter and nothing guesses it.
    */
   isDirectEntry?: boolean
+  /**
+   * The diner has an ACTIVATED "Free delivery" promotion for this restaurant
+   * (lib/promotions/diner-promotions.ts). Waives the diner's third-party delivery fee only —
+   * pickup and self-delivery ignore it. The caller looks the promotion up; this only prices it.
+   */
+  freeDelivery?: boolean
 }
 
 export interface PriceNativeCartResult {
@@ -650,6 +663,8 @@ export interface PriceNativeCartResult {
   fulfillment: Fulfillment
   deliveryFee: number
   thirdPartyDeliverySubsiding: number
+  /** The third-party delivery fee Disco waived (free-delivery promotion); 0 when none applied. */
+  discoWaivedDeliveryFee: number
   promo: NativePromoResolution | null
   // Set whenever a restaurantPromoCode was submitted but didn't resolve — null
   // whenever no code was submitted at all (never conflate "no code" with "code
@@ -742,6 +757,16 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     }
   }
 
+  // FREE DELIVERY (Disco-funded diner promotion): third-party delivery only. The diner's fee goes to
+  // 0; the restaurant's own subsidy share stays, and the payout is computed as if the fee had been
+  // charged (discoWaivedDeliveryFee), so the restaurant is paid exactly the same. Tip, service
+  // charge, tax (delivery is not in the tax base) and minimums are untouched.
+  let discoWaivedDeliveryFee = 0
+  if (input.freeDelivery === true && fulfillment === 'THIRD_PARTY_DELIVERY' && deliveryValid && deliveryFee > 0) {
+    discoWaivedDeliveryFee = deliveryFee
+    deliveryFee = 0
+  }
+
   const scPct = await loadRestaurantServiceChargePct(input.restaurantReference, menuReference)
   const breakdown = await priceNativeOrder({
     restaurantReference: input.restaurantReference,
@@ -755,6 +780,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     discountPct,
     sourceOfOrder: input.sourceOfOrder,
     taxExempt: input.taxExempt === true,
+    discoWaivedDeliveryFee,
   })
 
   return {
@@ -762,6 +788,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     fulfillment,
     deliveryFee,
     thirdPartyDeliverySubsiding,
+    discoWaivedDeliveryFee,
     promo,
     promoError,
     deliveryValid,
@@ -787,6 +814,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
     discountPct: input.discountPct,
     sourceOfOrder: input.sourceOfOrder,
     taxExempt: input.taxExempt === true,
+    discoWaivedDeliveryFee: input.fulfillment === 'THIRD_PARTY_DELIVERY' ? (input.discoWaivedDeliveryFee ?? 0) : 0,
   })
   return { ...breakdown, subtotal }
 }
@@ -877,7 +905,7 @@ function dinerMessageForNativePromoReason(reason: NativePromoReason): string {
 // response envelope the client already understands. Delivery is third-party (Disco
 // uses Expedite for all delivery); own-delivery + real delivery fees arrive with
 // Stage 6 settings.
-export async function priceNativeFmDto(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function priceNativeFmDto(body: Record<string, unknown>, opts?: { freeDelivery?: boolean }): Promise<Record<string, unknown>> {
   const restaurantRef = String(body?.restaurantRef || body?.restaurantReference || '')
   const orderType = String(body?.orderType || 'PICKUP') === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
   const tipsType = String(body?.tipsType || 'PERCENTAGE')
@@ -931,6 +959,8 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
     ...(orderType === 'DELIVERY' && deliveryAddress ? { deliveryAddress } : {}),
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
     restaurantPromoCode,
+    // The signed-in diner's ACTIVATED free-delivery promotion, looked up by the route.
+    freeDelivery: opts?.freeDelivery === true,
   })
   const b = priced.breakdown
   const tipsInPrice = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
@@ -960,6 +990,8 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
     // Present ONLY when a code was submitted and failed to resolve; a diner who
     // submitted no code never sees this key at all.
     ...(restaurantPromoCode && priced.promoError ? { restaurantPromoError: dinerMessageForNativePromoReason(priced.promoError) } : {}),
+    // "Free delivery applied": present only when a promotion actually waived a fee on this cart.
+    ...(priced.discoWaivedDeliveryFee > 0 ? { freeDelivery: { applied: true, waivedFee: priced.discoWaivedDeliveryFee } } : {}),
   }
 }
 
@@ -985,6 +1017,8 @@ export interface NativePlaceResult {
   // components cannot disagree with the charge).
   ownDeliveryFee: number
   thirdPartyDeliveryFee: number
+  /** The third-party delivery fee Disco waived (free-delivery promotion), as persisted. */
+  discoWaivedDeliveryFee: number
   orderDate: string
   orderType: string
 }
@@ -1043,6 +1077,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   const ownDeliveryFee = input.fulfillment === 'OWN_DELIVERY' ? fee : 0
   const thirdPartyDeliveryFee = input.fulfillment === 'THIRD_PARTY_DELIVERY' ? fee : 0
   const thirdPartyDeliverySubsiding = input.fulfillment === 'THIRD_PARTY_DELIVERY' ? round2(input.thirdPartyDeliverySubsiding ?? 0) : 0
+  const discoWaivedDeliveryFee = input.fulfillment === 'THIRD_PARTY_DELIVERY' ? round2(input.discoWaivedDeliveryFee ?? 0) : 0
   const tipsTotal = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
   const da = input.deliveryAddress ?? {}
   const daZip = da.zip ?? da.zipcode ?? null
@@ -1109,12 +1144,12 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
     INSERT INTO disco_sale_transactions (
       order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
       state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
-      own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
+      own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount, disco_promo_delivery_waived,
       lead_gen_one_disco_fee, lead_gen_two_disco_fee, money_flow, source, created_at, updated_at
     ) VALUES (
       ${order.id}, 'INITIATED', 'ORIGINAL', ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${b.serviceCharge}, ${b.stripeFee},
       ${b.stateTax}, ${b.localTax}, ${b.otherTax}, ${b.tipsInPrice}, ${b.thirdPartyDeliveryTips},
-      ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b.discount},
+      ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b.discount}, ${discoWaivedDeliveryFee},
       ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, ${input.moneyFlow ?? 'DIRECT'}, 'NATIVE_CHECKOUT', NOW(), NOW()
     )
   `
@@ -1123,7 +1158,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
     orderId: order.id, orderReference: order.reference, orderNumber: Number(order.order_number), breakdown: b,
     // Surfaced so the Stripe charge description prints the SAME delivery split that
     // was just persisted, rather than re-deriving it and risking disagreement.
-    ownDeliveryFee, thirdPartyDeliveryFee,
+    ownDeliveryFee, thirdPartyDeliveryFee, discoWaivedDeliveryFee,
     orderDate: input.orderDate, orderType,
   }
 }

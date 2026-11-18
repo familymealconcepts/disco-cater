@@ -514,6 +514,12 @@ export default function CheckoutDrawer({
   // ── Computed ───────────────────────────────────────────────────────────────
   const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
   const displayDeliveryFee = fm?.deliveryFee ?? null
+  // A Disco "Free delivery" promotion priced into this cart (lib/order/native-checkout.ts
+  // priceNativeFmDto): the fee the diner would have paid, shown struck through.
+  const freeDeliveryWaived = (() => {
+    const v = (fmTotals as { freeDelivery?: { applied?: boolean; waivedFee?: number } } | null)?.freeDelivery
+    return v?.applied && typeof v.waivedFee === 'number' && v.waivedFee > 0 ? v.waivedFee : null
+  })()
   // ── WHO APPLIED THE EXEMPTION: THE SERVER, OR THIS COMPONENT? ──────────────
   // FM is deliberately NOT told about the exemption (buildCheckoutDto withholds
   // it so FM keeps the tax in its own total, which the FM-backed place route then
@@ -640,6 +646,9 @@ export default function CheckoutDrawer({
       // and placement from ever disagreeing by a cent (a derived pct is provably
       // not exact — see computeRestaurantFundedBreakdown's own comment).
       ...(restaurantPromoCode ? { restaurantPromoCode, serviceChargePct, userEmail: contactEmail || authUser?.email || undefined } : {}),
+      // Staff placing an order for someone never use a diner's free-delivery promotion
+      // (lib/promotions/checkout-preview.ts). Disco-only; stripped before FM.
+      ...(isDirectEntry ? { discoDirectEntry: true } : {}),
     }
   }
 
@@ -1503,9 +1512,16 @@ export default function CheckoutDrawer({
             {orderType === 'DELIVERY' && displayDeliveryFee !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
                 <span>Delivery Fee</span>
-                {displayDeliveryFee === 0
+                {freeDeliveryWaived != null && displayDeliveryFee === 0
+                  ? <span><span style={{ textDecoration: 'line-through', color: '#9a9aa6', marginRight: 6 }}>{fmt$(freeDeliveryWaived)}</span><span style={{ color: DARK }}>{fmt$(0)}</span></span>
+                  : displayDeliveryFee === 0
                   ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
                   : <span>{fmt$(displayDeliveryFee)}</span>}
+              </div>
+            )}
+            {orderType === 'DELIVERY' && freeDeliveryWaived != null && displayDeliveryFee === 0 && (
+              <div data-testid="free-delivery-applied" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#15803D', fontWeight: 700, margin: '-1px 0 7px' }}>
+                <span aria-hidden>✓</span><span>Free delivery applied</span>
               </div>
             )}
             {displaySvc > 0 && (

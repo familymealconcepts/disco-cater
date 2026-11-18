@@ -138,6 +138,13 @@ export interface PricingOrder {
   tipAmount: number             // when custom
   tipPct: number                // when percentage
   tipsAreThirdParty: boolean    // Nash/third-party: tips route to thirdPartyDeliveryTips (excluded from transfer)
+  /**
+   * A third-party delivery fee Disco waived for the diner (a Disco-funded diner promotion,
+   * lib/promotions/diner-promotions.ts). thirdPartyDeliveryFee is already 0 when this is set; this
+   * only keeps the RESTAURANT'S PAYOUT exactly what it would have been with the fee charged: the
+   * restaurant's card-fee share is computed on the total as if the diner had paid the fee.
+   */
+  discoWaivedDeliveryFee?: number
 }
 
 export interface Breakdown {
@@ -178,7 +185,9 @@ export function computeBreakdown(order: PricingOrder, cfg: PricingConfig, discou
     + order.ownDeliveryFee + order.thirdPartyDeliveryFee
     + familyMealFee + serviceCharge + tipsInPrice + thirdPartyDeliveryTips,
   )
-  const stripeFee = r2(total * cfg.stripePct / 100 + cfg.stripeFlat)
+  // On the total the diner would have paid without a Disco-waived delivery fee, so the promotion
+  // never changes the restaurant's payout (Peter, 2026-11-18).
+  const stripeFee = r2((total + (order.discoWaivedDeliveryFee ?? 0)) * cfg.stripePct / 100 + cfg.stripeFlat)
   const leadGen = r2(base * cfg.leadGenPct / 100)
 
   const transfer = r2(
