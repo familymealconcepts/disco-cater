@@ -175,16 +175,18 @@ function phoneWithCountryCode(raw: string | null | undefined): string {
 }
 
 // Best-effort parse of the cache's single-line address into street/city/state/zip.
-// "123 Main St, Nashville, TN 37201" → { street1, city, state, zip }.
-function parseAddress(address: string | null): { street1: string; city: string; state: string; zip: string } {
+// "123 Main St, Nashville, TN 37201" → { street1, city, state, zip }. Also reads the form with a comma
+// before the zip ("350 1st Avenue, New York, NY, 10010"), which used to leave zip empty.
+export function parseAddress(address: string | null): { street1: string; city: string; state: string; zip: string } {
   const out = { street1: '', city: '', state: '', zip: '' }
   if (!address) return out
   const parts = address.split(',').map(p => p.trim()).filter(Boolean)
   out.street1 = parts[0] || address
   if (parts.length >= 2) out.city = parts[1]
-  const stateZip = parts[2] || ''
-  const m = /([A-Za-z]{2})\s*(\d{5})?/.exec(stateZip)
+  const stateZip = parts.slice(2).join(' ')
+  const m = /\b([A-Za-z]{2})\b\s*(\d{5})?/.exec(stateZip)
   if (m) { out.state = m[1].toUpperCase(); out.zip = m[2] || '' }
+  if (!out.zip) out.zip = /\b(\d{5})(?:-\d{4})?\b(?!.*\b\d{5}\b)/.exec(stateZip)?.[1] ?? ''
   return out
 }
 
@@ -268,10 +270,21 @@ export function buildDeliveryPayload(
   //
   // Prefer the STRUCTURED address parts; only fall back to parsing the single-line
   // `address` when the structured street line is absent (never rely on the format).
+  //
+  // A structured row can still lack a part (Rosemary's East, #900001635: a street but no zipcode), and
+  // Expedite refuses a task without a zip ("order's task does not contain value of 'zip'"), so any part
+  // the structured row lacks is filled from the single-line address. Only ever an empty part: a value
+  // the row has is never replaced.
   const structuredStreet = restaurantCache.address_line1 && String(restaurantCache.address_line1).trim()
+  const parsedRestaurant = parseAddress(restaurantCache.address)
   const restaurantPickup = structuredStreet
-    ? { street1: String(restaurantCache.address_line1), city: String(restaurantCache.city || ''), state: String(restaurantCache.state || '').toUpperCase(), zip: String(restaurantCache.zipcode || '') }
-    : parseAddress(restaurantCache.address)
+    ? {
+        street1: String(restaurantCache.address_line1),
+        city: String(restaurantCache.city || '').trim() || parsedRestaurant.city,
+        state: (String(restaurantCache.state || '').trim() || parsedRestaurant.state).toUpperCase(),
+        zip: String(restaurantCache.zipcode || '').trim() || parsedRestaurant.zip,
+      }
+    : parsedRestaurant
   const restaurantStreet2 = structuredStreet && restaurantCache.address_line2 ? String(restaurantCache.address_line2) : undefined
 
   // The commissary wins when present, and it brings its own coordinates — the
