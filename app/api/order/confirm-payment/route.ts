@@ -211,7 +211,9 @@ export async function POST(req: NextRequest) {
     // nothing to check and the FM call decides, as before.
     if (body?.restaurantRef) {
       const orderable = await assertRestaurantOrderable(String(body.restaurantRef))
-      if (!orderable.orderable) {
+      // Not for "Pause new orders": FM has already PLACED this order by the time its payment is
+      // confirmed (place gated it), so refusing here would only strand a placed, unpaid order.
+      if (!orderable.orderable && orderable.reason !== 'paused') {
         const { body: errBody, status } = orderableErrorBody(orderable)
         return NextResponse.json(errBody, { status })
       }

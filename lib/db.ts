@@ -290,6 +290,10 @@ export async function runMigrations(): Promise<void> {
     // in the platform account (mirrors FM's payout hold); the intended payout is
     // still recorded so it can be released later. Enforced in the native place route.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS withhold_payouts BOOLEAN NOT NULL DEFAULT false`,
+    // "Pause new orders" (lib/order/order-pause.ts): the day ordering RESUMES (exclusive; NULL = not
+    // paused) and the menus that keep taking orders during the pause.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS orders_paused_until DATE`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS orders_pause_excluded_menus TEXT[] NOT NULL DEFAULT '{}'`,
     // Delivery order time-window granularity (Stage 9): how a delivery order's time
     // is shown to the customer — 'exact' | '30_min' | '1_hour'. Mirrors FM's
     // feesAndTips.deliveryOrderTimeWindows; read by the customer flow for disco-native.

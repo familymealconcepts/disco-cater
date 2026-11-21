@@ -213,7 +213,9 @@ export async function POST(req: NextRequest) {
   // the phone/walk-in workflow this route exists for. See
   // assertRestaurantAcceptsDirectEntry for the full reasoning.
   const directEntryOk = await assertRestaurantAcceptsDirectEntry(String(restaurantRef))
-  if (!directEntryOk.orderable) {
+  // An edit commit (editSlack) re-places an EXISTING order and is never a new one, so "Pause new
+  // orders" must not refuse it (lib/order/order-pause.ts: existing orders are unaffected).
+  if (!directEntryOk.orderable && !(directEntryOk.reason === 'paused' && editSlack)) {
     const { body: errBody, status } = orderableErrorBody(directEntryOk)
     return NextResponse.json(errBody, { status })
   }

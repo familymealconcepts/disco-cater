@@ -30,6 +30,8 @@ export type AdminAuditAction =
   // restaurant portal — settings
   | 'notifications_update' | 'disco_settings_update' | 'tax_rate_update'
   | 'online_ordering_update' | 'marketplace_visibility_update' | 'stripe_disconnect'
+  // "Pause new orders" (lib/order/order-pause-write.ts) — portal Settings or Super Admin
+  | 'order_pause_update'
   // admin portal — settings
   | 'money_flow_update' | 'payout_schedule_update'
   // A Hold Payments change that did not complete (lib/money-flow-sync.ts): FamilyMeal refused,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
 import { MoreInfoField } from '../../../../components/MoreInfo'
 import AddressSearchInput from '../../../../components/AddressSearchInput'
+import OrderPauseSettings from '../../../../components/OrderPauseSettings'
 import { pickedOneLine, type AddressPick, type PickedPlace } from '../../../../../lib/address-pick'
 
 const F = "'DM Sans', sans-serif"
@@ -844,6 +845,18 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     {payoutErr && <span style={{ fontSize: 12, color: '#DC2626' }}>{payoutErr}</span>}
                   </div>
                   <p style={{ fontSize: 11, color: '#aaa', margin: '10px 0 0' }}>Delay is the funds-availability window (US minimum 2 days). Manual disables automatic payouts entirely.</p>
+                </div>
+              )}
+
+              {/* Pause new orders (lib/order/order-pause.ts) — saved on its own button, not by Save below. */}
+              {restaurantRef && (
+                <div style={section}>
+                  <OrderPauseSettings
+                    compact
+                    loadUrl={`/api/admin/order-pause?restaurantReference=${encodeURIComponent(restaurantRef)}`}
+                    saveUrl="/api/admin/order-pause"
+                    extraBody={{ restaurantReference: restaurantRef }}
+                  />
                 </div>
               )}
 
