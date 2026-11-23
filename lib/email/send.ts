@@ -106,10 +106,12 @@ const ORDERS_BCC = 'noreply@familymeal.com'
 // unlike ORDERS_BCC this isn't gated on the From address, so it applies across
 // every template/caller of sendEmail(). She filters on her end.
 const KEALOHA_BCC = 'kealoha@discocater.com'
-// Default Reply-To so any reply lands in Kealoha's inbox. Callers that need a
-// different Reply-To (currently only the concierge conversion invite email,
-// by design) pass their own params.replyTo, which wins over this default.
-const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
+// Default Reply-To for every email sent through here: replies go to the concierge
+// inbox (Peter, 2026-11-23; was Kealoha's address). Callers that need a different
+// Reply-To pass their own params.replyTo, which wins over this default (the
+// concierge conversion invite already set concierge@ explicitly). The standing
+// Kealoha BCC above is separate and unchanged.
+const DEFAULT_REPLY_TO = 'concierge@discocater.com'
 
 // ── THE `Sender:` HEADER ────────────────────────────────────────────────────
 //
