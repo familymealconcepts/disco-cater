@@ -186,6 +186,11 @@ check('  control: removing the consent check is caught', () => ok(!consentGated(
 check('  control: removing the Accept listener is caught', () => ok(!consentGated(component.replace(/ *window\.addEventListener\(CONSENT_EVENT, load\)\n/, ''), ["loadRb2b('", "loadApollo('"]), 'not caught'))
 check('Clarity loads only after Accept, and reacts to it', () => ok(consentGated(clarity, ["loadClarity('"]), 'ungated'))
 check('  control: removing the consent check is caught', () => ok(!consentGated(clarity.replace(/ *if \(!optionalCookiesAllowed\(\)\) return\n/, ''), ["loadClarity('"]), 'not caught'))
+// Public marketing and ordering pages only (Peter, 2026-11-23; rule + cases in scripts/tests/clarity-scope.test.ts):
+// the scope check comes before the load, and an excluded page pauses an already-running Clarity.
+const scoped = (src: string) => { const g = src.indexOf('if (!allowed) {'); return g > 0 && src.indexOf("loadClarity('") > g && /clarityAllowedOn\(pathname\)/.test(src) && /clarityCommand\('pause'\)/.test(src) }
+check('Clarity runs only on public pages, and pauses on an excluded one', () => ok(scoped(clarity), 'unscoped'))
+check('  control: removing the scope check is caught', () => ok(!scoped(clarity.replace('if (!allowed) {', 'if (false) {')), 'not caught'))
 check('Clarity does not read the ad opt-out (the banner alone controls it)', () => ok(!/adTrackingOptedOut|switchOptedOut/.test(clarity), 'reads the opt-out'))
 const CLARITY_SRC = /clarity\.ms\/tag/
 check('app/layout.tsx no longer loads Clarity directly', () => ok(!CLARITY_SRC.test(layout), 'Clarity snippet in layout'))
