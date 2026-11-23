@@ -1,5 +1,4 @@
 import { sql, runMigrations, withDiscoTables } from './db'
-import { buildPauseState, type OrderPauseState } from './order/order-pause'
 
 // The single place that answers "may this restaurant accept an online order
 // right now". Sits alongside the other shared predicates (stripe-readiness.ts,
@@ -104,14 +103,6 @@ export type OrderableReason =
   // No cache row for this reference at all. Treated as NOT orderable: an
   // unknown restaurant is not a restaurant we can take money on behalf of.
   | 'unknown-restaurant'
-  // "Pause new orders" (lib/order/order-pause.ts) is on and covers EVERY order this restaurant could
-  // take: no excluded menus, or an FM-backed restaurant (its menus are FamilyMeal's, so a Disco menu
-  // exclusion cannot apply and the pause fails closed). With excluded menus on a native restaurant the
-  // restaurant stays orderable here and the per-item check in buildNativePlaceInput decides.
-  // Unlike every other reason, the STOREFRONT keeps the menu browsable and shows the message as a
-  // banner (shared.tsx), the same treatment as 'payment-restricted'. Message: "Not accepting new
-  // orders until <date>." — for customers and staff alike.
-  | 'paused'
 
 export interface OrderableResult {
   orderable: boolean
@@ -127,7 +118,6 @@ const MESSAGES: Record<OrderableReason, string> = {
   'payment-not-configured': 'This restaurant is not set up to take online payments yet. Please contact them directly to place an order.',
   'payment-restricted': 'This restaurant cannot take online payments at the moment. Please contact them directly to place an order.',
   'unknown-restaurant': 'We could not find this restaurant.',
-  paused: 'Not accepting new orders right now.',
 }
 
 // STAFF-facing wording for the same reasons, used by the direct-entry gate.
@@ -164,7 +154,6 @@ interface OrderableState {
   stripeAccountId: string | null
   stripeChargesEnabled?: boolean | null
   stripeStatus?: string | null
-  pause: OrderPauseState
 }
 
 // ONE read, shared by both policies below, so there is a single place that
@@ -179,10 +168,7 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
            -- restricted cannot take the charge, and a restaurant whose account
            -- is merely ATTACHED is not a restaurant that can be paid.
            o.stripe_charges_enabled,
-           o.stripe_status,
-           o.orders_paused_until::text AS orders_paused_until,
-           o.orders_pause_excluded_menus,
-           c.timezone
+           o.stripe_status
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE c.restaurant_reference = ${ref}
@@ -194,9 +180,6 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     stripe_account_id: string | null
     stripe_charges_enabled: boolean | null
     stripe_status: string | null
-    orders_paused_until: string | null
-    orders_pause_excluded_menus: string[] | null
-    timezone: string | null
   }[]
 
   const r = rows[0]
@@ -208,16 +191,7 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     stripeAccountId: r.stripe_account_id,
     stripeChargesEnabled: r.stripe_charges_enabled,
     stripeStatus: r.stripe_status,
-    pause: buildPauseState(r.orders_paused_until, r.orders_pause_excluded_menus, r.timezone),
   }
-}
-
-/** The pause blocks the WHOLE restaurant (see 'paused' above). */
-function pausedEverywhere(s: OrderableState): boolean {
-  return s.pause.active && (!s.isDiscoNative || s.pause.excludedMenus.length === 0)
-}
-function pausedResult(s: OrderableState): OrderableResult {
-  return { orderable: false, reason: 'paused', message: s.pause.message || MESSAGES.paused }
 }
 
 // Shared by both policies. NATIVE ONLY: an FM-backed restaurant's money runs
@@ -271,10 +245,6 @@ export async function assertRestaurantOrderable(ref: string): Promise<OrderableR
   if (nativePaymentUnconfigured(s)) return result('payment-not-configured')
   if (nativePaymentRestricted(s)) return result('payment-restricted')
 
-  // After the payment checks on purpose: a restaurant that cannot take money at all should say so,
-  // not that it is merely paused.
-  if (pausedEverywhere(s)) return pausedResult(s)
-
   return result('ok')
 }
 
@@ -304,9 +274,6 @@ export async function assertRestaurantAcceptsDirectEntry(ref: string): Promise<O
   // same PaymentIntent.
   if (nativePaymentUnconfigured(s)) return staffResult('payment-not-configured')
   if (nativePaymentRestricted(s)) return staffResult('payment-restricted')
-  // Unlike online_ordering_enabled, the pause DOES apply to staff direct entry (Peter, 2026-11-21:
-  // "every path"). Excluded menus on a native restaurant are decided per item in buildNativePlaceInput.
-  if (pausedEverywhere(s)) return pausedResult(s)
   return staffResult('ok')
 }
 

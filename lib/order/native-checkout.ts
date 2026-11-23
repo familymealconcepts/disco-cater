@@ -3,7 +3,6 @@
 // place leaves the order in RESERVED (pre-payment), and the existing Stripe webhook
 // flips RESERVED→DUE on payment_intent.succeeded.
 
-import { checkOrderPause, OrderPausedError } from './order-pause'
 import type Stripe from 'stripe'
 import { MENU_ACTIVE_SQL } from '../menu-state'
 import { categoryLeadTimeHours, isCategoryLeadSatisfied, anyCategoryLeadTimes } from '../menu/category-lead-time'
@@ -1036,11 +1035,6 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   // genuinely absent. Deliberately NOT wrapping the INSERT below — that must
   // never be retried. By the time it runs the suite is cached for this lambda.
   await withDiscoTables(() => sql`SELECT 1 FROM disco_orders LIMIT 1`)
-  // "Pause new orders" backstop (lib/order/order-pause.ts). Reached by all three placement paths —
-  // card, invoice and recurring — and BEFORE any row, order number or charge exists (the recurring
-  // path places first and charges after), so a refusal here leaves nothing behind.
-  const pause = await checkOrderPause(input.restaurantReference, input.items.map(i => i.reference), input.items.length)
-  if (pause.blocked) throw new OrderPausedError(pause.message)
   const b = await priceNativeCheckout(input)
   // Which menu this cart actually came from — stored on the order so dispatch
   // (dispatchExpediteForOrder) and any future read can check the real per-menu

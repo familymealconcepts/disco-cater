@@ -25,7 +25,6 @@ import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { sendEmail as sendEmailShared } from '../../../../lib/email/send'
 import { formatTime12 } from '../../../../lib/utils/time'
 import { withCronRun } from '../../../../lib/cron-runs'
-import { checkOrderPause } from '../../../../lib/order/order-pause'
 
 // Shared 12-hour formatter; this caller's copy-specific empty fallback is kept.
 const fmtTime = (t?: string | null) => formatTime12(t, { fallback: 'your scheduled time' })
@@ -430,7 +429,6 @@ async function runGet(req: NextRequest) {
   let manualReview = 0
   let cancellations = 0
   let menuPauses = 0
-  let pausedSkipped = 0
 
   const stripeKey = process.env.STRIPE_SECRET_KEY
   // The SDK pins apiVersion to its own literal; cast so we can request the
@@ -503,16 +501,6 @@ async function runGet(req: NextRequest) {
           const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO)
           await sendEmail(occ.customer_email, m.subject, m.html, m.text)
           chargesFailed++
-          continue
-        }
-
-        // ── "Pause new orders" (lib/order/order-pause.ts) ────────────────────
-        // A paused restaurant takes no new orders, recurring ones included. Checked BEFORE the claim
-        // so the occurrence is left untouched (no CHARGE_ATTEMPTED limbo, no charge): it is simply
-        // re-examined on the next hourly run, and charges then if the pause has ended in time.
-        // Recurring snapshots carry no menu-item references, so an excluded menu never lets one through.
-        if ((await checkOrderPause(occ.restaurant_reference, (occ.cart_snapshot || []).map(() => null))).blocked) {
-          pausedSkipped++
           continue
         }
 
@@ -791,7 +779,6 @@ async function runGet(req: NextRequest) {
     manual_review: manualReview,
     cancellations,
     menu_pauses: menuPauses,
-    paused_skipped: pausedSkipped,
     errors,
   })
 }

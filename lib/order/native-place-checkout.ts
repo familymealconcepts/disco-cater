@@ -1,5 +1,4 @@
 import type Stripe from 'stripe'
-import { checkOrderPause, OrderPausedError } from './order-pause'
 import { repriceCartFromMenu } from './native-cart-reprice'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
@@ -114,12 +113,6 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   }
   const items = repriced.items
   const menuReference = resolveCartMenuReference(items)
-
-  // "Pause new orders" (lib/order/order-pause.ts). Every native money path comes through here —
-  // customer checkout, the /order link, staff direct entry and the invoice path — so one check covers
-  // them all. Each line's menu is resolved server-side from the item itself, never from the client's tag.
-  const pause = await checkOrderPause(ref, items.map(i => i.reference), items.length)
-  if (pause.blocked) return { ok: false, status: 409, error: pause.message }
 
   // Daily order-capacity gate (max_orders_per_day) — checked right after the
   // date-level gates, before any pricing/promo/delivery work happens.
@@ -457,7 +450,6 @@ export async function placeNativeCheckout(params: NativeCheckoutParams): Promise
   } catch (e) {
     if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
     if (freeDeliveryPromotionId != null) await releaseReservation(freeDeliveryPromotionId)
-    if (e instanceof OrderPausedError) return { ok: false, status: 409, error: e.message }
     throw e
   }
 
@@ -491,7 +483,6 @@ export async function placeNativeInvoiceCheckout(params: NativeCheckoutParams): 
     result = await placeNativeInvoiceOrder(input, params.stripe)
   } catch (e) {
     if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
-    if (e instanceof OrderPausedError) return { ok: false, status: 409, error: e.message }
     throw e
   }
 

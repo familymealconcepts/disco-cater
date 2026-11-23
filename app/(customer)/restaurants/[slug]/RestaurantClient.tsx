@@ -348,13 +348,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
      * never name a technical cause.
      */
     orderingUnavailableMessage?: string
-    /**
-     * "Pause new orders" with EXCLUDED menus (lib/order/order-pause.ts): only the excluded menus keep
-     * taking orders; every other menu shows `message` ("Not accepting new orders until …") and cannot
-     * check out. A pause with no exclusions arrives as onlineOrderingAllowed=false instead. The server
-     * enforces both (buildNativePlaceInput); this only tells the customer up front.
-     */
-    orderPause?: { message: string; excludedMenus: string[] }
   }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -1468,14 +1461,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // upstream instead of the drawer rendering a "complete your selections"
   // fallback).
   // Online ordering paused → no checkout, regardless of cart/date/etc.
-  const orderPauseCfg = restaurantSettings?.orderPause
-  // The menu being looked at, or the cart's menu once there is a cart (a cart is always one menu).
-  const pauseMenuRef = cart.length > 0 ? cart[0].menuReference : menuData[activeMenuIdx]?.menu?.reference
-  const menuPaused = !!orderPauseCfg && !(pauseMenuRef && orderPauseCfg.excludedMenus.includes(pauseMenuRef))
-  const orderingPaused = restaurantSettings?.onlineOrderingAllowed === false || menuPaused
-  const orderingPausedMessage = restaurantSettings?.onlineOrderingAllowed === false
-    ? restaurantSettings?.orderingUnavailableMessage
-    : menuPaused ? orderPauseCfg?.message : undefined
+  const orderingPaused = restaurantSettings?.onlineOrderingAllowed === false
   const announcement = (restaurantSettings?.announcement || '').trim()
   const canCheckout = !orderingPaused && cart.length > 0 && !belowMin && !!selDate && !!selTime &&
     // An item whose category needs more notice than the chosen date gives blocks
@@ -1556,7 +1542,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }, [checkoutOpen])
   // Subtotal/total are already shown in the order summary above the button, so
   // the label is just the action.
-  const ctaLabel = orderingPaused ? (orderingPausedMessage && /^Not accepting new orders/.test(orderingPausedMessage) ? 'Not accepting new orders' : 'Not accepting online orders')
+  const ctaLabel = orderingPaused ? 'Not accepting online orders'
     : cartLeadBreaches.length > 0 ? `Not available for ${fmtDateShort(selDate)}`
     : cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
 
@@ -2361,7 +2347,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   data-testid="ordering-unavailable-notice"
                   style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10, lineHeight: 1.45 }}
                 >
-                  ⏸ {orderingPausedMessage ?? 'This restaurant is not currently accepting online orders.'}
+                  ⏸ {restaurantSettings?.orderingUnavailableMessage ?? 'This restaurant is not currently accepting online orders.'}
                 </div>
               )}
               {/* The announcement now renders in the top announcement bar (above),

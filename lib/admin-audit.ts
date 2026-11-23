@@ -30,7 +30,8 @@ export type AdminAuditAction =
   // restaurant portal — settings
   | 'notifications_update' | 'disco_settings_update' | 'tax_rate_update'
   | 'online_ordering_update' | 'marketplace_visibility_update' | 'stripe_disconnect'
-  // "Pause new orders" (lib/order/order-pause-write.ts) — portal Settings or Super Admin
+  // "Pause new orders" — feature removed 2026-11-23 (Closed Days replaced it); kept so the existing
+  // audit rows of this action still type-check and display. Nothing writes it any more.
   | 'order_pause_update'
   // admin portal — settings
   | 'money_flow_update' | 'payout_schedule_update'

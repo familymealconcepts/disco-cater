@@ -1,5 +1,4 @@
 import { cache } from 'react'
-import { readOrderPause } from '../../../../lib/order/order-pause'
 import { MENU_ACTIVE_SQL } from '../../../../lib/menu-state'
 import type { Metadata } from 'next'
 import { notFound, permanentRedirect } from 'next/navigation'
@@ -808,13 +807,8 @@ export async function RestaurantView({
   // refuses this restaurant at /api/order/init and at placement, so reaching
   // checkout another way still cannot charge anybody.
   const paymentRestricted = orderable?.reason === 'payment-restricted'
-  // "Pause new orders" (lib/order/order-pause.ts) gets the same treatment: the menu stays browsable
-  // and the customer is told "Not accepting new orders until <date>." — the predicate's own message,
-  // which names no technical cause. A pause with EXCLUDED menus leaves the restaurant orderable
-  // (reason 'ok'), so it is read separately below and handed to the client per menu.
-  const pausedAll = orderable?.reason === 'paused'
 
-  if (orderable && !orderable.orderable && !paymentRestricted && !pausedAll) {
+  if (orderable && !orderable.orderable && !paymentRestricted) {
     // The predicate's own message is the headline, verbatim — there is no second wording
     // here to drift out of step with what /api/order/init would have said. The supporting
     // line is the archive page's existing sentence rather than anything new; the
@@ -865,8 +859,6 @@ export async function RestaurantView({
   // which is what a customer should get — never a 404.
   const native = await loadDiscoNativeRestaurant(slug)
   if (native) {
-    const pause = pausedAll ? null : await readOrderPause(native.reference).catch(() => null)
-    const partialPause = pause?.active && pause.excludedMenus.length ? { message: pause.message, excludedMenus: pause.excludedMenus } : null
     return (
       <>
         <RestaurantJsonLd
@@ -894,10 +886,8 @@ export async function RestaurantView({
           isFirstParty={isFirstParty}
           initialMenuSlug={menuSlug}
           restaurantSettings={{
-            onlineOrderingAllowed: native.acceptingOrders && !paymentRestricted && !pausedAll,
+            onlineOrderingAllowed: native.acceptingOrders && !paymentRestricted,
             ...(paymentRestricted ? { orderingUnavailableMessage: ORDERING_UNAVAILABLE_MESSAGE } : {}),
-            ...(pausedAll && orderable ? { orderingUnavailableMessage: orderable.message } : {}),
-            ...(partialPause ? { orderPause: partialPause } : {}),
             enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined,
             moreInfo: native.moreInfo ?? undefined }}
         />
@@ -1003,9 +993,6 @@ export async function RestaurantView({
         slug={slug}
         isFirstParty={isFirstParty}
         restaurantSettings={{
-          // FM-backed restaurants: Disco menu exclusions cannot apply, so a pause always covers the
-          // whole restaurant (reason 'paused'); /api/order/init and place refuse it too.
-          ...(pausedAll && orderable ? { onlineOrderingAllowed: false, orderingUnavailableMessage: orderable.message } : {}),
           enableMenuSearch: fmDetail?.enableMenuSearch,
           deliveryOrderTimeWindows: fmDetail?.deliveryOrderTimeWindows,
           // See fetchFmAnnouncement — the FM branch never read this, so an

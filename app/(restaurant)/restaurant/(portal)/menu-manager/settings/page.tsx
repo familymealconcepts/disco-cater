@@ -3,7 +3,6 @@ import { useEffect, useState, useRef } from 'react'
 import { HOLIDAYS } from '../../../../../../lib/holidays'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 import { MoreInfoField } from '../../../../../components/MoreInfo'
-import OrderPauseSettings from '../../../../../components/OrderPauseSettings'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -274,14 +273,6 @@ export default function RestaurantSettingsPage() {
           </p>
         )}
       </div>
-
-      {/* Pause new orders (lib/order/order-pause.ts) — saves on its own button. */}
-      {restaurantRef && (
-        <OrderPauseSettings
-          loadUrl={`/api/restaurant/order-pause?restaurant_reference=${encodeURIComponent(restaurantRef)}`}
-          saveUrl={`/api/restaurant/order-pause?restaurant_reference=${encodeURIComponent(restaurantRef)}`}
-        />
-      )}
 
       {/* Disco Cater Marketplace visibility (RM3) — immediate toggle. */}
       <div style={card}>
