@@ -31,6 +31,9 @@ interface PromoCode {
   restaurantRef: string
   restaurantName: string
   moneyFlow: string | null
+  /** Shared by codes created together at several locations (null for a one-location code). */
+  groupRef: string | null
+  usesCount: number
 }
 interface Location { reference: string; name: string; moneyFlow: string | null }
 
@@ -49,14 +52,34 @@ function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// A code created at several locations at once is ONE code in the list (Peter, 2026-11-23): its rows share groupRef. The
+// list shows one row for the group (its first location's settings, which all share) and a per-location view on demand.
+// Edit, Activate/Deactivate and Delete go to one id; the API applies them to every location of the group you manage.
+interface CodeGroup { key: string; lead: PromoCode; members: PromoCode[] }
+function groupCodes(codes: PromoCode[]): CodeGroup[] {
+  const out: CodeGroup[] = []
+  const byGroup = new Map<string, CodeGroup>()
+  for (const c of codes) {
+    if (!c.groupRef) { out.push({ key: `id:${c.id}`, lead: c, members: [c] }); continue }
+    const g = byGroup.get(c.groupRef)
+    if (g) { g.members.push(c); continue }
+    const ng = { key: `g:${c.groupRef}`, lead: c, members: [c] }
+    byGroup.set(c.groupRef, ng); out.push(ng)
+  }
+  for (const g of out) g.members.sort((a, b) => (a.restaurantName || '').localeCompare(b.restaurantName || ''))
+  return out
+}
+
 export default function PromoCodesPage() {
   const [codes, setCodes] = useState<PromoCode[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [isSA, setIsSA] = useState(false)
   const [loading, setLoading] = useState(true)
   const [locationFilter, setLocationFilter] = useState('')
-  const [modal, setModal] = useState<{ mode: 'create' } | { mode: 'edit'; code: PromoCode } | null>(null)
+  const [modal, setModal] = useState<{ mode: 'create' } | { mode: 'edit'; code: PromoCode; members: PromoCode[] } | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleExpanded = (key: string) => setExpanded((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); return n })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -74,20 +97,25 @@ export default function PromoCodesPage() {
   }, [locationFilter])
   useEffect(() => { load() }, [load])
 
-  async function toggleActive(c: PromoCode) {
+  async function toggleActive(g: CodeGroup) {
+    const c = g.lead
+    // A group reads Active only when every location is; the button sets them all to the same state.
+    const allActive = g.members.every((m) => m.active)
     setBusy(c.id)
     try {
       const res = await fetch(`/api/restaurant/promo-codes/${c.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !c.active }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !allActive }),
       })
-      if (res.ok) { toast(c.active ? 'Promo code deactivated' : 'Promo code activated', { kind: 'success' }); load() }
+      if (res.ok) { toast(`${allActive ? 'Promo code deactivated' : 'Promo code activated'}${g.members.length > 1 ? ` at ${g.members.length} locations` : ''}`, { kind: 'success' }); load() }
       else { const d = await res.json().catch(() => ({})); toast(d.error || 'Could not update promo code.', { kind: 'error' }) }
     } catch { toast('Network error.', { kind: 'error' }) }
     setBusy(null)
   }
 
-  async function remove(c: PromoCode) {
-    const ok = await confirmDialog(`Delete promo code “${c.code}”? This cannot be undone.`, { title: 'Delete promo code', confirmText: 'Delete', danger: true })
+  async function remove(g: CodeGroup) {
+    const c = g.lead
+    const where = g.members.length > 1 ? ` at all ${g.members.length} locations` : ''
+    const ok = await confirmDialog(`Delete promo code “${c.code}”${where}? This cannot be undone.`, { title: 'Delete promo code', confirmText: 'Delete', danger: true })
     if (!ok) return
     setBusy(c.id)
     try {
@@ -137,9 +165,24 @@ export default function PromoCodesPage() {
           <tbody>
             {loading && <tr><td colSpan={span} style={{ ...cell, textAlign: 'center', color: '#aaa' }}>Loading…</td></tr>}
             {!loading && codes.length === 0 && <tr><td colSpan={span} style={{ ...cell, textAlign: 'center', color: '#aaa' }}>No promo codes yet.</td></tr>}
-            {!loading && codes.map(c => (
-              <tr key={c.id} style={{ opacity: c.active ? 1 : 0.55 }}>
-                {isSA && <td style={{ ...cell, color: '#666' }}>{c.restaurantName || c.restaurantRef.slice(0, 8)}</td>}
+            {!loading && groupCodes(codes).flatMap(g => {
+              const c = g.lead
+              const multi = g.members.length > 1
+              const allActive = g.members.every((m) => m.active)
+              const anyActive = g.members.some((m) => m.active)
+              const open = expanded.has(g.key)
+              const rows = [
+              <tr key={g.key} style={{ opacity: anyActive ? 1 : 0.55 }}>
+                {isSA && (
+                  <td style={{ ...cell, color: '#666' }}>
+                    {multi ? (
+                      <button onClick={() => toggleExpanded(g.key)} aria-expanded={open}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: BLUE, fontWeight: 600, fontSize: 13, fontFamily: F }}>
+                        {g.members.length} locations {open ? '▾' : '▸'}
+                      </button>
+                    ) : (c.restaurantName || c.restaurantRef.slice(0, 8))}
+                  </td>
+                )}
                 <td style={{ ...cell, fontWeight: 700 }}>{c.code}</td>
                 <td style={cell}>
                   {fmtDiscount(c)}
@@ -150,25 +193,52 @@ export default function PromoCodesPage() {
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(c.validUntil)}</td>
                 <td style={cell}>
                   {c.maxUses ?? '—'}
-                  {c.remainingUses != null && <span style={{ color: '#aaa' }}> ({c.remainingUses} left)</span>}
+                  {multi
+                    ? (c.maxUses != null && <span style={{ color: '#aaa' }}> each</span>)
+                    : (c.remainingUses != null && <span style={{ color: '#aaa' }}> ({c.remainingUses} left)</span>)}
                 </td>
                 <td style={cell}>{c.maxUsesPerUser ?? 1}</td>
                 <td style={{ ...cell, textAlign: 'center' }}>{c.firstTimeOnly ? '✓' : '—'}</td>
                 <td style={cell}>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: c.active ? '#E6F6EC' : '#F0F0F0', color: c.active ? '#1E7D46' : '#999' }}>
-                    {c.active ? 'Active' : 'Inactive'}
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: allActive ? '#E6F6EC' : '#F0F0F0', color: allActive ? '#1E7D46' : '#999' }}>
+                    {allActive ? 'Active' : anyActive ? 'Partly active' : 'Inactive'}
                   </span>
                 </td>
                 <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button onClick={() => setModal({ mode: 'edit', code: c })} disabled={busy === c.id}
+                  <button onClick={() => setModal({ mode: 'edit', code: c, members: g.members })} disabled={busy === c.id}
                     style={actBtn('#5B6FE8')}>Edit</button>
-                  <button onClick={() => toggleActive(c)} disabled={busy === c.id}
-                    style={actBtn('#8A6D1A')}>{c.active ? 'Deactivate' : 'Activate'}</button>
-                  <button onClick={() => remove(c)} disabled={busy === c.id}
+                  <button onClick={() => toggleActive(g)} disabled={busy === c.id}
+                    style={actBtn('#8A6D1A')}>{allActive ? 'Deactivate' : 'Activate'}</button>
+                  <button onClick={() => remove(g)} disabled={busy === c.id}
                     style={actBtn('#E53935')}>Delete</button>
                 </td>
-              </tr>
-            ))}
+              </tr>,
+              ]
+              // Per-location view of a grouped code: each location's own status and uses.
+              if (multi && open) {
+                for (const m of g.members) {
+                  rows.push(
+                    <tr key={`${g.key}:${m.id}`} style={{ background: '#FAFAFD', opacity: m.active ? 1 : 0.55 }}>
+                      <td style={{ ...cell, paddingLeft: 28, color: '#666' }}>{m.restaurantName || m.restaurantRef.slice(0, 8)}</td>
+                      <td style={{ ...cell, color: '#999' }}>{m.code}</td>
+                      <td colSpan={4} style={{ ...cell, color: '#999' }}>Same settings as the code above</td>
+                      <td style={cell}>
+                        {m.usesCount} used
+                        {m.remainingUses != null && <span style={{ color: '#aaa' }}> ({m.remainingUses} left)</span>}
+                      </td>
+                      <td colSpan={2} style={cell} />
+                      <td style={cell}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: m.active ? '#E6F6EC' : '#F0F0F0', color: m.active ? '#1E7D46' : '#999' }}>
+                          {m.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td style={cell} />
+                    </tr>,
+                  )
+                }
+              }
+              return rows
+            })}
           </tbody>
         </table>
       </div>
@@ -177,8 +247,10 @@ export default function PromoCodesPage() {
         <CodeModal
           mode={modal.mode}
           existing={modal.mode === 'edit' ? modal.code : null}
+          members={modal.mode === 'edit' ? modal.members : []}
           isSA={isSA}
           locations={locations}
+          defaultLocation={locationFilter}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load() }}
         />
@@ -188,8 +260,9 @@ export default function PromoCodesPage() {
 }
 
 // ── Create / edit modal ───────────────────────────────────────────────────────
-function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
-  mode: 'create' | 'edit'; existing: PromoCode | null; isSA: boolean; locations: Location[]; onClose: () => void; onSaved: () => void
+function CodeModal({ mode, existing, members, isSA, locations, defaultLocation, onClose, onSaved }: {
+  mode: 'create' | 'edit'; existing: PromoCode | null; members: PromoCode[]; isSA: boolean; locations: Location[]; defaultLocation: string
+  onClose: () => void; onSaved: () => void
 }) {
   const [code, setCode] = useState(existing?.code || '')
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>(existing?.discountType || 'percent')
@@ -202,7 +275,8 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
   const [validFrom, setValidFrom] = useState(existing?.validFrom || todayIso())
   const [validUntil, setValidUntil] = useState(existing?.validUntil || '')
   const [notes, setNotes] = useState(existing?.notes || '')
-  const [location, setLocation] = useState(existing?.restaurantRef || '')
+  // Create, System Admin: the locations this code is made at (one row each, grouped). Starts on the location filtered to.
+  const [selected, setSelected] = useState<string[]>(defaultLocation ? [defaultLocation] : [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isEdit = mode === 'edit'
@@ -212,7 +286,7 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
     const cleanCode = code.trim().toUpperCase()
     if (!isEdit) {
       if (!cleanCode || !/^[A-Z0-9]+$/.test(cleanCode)) { setError('Code is required and must be uppercase letters/numbers only.'); return }
-      if (isSA && !location) { setError('Select a location for this promo code.'); return }
+      if (isSA && !selected.length) { setError('Select at least one location for this promo code.'); return }
     }
     const value = parseFloat(discountValue)
     if (discountType === 'percent') {
@@ -259,7 +333,7 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
           maxUses: maxUses.trim() ? parseInt(maxUses, 10) : null,
           maxUsesPerUser: perUser,
           confirmHighDiscount: true,
-          ...(isSA ? { restaurantReference: location } : {}),
+          ...(isSA ? { restaurantReferences: selected } : {}),
         }
 
     setSaving(true)
@@ -269,7 +343,8 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
         : await fetch('/api/restaurant/promo-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { setError(d.error || 'Could not save promo code.'); setSaving(false); return }
-      toast(isEdit ? `Updated ${cleanCode || existing?.code}` : `Created ${cleanCode}`, { kind: 'success' })
+      const n = isEdit ? Number(d.updated || 1) : (Array.isArray(d.codes) ? d.codes.length : 1)
+      toast(`${isEdit ? `Updated ${cleanCode || existing?.code}` : `Created ${cleanCode}`}${n > 1 ? ` at ${n} locations` : ''}`, { kind: 'success' })
       onSaved()
     } catch { setError('Network error. Please try again.'); setSaving(false) }
   }
@@ -282,16 +357,17 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
         <h2 style={{ fontSize: 18, fontWeight: 800, color: DARK, margin: '0 0 18px' }}>{isEdit ? `Edit ${existing?.code}` : 'Create Promo Code'}</h2>
 
         {isSA && !isEdit && (
-          <Field label="Location">
-            <select value={location} onChange={e => setLocation(e.target.value)} style={inputSt}>
-              <option value="">Select a location…</option>
-              {locations.map(l => (
-                <option key={l.reference} value={l.reference}>{l.name || l.reference.slice(0, 8)}</option>
-              ))}
-            </select>
+          <Field label="Locations">
+            <LocationMultiSelect locations={locations} selected={selected} onChange={setSelected} />
           </Field>
         )}
-        {isSA && isEdit && <Field label="Location"><div style={{ ...inputSt, background: '#f7f7f9', color: '#666' }}>{existing?.restaurantName || existing?.restaurantRef.slice(0, 8)}</div></Field>}
+        {isSA && isEdit && (
+          <Field label={members.length > 1 ? `Locations (${members.length}) — changes apply to all` : 'Location'}>
+            <div style={{ ...inputSt, background: '#f7f7f9', color: '#666' }}>
+              {(members.length ? members : existing ? [existing] : []).map((m) => m.restaurantName || m.restaurantRef.slice(0, 8)).join(', ')}
+            </div>
+          </Field>
+        )}
 
         <Field label="Code">
           <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SUMMER25" style={{ ...inputSt, ...(isEdit ? { background: '#f7f7f9', color: '#666' } : {}) }} disabled={isEdit} />
@@ -348,6 +424,41 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Promo Code'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// The System Admin's locations — only the ones the API already lists for them (no change to who manages what) — with a
+// search box and "Select all" (which acts on the locations the search shows).
+function LocationMultiSelect({ locations, selected, onChange }: { locations: Location[]; selected: string[]; onChange: (refs: string[]) => void }) {
+  const [q, setQ] = useState('')
+  const shown = locations.filter((l) => (l.name || l.reference).toLowerCase().includes(q.trim().toLowerCase()))
+  const allShown = shown.length > 0 && shown.every((l) => selected.includes(l.reference))
+  const toggleAll = () => {
+    const shownRefs = shown.map((l) => l.reference)
+    onChange(allShown ? selected.filter((r) => !shownRefs.includes(r)) : [...new Set([...selected, ...shownRefs])])
+  }
+  const toggle = (ref: string) => onChange(selected.includes(ref) ? selected.filter((r) => r !== ref) : [...selected, ref])
+  return (
+    <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ padding: 8, borderBottom: '1px solid #f0f0f0', display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search locations" aria-label="Search locations"
+          style={{ ...inputSt, padding: '7px 10px', border: '1px solid #e6e6ee' }} />
+        <span style={{ fontSize: 12, color: '#888', whiteSpace: 'nowrap' }}>{selected.length} selected</span>
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, color: DARK, cursor: 'pointer', borderBottom: '1px solid #f0f0f0', background: '#FAFAFD' }}>
+        <input type="checkbox" checked={allShown} onChange={toggleAll} disabled={!shown.length} style={{ accentColor: BLUE, width: 16, height: 16 }} />
+        Select all{q.trim() ? ` (${shown.length} shown)` : ` (${locations.length})`}
+      </label>
+      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+        {shown.map((l) => (
+          <label key={l.reference} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', fontSize: 13, color: DARK, cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.includes(l.reference)} onChange={() => toggle(l.reference)} style={{ accentColor: BLUE, width: 16, height: 16 }} />
+            {l.name || l.reference.slice(0, 8)}
+          </label>
+        ))}
+        {!shown.length && <div style={{ padding: '10px 12px', fontSize: 13, color: '#aaa' }}>No locations match.</div>}
       </div>
     </div>
   )

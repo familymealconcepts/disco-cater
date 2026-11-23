@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { sql, runMigrations } from '../../../../lib/db'
@@ -33,6 +34,9 @@ function toApiCode(r: Record<string, unknown>) {
     notes: r.notes ? String(r.notes) : '',
     active: r.active === true,
     restaurantRef: r.restaurant_ref ? String(r.restaurant_ref) : '',
+    // Codes created together at several locations share this (null for a one-location code).
+    groupRef: r.group_ref ? String(r.group_ref) : null,
+    usesCount: uses,
     restaurantName: r.restaurant_name ? String(r.restaurant_name) : '',
     moneyFlow: r.money_flow ? String(r.money_flow) : null,
   }
@@ -113,14 +117,16 @@ export async function POST(req: NextRequest) {
     await runMigrations()
     const body = await req.json().catch(() => ({}))
 
-    // Target location: a SYSTEM_ADMIN MUST name an explicit in-scope location; an
-    // ADMIN always uses their own. Codes never apply restaurant-wide by accident.
-    let restaurantRef = scope.ownRef
+    // Target locations: a SYSTEM_ADMIN MUST name at least one explicit in-scope location (several since 2026-11-23:
+    // restaurantReferences[], or the older single restaurantReference); an ADMIN always uses their own. Codes never apply
+    // restaurant-wide by accident, and every location is checked against the caller's own scope, exactly as before.
+    let restaurantRefs: string[] = [scope.ownRef]
     if (scope.isSystemAdmin) {
-      restaurantRef = String(body?.restaurantReference || '').trim()
-      if (!restaurantRef) return NextResponse.json({ error: 'Select a location for this promo code.' }, { status: 400 })
+      const list: unknown[] = Array.isArray(body?.restaurantReferences) ? body.restaurantReferences : body?.restaurantReference ? [body.restaurantReference] : []
+      restaurantRefs = [...new Set(list.map((r) => String(r || '').trim()).filter(Boolean))]
+      if (!restaurantRefs.length) return NextResponse.json({ error: 'Select at least one location for this promo code.' }, { status: 400 })
     }
-    if (!UUID_RE.test(restaurantRef) || !isPromoRefAllowed(scope, restaurantRef)) {
+    if (restaurantRefs.some((ref) => !UUID_RE.test(ref) || !isPromoRefAllowed(scope, ref))) {
       return NextResponse.json({ error: 'You don’t have access to that location.' }, { status: 403 })
     }
 
@@ -188,27 +194,47 @@ export async function POST(req: NextRequest) {
     // local on Aug 30). See lib/timezone.ts for the fallback when a restaurant
     // has no timezone on file. Same conversion for every date field here — there's
     // only ever the two (valid_from/valid_until); none of the new fields are dates.
-    const { timezone } = await getRestaurantTimezone(restaurantRef)
-    const validFrom = localDayBoundaryToUTC(validFromDate, timezone, false)
-    const validUntil = validUntilDate ? localDayBoundaryToUTC(validUntilDate, timezone, true) : null
+    // ALL OR NOTHING across the selected locations: if the code already exists at any of them, nothing is created and the
+    // error names where. (There are no transactions on this connection, so the rows below go in ONE INSERT statement.)
+    const clash = (await sql`
+      SELECT COALESCE(c.name, p.restaurant_ref) AS name FROM promo_codes p
+      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = p.restaurant_ref
+      WHERE p.restaurant_ref = ANY(${restaurantRefs}) AND UPPER(p.code) = ${code}
+    `) as { name: string }[]
+    if (clash.length) {
+      return NextResponse.json({ error: `A promo code named ${code} already exists at ${clash.map((c) => c.name).join(', ')}. Nothing was created.` }, { status: 409 })
+    }
+
+    // One row per location: each keeps its own uses, limits and redemption rules, exactly as a one-location code does.
+    // Rows created together share group_ref so the portal lists and edits them as one.
+    const groupRef = restaurantRefs.length > 1 ? randomUUID() : null
+    const vals: unknown[] = []
+    const tuples: string[] = []
+    for (const restaurantRef of restaurantRefs) {
+      const { timezone } = await getRestaurantTimezone(restaurantRef)
+      const validFrom = localDayBoundaryToUTC(validFromDate, timezone, false)
+      const validUntil = validUntilDate ? localDayBoundaryToUTC(validUntilDate, timezone, true) : null
+      const row = [code, discountType, discountValue, maxDiscountCap, minOrderSubtotal, firstTimeOnly, restaurantRef, maxUses, maxUsesPerUser,
+        validFrom.toISOString(), validUntil ? validUntil.toISOString() : null, notes, groupRef]
+      const p = row.map((v) => { vals.push(v); return `$${vals.length}` })
+      tuples.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, 'restaurant', ${p[6]}, 'RESTAURANT', ${p[7]}, ${p[8]}, ${p[9]}::timestamptz, ${p[10]}::timestamptz, ${p[11]}, ${p[12]}::uuid)`)
+    }
 
     try {
-      const rows = (await sql`
-        INSERT INTO promo_codes (
-          code, discount_type, discount_value, max_discount_cap, min_order_subtotal, first_time_only,
-          scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until, notes
-        ) VALUES (
-          ${code}, ${discountType}, ${discountValue}, ${maxDiscountCap}, ${minOrderSubtotal}, ${firstTimeOnly},
-          'restaurant', ${restaurantRef}, 'RESTAURANT', ${maxUses}, ${maxUsesPerUser},
-          ${validFrom.toISOString()}::timestamptz, ${validUntil ? validUntil.toISOString() : null}::timestamptz, ${notes}
-        )
-        RETURNING *
-      `) as Record<string, unknown>[]
-      return NextResponse.json({ code: toApiCode(rows[0]) }, { status: 201 })
+      const rows = (await sql.query(
+        `INSERT INTO promo_codes (
+           code, discount_type, discount_value, max_discount_cap, min_order_subtotal, first_time_only,
+           scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until, notes, group_ref
+         ) VALUES ${tuples.join(', ')}
+         RETURNING *`,
+        vals,
+      )) as Record<string, unknown>[]
+      const created = rows.map(toApiCode)
+      return NextResponse.json({ code: created[0], codes: created }, { status: 201 })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (/unique|duplicate/i.test(msg)) {
-        return NextResponse.json({ error: `A promo code named ${code} already exists for this location.` }, { status: 409 })
+        return NextResponse.json({ error: `A promo code named ${code} already exists at one of these locations. Nothing was created.` }, { status: 409 })
       }
       console.error('[restaurant/promo-codes] insert failed:', msg)
       return NextResponse.json({ error: 'Could not create promo code.' }, { status: 500 })

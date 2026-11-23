@@ -61,6 +61,12 @@ export async function runMigrations(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_restaurant_code_uq ON promo_codes (restaurant_ref, UPPER(code)) WHERE restaurant_ref IS NOT NULL`,
     // Speeds the restaurant-portal listing (all codes for a restaurant, newest first).
     `CREATE INDEX IF NOT EXISTS idx_promo_codes_restaurant_ref ON promo_codes(restaurant_ref)`,
+    // One code at several locations (Peter, 2026-11-23): a System Admin creates the same restaurant-funded code at every
+    // location they select. The data model stays one location per row (each keeps its own uses, limits and validation);
+    // rows created together share group_ref so the portal lists them as one and an edit/deactivate applies to all of them.
+    // NULL = a code made for one location (every pre-existing row).
+    `ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS group_ref UUID`,
+    `CREATE INDEX IF NOT EXISTS idx_promo_codes_group_ref ON promo_codes(group_ref) WHERE group_ref IS NOT NULL`,
     // Per-redemption audit columns. `funded_by`/`restaurant_ref`/
     // `stripe_payment_intent_id` are recorded on each use. Restaurant-funded codes
     // now settle PRE-CHARGE in /api/order/place (subtotal reduction — no refund/
