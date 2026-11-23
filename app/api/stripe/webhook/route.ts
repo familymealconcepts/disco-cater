@@ -10,6 +10,7 @@ import { alertRestaurantNotPaid, alertPaidOnClosedOrder } from '../../../../lib/
 import { cancelCourierAndReport } from '../../../../lib/order/courier-sync'
 import { recordTransferReversed } from '../../../../lib/order/transfer-reversals'
 import { refreshStripeFactsForEvent } from '../../../../lib/order/stripe-facts'
+import { labelTransferPaymentForEvent } from '../../../../lib/order/restaurant-payment-label'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -699,6 +700,12 @@ export async function POST(request: NextRequest) {
   // actually did with the order's money: lib/order/stripe-facts.ts. In the
   // background and never fatal — it cannot delay or fail the ack.
   waitUntil(refreshStripeFactsForEvent(stripe, event))
+
+  // ── ORDER NUMBER AND CUSTOMER ON THE RESTAURANT'S OWN PAYMENT (Peter, 2026-11-20) ──
+  // Every payout to a restaurant arrives as a transfer, which creates a bare payment in
+  // their Stripe. Label it so their accountant can trace each deposit to an order
+  // (lib/order/restaurant-payment-label.ts). Description and metadata only; never fatal.
+  waitUntil(labelTransferPaymentForEvent(stripe, event))
 
   // Always 200 for verified events (including unhandled types and internal
   // errors) so Stripe does not retry indefinitely.
