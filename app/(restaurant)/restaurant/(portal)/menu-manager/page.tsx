@@ -46,6 +46,9 @@ export default function MenuManagerPage() {
   }
   const duplicate = (ref: string) => act(ref, `/api/restaurant/disco-menus/${ref}/clone`, 'POST')
   const unarchive = (ref: string) => act(ref, `/api/restaurant/disco-menus/${ref}/unarchive`, 'POST')
+  // Hide / Show (Active <-> Inactive) in one click, next to Archive as on FamilyMeal's menu screen (Peter, 2026-11-24).
+  // Same column as Menu Settings' Visible checkbox, which stays.
+  const toggleVisible = (m: Menu) => act(m.reference, `/api/restaurant/disco-menus/${m.reference}/visible?isVisible=${!m.visible}`, 'PUT')
   const archive = (m: Menu) => { if (confirm(`Archive "${m.name}"? It will be hidden from customers, and you can restore it from the Archived tab.`)) act(m.reference, `/api/restaurant/disco-menus/${m.reference}`, 'DELETE') }
 
   async function move(index: number, dir: -1 | 1) {
@@ -157,6 +160,12 @@ export default function MenuManagerPage() {
               <div className="mm-list-actions" style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                 {!m.archived && <button style={primaryBtn} onClick={() => router.push(`/restaurant/menu-manager/${m.reference}/edit`)}>Menu Settings</button>}
                 <button disabled={busy === m.reference} style={linkBtn} onClick={() => duplicate(m.reference)}>Duplicate</button>
+                {!m.archived && (
+                  <button disabled={busy === m.reference} style={linkBtn} onClick={() => toggleVisible(m)}
+                    title={m.visible ? 'Hide from customers (moves to Inactive)' : 'Show to customers (moves to Active)'}>
+                    {m.visible ? 'Hide' : 'Show'}
+                  </button>
+                )}
                 {m.archived
                   ? <button disabled={busy === m.reference} style={linkBtn} onClick={() => unarchive(m.reference)}>Restore</button>
                   : <button disabled={busy === m.reference} style={{ ...linkBtn, color: RED }} onClick={() => archive(m)}>Archive</button>}
