@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatOrderDay } from '../../../../../lib/order-time'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -37,11 +38,11 @@ function lastOrderTs(c: Customer): number {
   const t = new Date(raw).getTime()
   return Number.isNaN(t) ? 0 : t
 }
+// "Last order" is the order's own date (YYYY-MM-DD, the restaurant's calendar day). Reading it with new Date() made it UTC
+// midnight, which showed the day before anywhere in the US (Peter, 2026-11-24). formatOrderDay keeps a bare date exactly as stored.
 function fmtDate(raw?: string | null): string {
   if (!raw) return '—'
-  const t = new Date(raw).getTime()
-  if (Number.isNaN(t)) return '—'
-  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatOrderDay(raw) || '—'
 }
 
 type SortKey = 'name' | 'email' | 'type' | 'orders' | 'lastOrder' | 'spend'

@@ -191,20 +191,16 @@ const REFUND_STATUSES = new Set(['REFUND', 'REFUNDED', 'PARTIAL_REFUND'])
 // life of the module and cannot drift back into the render body.
 const ACTIVE_TAB_STATUSES = [...ACTIVE_STATUSES, ...REFUND_STATUSES]
 
-/** Local-midnight start of the order's fulfilment day, or null if unparseable. */
-function orderDayStart(o: { orderDate?: string | null }): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(o.orderDate ?? '').slice(0, 10))
-  if (!m) return null
-  return new Date(+m[1], +m[2] - 1, +m[3]).getTime()
-}
-
-/** A refunded order whose fulfilment date has not yet passed. */
-function isUpcomingRefunded(o: { orderStatus?: string; orderDate?: string | null }): boolean {
+/**
+ * A refunded order whose fulfilment date has not yet passed: its date is today or later IN THE RESTAURANT'S TIME ZONE (Peter,
+ * 2026-11-24; was the viewer's computer clock). Decides Active vs History for refunded orders.
+ */
+function isUpcomingRefunded(o: { orderStatus?: string; orderDate?: string | null; restaurantTimezone?: string | null; restaurant?: { timezone?: string } }): boolean {
   if (!REFUND_STATUSES.has(String(o.orderStatus ?? ''))) return false
-  const day = orderDayStart(o)
-  if (day === null) return false
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  return day >= today.getTime()
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(o.orderDate ?? '').slice(0, 10))
+  if (!m) return false
+  const tz = o.restaurantTimezone || o.restaurant?.timezone || RESTAURANT_TZ_DEFAULT
+  return m[0] >= nowWallClockInTz(tz).slice(0, 10)
 }
 
 // Both spellings are live in disco_orders (the status route's ALLOWED set and
@@ -378,20 +374,30 @@ function deriveTotals(o: Order) {
   return { subtotal, tax, tips, delivery, total }
 }
 
-function statusColor(status: string, orderDate: string, orderTime: string) {
+/**
+ * Milliseconds from now until the order's pickup/delivery, both read on the RESTAURANT's clock (order_date + order_time are its
+ * wall clock). Was the viewer's computer clock, off by hours for a viewer in another zone (Peter, 2026-11-24). Null if unparseable.
+ */
+function msUntilOrderTime(orderDate: string, orderTime: string, tz?: string | null): number | null {
+  const date = orderDate.includes('.') ? orderDate.split('.').reverse().join('-') : orderDate
+  const time = orderTime.length === 5 ? `${orderTime}:00` : orderTime.slice(0, 8)
+  const at = Date.parse(`${date.slice(0, 10)}T${time}Z`)
+  const now = Date.parse(`${nowWallClockInTz(tz || RESTAURANT_TZ_DEFAULT)}Z`)
+  return Number.isNaN(at) || Number.isNaN(now) ? null : at - now
+}
+
+function statusColor(status: string, orderDate: string, orderTime: string, tz?: string | null) {
   if (!orderDate || !orderTime) return undefined
-  const dt = new Date(`${orderDate}T${orderTime}`)
-  const now = new Date()
-  const diffMs = dt.getTime() - now.getTime()
+  const diffMs = msUntilOrderTime(orderDate, orderTime, tz)
+  if (diffMs === null) return undefined
   if (diffMs >= 0 && diffMs <= 3600000) return '#77AE70'
   if (diffMs < 0) return '#E76F51'
   return undefined
 }
 
 // An order is editable only when it's not in a finished state AND the catering
-// date/time is more than 24h out. (Date/time are parsed in the browser's local
-// tz — matching statusColor — so this is approximate near the boundary; the
-// real edit page in Session 2 should re-validate server-side.)
+// date/time is more than 24h out, both read on the restaurant's clock (msUntilOrderTime;
+// was the browser's, Peter 2026-11-24). The rule and who may edit are unchanged.
 const NON_EDITABLE_STATUSES = new Set(['COMPLETED', 'EXPIRED', 'CANCELED', 'CANCELLED'])
 const MAX_EDITS = 3
 
@@ -419,11 +425,10 @@ function isEditEligible(order: Order): boolean {
   // SUPER_ADMIN can edit regardless of how close pickup is — status + edit-count +
   // past-date checks above still apply to them.
   if (isSuperAdmin()) return true
-  // FM returns orderDate as DD.MM.YYYY — normalize to YYYY-MM-DD before Date().
-  const iso = order.orderDate.includes('.') ? order.orderDate.split('.').reverse().join('-') : order.orderDate
-  const ts = new Date(`${iso}T${order.orderTime}`).getTime()
-  if (Number.isNaN(ts)) return false
-  return ts > Date.now() + 24 * 60 * 60 * 1000
+  // FM returns orderDate as DD.MM.YYYY; msUntilOrderTime normalizes it.
+  const ms = msUntilOrderTime(order.orderDate, order.orderTime, order.restaurantTimezone || order.restaurant?.timezone)
+  if (ms === null) return false
+  return ms > 24 * 60 * 60 * 1000
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
@@ -1962,7 +1967,7 @@ function OrdersContent() {
                   </td></tr>
                 )}
                 {displayedOrders.map(order => {
-                  const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
+                  const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime, order.restaurantTimezone)
                   const isNew = !order.orderSeenByAdmin
                   return (
                     <tr

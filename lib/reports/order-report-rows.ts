@@ -291,7 +291,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
     SELECT o.reference::text AS order_reference, o.order_number, o.restaurant_name, pc.name AS paid_to_name, (m.paid_ref <> o.restaurant_reference) AS transferred_money,
            o.customer_first_name, o.customer_last_name,
            COALESCE(o.placed_at, o.created_at) AS created_at,
-           COALESCE(NULLIF((SELECT oc.timezone FROM disco_restaurant_cache oc WHERE oc.restaurant_reference = o.restaurant_reference::text LIMIT 1), ''), pc.timezone) AS restaurant_timezone,
+           COALESCE(NULLIF(oc.timezone, ''), NULLIF(pc.timezone, ''), 'America/New_York') AS restaurant_timezone,
            o.order_date::text AS order_date, o.order_time::text AS order_time,
            o.delivery_type, o.order_status, o.refund, o.source_of_order,
            t.source, t.subtotal, t.state_tax, t.local_tax, t.other_tax,
@@ -340,6 +340,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
           o.restaurant_reference)
         ELSE o.restaurant_reference END AS paid_ref) m
       LEFT JOIN disco_restaurant_cache pc ON pc.restaurant_reference = m.paid_ref::text
+      -- oc = the restaurant the order belongs to, for its time zone (Created Date is that restaurant's day).
+      LEFT JOIN disco_restaurant_cache oc ON oc.restaurant_reference = o.restaurant_reference::text
       -- t = the order's CURRENT figures: the newest edit breakdown (a MANUAL_EDIT
       -- row carrying taxes), else checkout — the same rule as the PDF and order
       -- details (lib/order/current-breakdown.ts). Reading checkout only left
@@ -362,14 +364,17 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
        -- in the Payment column, with no payout and out of the totals row. They used
        -- to be dropped (#900000473: cancelled, never paid, printed as $372.63 of
        -- payout) — the payout part of that is now prevented by the paid flag below.
+       -- Created Date is the day the order was placed in the RESTAURANT's time zone (Peter, 2026-11-24; was the UTC day, so a
+       -- late-evening Pacific order landed on the next day). The same day the Created Date column shows. A scheduled report's
+       -- range (from/to) is unchanged; only which orders fall inside it, by their own restaurant's clock.
        AND (
-             (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
+             (CASE WHEN ${byCreated} THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(NULLIF(oc.timezone, ''), NULLIF(pc.timezone, ''), 'America/New_York'))::date ELSE o.order_date END)
                BETWEEN ${opts.from}::date AND ${opts.to}::date
              -- Late arrivals: dated before this window, but synced since the
              -- previous run, so no earlier run could have seen them.
              OR (${catchUpSince !== null}
                  AND o.created_at > ${catchUpSince}::timestamptz
-                 AND (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
+                 AND (CASE WHEN ${byCreated} THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(NULLIF(oc.timezone, ''), NULLIF(pc.timezone, ''), 'America/New_York'))::date ELSE o.order_date END)
                      < ${opts.from}::date)
            )
        AND (${statuses.length === 0} OR o.order_status = ANY(${statuses}))
@@ -444,8 +449,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       orderId: String(row.order_number ?? ''),
       orderReference: String(row.order_reference ?? ''),
       customerName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ').trim(),
-      // The day the order was placed in the RESTAURANT's time zone (was the UTC day, so a California order placed after 4 PM
-      // read as the next day). Display only: the created-date filter above is unchanged (Peter, 2026-11-24, lib/order-time.ts).
+      // The day the order was placed in the RESTAURANT's time zone, the same day the created-date filter above uses (Peter,
+      // 2026-11-24, lib/order-time.ts).
       createdDate: row.created_at ? orderDayKey(row.created_at, row.restaurant_timezone as string | null) : '',
       serviceType: service,
       orderDate: String(row.order_date ?? ''),
