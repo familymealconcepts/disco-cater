@@ -232,17 +232,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     let cacheName = ''
     let cacheAddress = ''
     let cachePhone = ''
+    let cacheTimezone = ''
     if (d.restaurant_reference) {
       try {
         const rc = (await sql`
-          SELECT name, address, phone FROM disco_restaurant_cache
+          SELECT name, address, phone, timezone FROM disco_restaurant_cache
           WHERE restaurant_reference = ${d.restaurant_reference} LIMIT 1
-        `.catch(() => [])) as { name: string | null; address: string | null; phone: string | null }[]
+        `.catch(() => [])) as { name: string | null; address: string | null; phone: string | null; timezone: string | null }[]
         cacheName = rc[0]?.name || ''
         cacheAddress = rc[0]?.address || ''
         cachePhone = rc[0]?.phone || ''
+        cacheTimezone = rc[0]?.timezone || ''
       } catch { /* best-effort */ }
     }
+    // The restaurant's own time zone, so the drawer shows "Order Placed" in it (lib/order-time.ts; Peter, 2026-11-24). Blank means
+    // none saved: the drawer then shows Eastern, labelled as such.
+    base.restaurantTimezone = cacheTimezone || (r.timezone as string) || ''
     const businessName = (r.businessName as string) || d.restaurant_name || cacheName || ''
     const fmAddr = (r.address as Record<string, unknown> | undefined)
     // Keep FM's structured address when present; otherwise synthesize one from the

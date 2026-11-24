@@ -36,10 +36,14 @@ check("FamilyMeal's date, Items cell and columns", () => {
 check('the XLSX row: name without a hyphen, received when placed, prepare-by time then date', () => {
   const r = xlsxRow(order())
   eq(r.slice(0, 2), ['Bob Mulry', 'bob@example.com'], 'Name and Email lead')
-  eq(r[2], 'Bob Mulry\nOrder ID: 43997813\nReceived on 11/10/26 at 10:02 PM', 'Order cell')
+  eq(r[2], 'Bob Mulry\nOrder ID: 43997813\nReceived on 11/10/26 at 10:02 PM EST', 'Order cell (restaurant zone, with its abbreviation)')
   eq(r.slice(3), ['10:00 AM\n11/25/26', '', 'Pickup', 'BBQ Sampler for 4 - 1 ( Large French Fries- 2, ), Burger Package - 2', 'Items', 87.97, 'Due'], 'rest')
   eq(xlsxRow(order({ orderType: 'DELIVERY', deliveryType: 'OWN_DELIVERY' }))[5], 'Self-Delivery', 'delivery service')
   eq(receivedOn(null, 'America/New_York'), '', 'no time, no text')
+  // The same instant in Central and Pacific restaurants, and Eastern when none is saved (Peter, 2026-11-24).
+  eq(receivedOn('2026-11-24T17:15:00Z', 'America/Chicago'), 'Received on 11/24/26 at 11:15 AM CST', 'Central')
+  eq(receivedOn('2026-11-24T17:15:00Z', 'America/Los_Angeles'), 'Received on 11/24/26 at 9:15 AM PST', 'Pacific')
+  eq(receivedOn('2026-11-24T17:15:00Z', ''), 'Received on 11/24/26 at 12:15 PM EST', 'no zone saved: Eastern')
 })
 check('file names: the right month, FamilyMeal shapes', () => {
   const f = { fromDate: '2026-11-25', toDate: '2026-11-25', desc: true, today: '2026-11-17' }

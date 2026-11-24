@@ -2,6 +2,7 @@ import { sql } from '../db'
 import { expandFulfillmentFilter } from './fulfillment-filter'
 import { paymentLabel, PAID_LABELS } from '../order/stripe-facts'
 import { SHORTFALL_VIA } from '../order/refund-stripe-fee'
+import { orderDayKey } from '../order-time'
 
 /**
  * THE canonical order-money report: FamilyMeal's column set, with a payout figure
@@ -290,6 +291,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
     SELECT o.reference::text AS order_reference, o.order_number, o.restaurant_name, pc.name AS paid_to_name, (m.paid_ref <> o.restaurant_reference) AS transferred_money,
            o.customer_first_name, o.customer_last_name,
            COALESCE(o.placed_at, o.created_at) AS created_at,
+           COALESCE(NULLIF((SELECT oc.timezone FROM disco_restaurant_cache oc WHERE oc.restaurant_reference = o.restaurant_reference::text LIMIT 1), ''), pc.timezone) AS restaurant_timezone,
            o.order_date::text AS order_date, o.order_time::text AS order_time,
            o.delivery_type, o.order_status, o.refund, o.source_of_order,
            t.source, t.subtotal, t.state_tax, t.local_tax, t.other_tax,
@@ -442,7 +444,9 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       orderId: String(row.order_number ?? ''),
       orderReference: String(row.order_reference ?? ''),
       customerName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ').trim(),
-      createdDate: row.created_at ? new Date(row.created_at as string).toISOString().slice(0, 10) : '',
+      // The day the order was placed in the RESTAURANT's time zone (was the UTC day, so a California order placed after 4 PM
+      // read as the next day). Display only: the created-date filter above is unchanged (Peter, 2026-11-24, lib/order-time.ts).
+      createdDate: row.created_at ? orderDayKey(row.created_at, row.restaurant_timezone as string | null) : '',
       serviceType: service,
       orderDate: String(row.order_date ?? ''),
       orderTime: String(row.order_time ?? '').slice(0, 5),

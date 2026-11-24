@@ -18,6 +18,7 @@ import { loadOrderItemsWithAddOns } from '../order-items'
 import { formatTime12 } from '../utils/time'
 import { restaurantDisplayAddress } from '../address-display'
 import { waivedForOrder } from '../promotions/diner-promotions'
+import { formatOrderClock, orderTimeZone } from '../order-time'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -249,12 +250,12 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     // Date portion is MM/DD/YYYY — matching fmtDate and every other date on the
     // page (was `dateStyle: 'medium'`, e.g. "Aug 14, 2026", the only written-month
     // date on an otherwise all-numeric page).
+    // With the zone's abbreviation, "11/24/2026, 9:15 AM PST" (Peter, 2026-11-24, lib/order-time.ts).
     orderReceived: (o.placed_at || o.created_at) ? (() => {
       const dt = new Date((o.placed_at || o.created_at) as string)
-      const tz = cacheTimezone || 'America/New_York'
+      const tz = orderTimeZone(cacheTimezone)
       const date = dt.toLocaleDateString('en-US', { timeZone: tz, month: '2-digit', day: '2-digit', year: 'numeric' })
-      const time = dt.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })
-      return `${date}, ${time}`
+      return `${date}, ${formatOrderClock(dt, tz)}`
     })() : '',
     deliveryAddress,
     persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,

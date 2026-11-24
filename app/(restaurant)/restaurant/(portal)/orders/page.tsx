@@ -13,6 +13,7 @@ import { toast } from '../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { fulfillmentDateTime } from '../../../../../lib/order/fulfillment-time'
 import { formatTime12 } from '../../../../../lib/utils/time'
+import { formatOrderTime } from '../../../../../lib/order-time'
 import { formatDisplayAddress } from '../../../../../lib/address-display'
 import { TimeSelect } from '../_components/TimeSelect'
 
@@ -358,33 +359,11 @@ function SourcePill({ source }: { source: string }) {
   )
 }
 
-function fmtDateTime(iso?: string) {
-  if (!iso) return ''
-  // Normalize the formats the drop-off field can arrive in: ISO, a Postgres
-  // "YYYY-MM-DD HH:MM:SS" (no "T"), or FM's "DD.MM.YYYY HH:MM". Return '' on
-  // anything unparseable so the caller hides the row instead of rendering
-  // "Invalid Date".
-  const s = String(iso).trim()
-  let d = new Date(s)
-  if (isNaN(d.getTime()) && s.includes(' ') && !s.includes('T')) d = new Date(s.replace(' ', 'T'))
-  if (isNaN(d.getTime())) {
-    const m = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/.exec(s)
-    if (m) d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0))
-  }
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-}
 
-// "Jun 23, 2026 4:35 PM" — order-placed timestamp in the restaurant's timezone
-// (defaults to America/New_York when the order carries no tz).
-function fmtCreatedAt(iso?: string, tz: string = RESTAURANT_TZ_DEFAULT): string {
-  if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz })
-    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
-    return `${date} ${time}`
-  } catch { return '' }
+// "Nov 24, 9:15 AM PST" — an order instant (placed, edited) in the restaurant's own time zone with its abbreviation
+// (lib/order-time.ts; Eastern when the restaurant has none saved). Peter, 2026-11-24.
+function fmtCreatedAt(iso?: string, tz?: string | null): string {
+  return formatOrderTime(iso, tz)
 }
 
 // Mirrors FM mappingOrderDetails() — combines delivery / tips / tax fields
@@ -514,7 +493,7 @@ function pick(obj: EditRecord, keys: string[]): unknown {
   return undefined
 }
 
-function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: () => void }) {
+function EditHistoryPanel({ orderRef, timeZone, onClose }: { orderRef: string; timeZone?: string | null; onClose: () => void }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [history, setHistory] = useState<EditRecord[]>([])
@@ -556,7 +535,7 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
     return (
       <div key={i} style={{ borderLeft: '2px solid #5B6FE8', paddingLeft: 14, marginBottom: 22 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{editor || 'Edited'}</div>
-        {when && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtDateTime(typeof when === 'string' ? when : String(when))}</div>}
+        {when && fmtCreatedAt(String(when), timeZone) && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtCreatedAt(typeof when === 'string' ? when : String(when), timeZone)}</div>}
 
         {priceChanged && (
           <div style={{ marginTop: 10, fontSize: 12, color: '#555' }}>
@@ -1021,7 +1000,7 @@ export function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: s
             {(order.refundStripeFee ?? 0) > 0 && <DetailRow label="Stripe fee on refund (from your payout)" value={`-${fmt(order.refundStripeFee ?? 0)}`} valueColor="#E53935" />}
             {(order.refundStripeFeePending ?? 0) > 0 && <DetailRow label="Stripe fee on refund (to be deducted)" value={`-${fmt(order.refundStripeFeePending ?? 0)}`} valueColor="#B26A00" />}
             {order.persons != null && <DetailRow label="Headcount" value={String(order.persons)} />}
-            {order.orderCreatedDate && <DetailRow label="Order Placed" value={fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || order.restaurant?.timezone || undefined)} />}
+            {order.orderCreatedDate && <DetailRow label="Order Placed" value={fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || order.restaurant?.timezone)} />}
             {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}
             {order.restaurant?.address?.addressLine1 && <DetailRow label="Store address" value={[order.restaurant.address.addressLine1, order.restaurant.address.city, order.restaurant.address.state, order.restaurant.address.zipcode].filter(Boolean).join(', ')} />}
             {order.restaurant?.address?.phoneNumber && <DetailRow label="Store phone" value={order.restaurant.address.phoneNumber} />}
@@ -1570,6 +1549,7 @@ function OrdersContent() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [drawerRef, setDrawerRef] = useState<string | null>(null)
   const [historyRef, setHistoryRef] = useState<string | null>(null)
+  const [historyTz, setHistoryTz] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ msg: string; action: () => void } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Mirrors `orders` so loadOrders can diff against the current list without
@@ -2047,7 +2027,7 @@ function OrdersContent() {
                           first column), so the two date columns can no longer be
                           confused for each other at a glance. */}
                       <td style={{ padding: '12px 14px', fontSize: 11, color: '#aaa', whiteSpace: 'nowrap' }}>
-                        {fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || undefined) || '—'}
+                        {fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone) || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, color: '#666' }}>
                         {fulfillmentLabel(order.deliveryType, order.orderType)}
@@ -2126,6 +2106,7 @@ function OrdersContent() {
                             onClick={e => {
                               e.stopPropagation()
                               setHistoryRef(order.orderReference)
+                              setHistoryTz(order.restaurantTimezone || null)
                             }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#5B6FE8', padding: '2px 6px', lineHeight: 1 }}
                           >
@@ -2180,7 +2161,7 @@ function OrdersContent() {
 
       {/* Edit History Panel */}
       {historyRef && (
-        <EditHistoryPanel orderRef={historyRef} onClose={() => setHistoryRef(null)} />
+        <EditHistoryPanel orderRef={historyRef} timeZone={historyTz} onClose={() => setHistoryRef(null)} />
       )}
 
       {confirm && <ConfirmDialog message={confirm.msg} onConfirm={() => { confirm.action(); setConfirm(null) }} onCancel={() => setConfirm(null)} />}

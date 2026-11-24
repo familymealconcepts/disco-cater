@@ -25,6 +25,7 @@ import { pdfSafe } from '../pdf-text'
 import { formatTime12 } from '../utils/time'
 import { loadOrderPdfData, renderOrderPdf, wrapPdfText, type OrderPdfData } from './order-pdf'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
+import { formatOrderClock, orderTimeZone } from '../order-time'
 
 export const EXPORT_FORMATS = ['SUMMARY', 'DETAILS', 'XLSX'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
@@ -86,14 +87,14 @@ export function longDate(iso: string): string {
 /** 'MM/dd/YY'. */
 const shortDate = (iso: string) => { const [y, m, d] = iso.split('-'); return y ? `${m}/${d}/${y.slice(2)}` : iso }
 
-/** "Received on MM/DD/YY at h:mm AM", in the restaurant's zone, from when the order was placed. */
+/** "Received on MM/DD/YY at h:mm AM PST", in the restaurant's zone with its abbreviation, from when the order was placed. */
 export function receivedOn(placedAt: string | null, tz: string): string {
   if (!placedAt) return ''
   const dt = new Date(placedAt)
   if (Number.isNaN(dt.getTime())) return ''
-  const date = dt.toLocaleDateString('en-US', { timeZone: tz, month: '2-digit', day: '2-digit', year: '2-digit' })
-  const time = dt.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })
-  return `Received on ${date} at ${time}`
+  const zone = orderTimeZone(tz)
+  const date = dt.toLocaleDateString('en-US', { timeZone: zone, month: '2-digit', day: '2-digit', year: '2-digit' })
+  return `Received on ${date} at ${formatOrderClock(dt, zone)}`
 }
 
 // ── Loading ─────────────────────────────────────────────────────────────────────────────────────────

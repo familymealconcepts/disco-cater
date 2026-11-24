@@ -26,6 +26,7 @@ import { sanitizePhone } from './utils/phone'
 import { restaurantDisplayAddress } from './address-display'
 import { notifyNmOrderEvent } from './nm-order-event'
 import { loadDeliveryTrackingUrl } from './order/delivery-tracking'
+import { formatOrderTime } from './order-time'
 
 // Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
 // creates for a login-disabled holder row — provably never deliverable (confirmed
@@ -463,7 +464,7 @@ export async function dispatchOrderConfirmations(
   let outcomeRef = ''
   try {
     const orders = (await sql`
-      SELECT reference, order_number, order_type, delivery_type, source_of_order, is_direct_entry, order_date, order_time, delivery_time_window, note, created_at,
+      SELECT reference, order_number, order_type, delivery_type, source_of_order, is_direct_entry, order_date, order_time, delivery_time_window, note, created_at, placed_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tax_exempt_state, tips,
@@ -601,11 +602,9 @@ export async function dispatchOrderConfirmations(
       // a hardcoded 30-minute range and disagreed with the order page, which
       // has always read the live setting.
       orderTime: formatTimeWindow(String(o.order_time ?? ''), effectiveWindow, isDelivery),
-      // "Order Received" in the restaurant's local timezone (was UTC, which read
-      // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
-      orderReceived: o.created_at
-        ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' })
-        : '',
+      // "Order Received" in the restaurant's own time zone with its abbreviation, "Nov 24, 2026, 9:15 AM PST", from when the order was
+      // PLACED like the PDF and the portal (was created_at, the sync time). Eastern when none is saved. Peter, 2026-11-24.
+      orderReceived: formatOrderTime(o.placed_at || o.created_at, cacheTimezone, { year: 'always' }),
       orderMealPackages,
       subtotal,
       serviceCharge,

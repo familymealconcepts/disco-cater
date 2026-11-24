@@ -156,6 +156,28 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Each row's restaurant time zone, so "Placed" shows in it (Peter, 2026-11-24, lib/order-time.ts). Native rows already carry
+    // it; FamilyMeal rows get it from disco_restaurant_cache. Blank means none saved: the page then shows Eastern, labelled.
+    if (data && Array.isArray(data.content) && data.content.length) {
+      const rows = data.content as Record<string, unknown>[]
+      const need = [...new Set(rows.filter(r => !r.restaurantTimezone).map(r => String(r.restaurantReference ?? '').toLowerCase()).filter(x => UUID_RE.test(x)))]
+      if (need.length) {
+        try {
+          const tz = (await sql`
+            SELECT restaurant_reference::text AS ref, timezone FROM disco_restaurant_cache
+             WHERE restaurant_reference = ANY(${need}::text[]) AND COALESCE(timezone, '') <> ''
+          `) as { ref: string; timezone: string }[]
+          const byRef = new Map(tz.map(t => [t.ref.toLowerCase(), t.timezone]))
+          for (const r of rows) {
+            if (r.restaurantTimezone) continue
+            const z = byRef.get(String(r.restaurantReference ?? '').toLowerCase())
+            if (z) r.restaurantTimezone = z
+          }
+        } catch (e) {
+          console.error('[admin/orders] time zone lookup failed (non-fatal):', e instanceof Error ? e.message : e)
+        }
+      }
+    }
     // Delivery address + instructions from Disco's own copy, for native and
     // FamilyMeal rows alike (FM's list carries neither), so the details panel
     // can show them. One query per page; best-effort.

@@ -5,6 +5,7 @@ import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { formatTime12 } from '../../../../../lib/utils/time'
+import { formatOrderTime } from '../../../../../lib/order-time'
 import { formatDisplayAddress } from '../../../../../lib/address-display'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
@@ -438,7 +439,7 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Email not delivered — not resent</div>
               {order.emailFailures.map((f, i) => (
                 <div key={i} style={{ marginTop: i ? 8 : 0, overflowWrap: 'anywhere' }}>
-                  <div><strong>{f.recipient}</strong> · {new Date(f.eventTime).toLocaleString()}</div>
+                  <div><strong>{f.recipient}</strong> · {formatOrderTime(f.eventTime, order.restaurantTimezone) || f.eventTime}</div>
                   {f.subject && <div style={{ color: '#555' }}>{f.subject}</div>}
                   <div style={{ color: '#555' }}>{f.reason}</div>
                 </div>
@@ -907,7 +908,7 @@ function AdminOrdersContent() {
               <tr key={o.orderReference}
                 onClick={isSuperAdmin ? () => setSelected(o) : undefined}
                 style={isSuperAdmin ? { cursor: 'pointer' } : undefined}>
-                <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
+                <td style={{ ...cell, color: '#666', whiteSpace: 'nowrap' }}>{formatOrderTime(o.createdDate, o.restaurantTimezone) || fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
                 <td style={cell}>{customerName(o)}</td>
                 <td style={cell}>
