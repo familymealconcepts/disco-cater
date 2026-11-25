@@ -102,9 +102,11 @@ async function assertRestaurantFundsRefund(
     refundAmount: ctx.refundCents / 100, neededAmount: plan.neededCents / 100, heldAmount: can / 100,
   })
   await alertRefundRefused(ctx.orderReference, { refund: ctx.refundCents / 100, needed: plan.neededCents / 100, holds: can / 100 })
+  // Shown to whoever pressed Refund: the restaurant in its portal, or a Super Admin.
+  const whose = ctx.via === 'admin_refund' ? "the restaurant's" : 'your'
   throw new RefundRefusedError(
-    `Nothing was refunded and no money moved. This refund needs ${money(plan.neededCents)} from your Stripe balance, ` +
-    `which can only cover ${money(can)} of it right now. Please try again once your balance covers it.`,
+    `Nothing was refunded and no money moved. This refund needs ${money(plan.neededCents)} from ${whose} Stripe balance, ` +
+    `which can only cover ${money(can)} of it right now. Please try again once ${whose} balance covers it.`,
   )
 }
 
@@ -367,7 +369,7 @@ async function planPaymentSlice(
   }
   const destTransfer = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id ?? null
   if (!hasTransfer && !separateId && opts.requireTransfer) {
-    throw new RefundRefusedError('This payment was not paid out to the restaurant by a Stripe transfer, so the restaurant\'s share of this refund cannot be taken back from it. Nothing has been refunded and no money has moved. Disco does not cover refunds — Peter can refund this by hand in Stripe.')
+    throw new RefundRefusedError('Nothing was refunded and no money moved. This payment can\'t be refunded from the portal. Please contact concierge@discocater.com.')
   }
   if (hasTransfer) {
     // reverse_transfer: Stripe takes refund ÷ charge of the transfer's ORIGINAL amount,
