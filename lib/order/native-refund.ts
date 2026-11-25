@@ -96,7 +96,6 @@ async function assertRestaurantFundsRefund(
   if (plan.ok) return
 
   const can = plan.neededCents - plan.unplacedCents
-  const acct = plan.view()[0]
   console.error('[native-refund] refund refused — the restaurant cannot give its share back', { ...ctx, ...seen })
   await recordMoneyFailure({
     kind: 'refund_refused', via: ctx.via, orderReference: ctx.orderReference,
@@ -104,10 +103,8 @@ async function assertRestaurantFundsRefund(
   })
   await alertRefundRefused(ctx.orderReference, { refund: ctx.refundCents / 100, needed: plan.neededCents / 100, holds: can / 100 })
   throw new RefundRefusedError(
-    `This refund needs ${money(plan.neededCents)} back from the restaurant, but only ${money(can)} can be taken back right now` +
-    (acct ? ` (its Stripe balance has ${money(Math.round(acct.available * 100))} available; other orders' pending money cannot be used)` : '') +
-    `. Nothing has been refunded and no money has moved. Disco does not cover refunds — retry once the restaurant's balance has ` +
-    `the money, or Peter can cover it by hand in Stripe.`,
+    `Nothing was refunded and no money moved. This refund needs ${money(plan.neededCents)} from your Stripe balance, ` +
+    `which can only cover ${money(can)} of it right now. Please try again once your balance covers it.`,
   )
 }
 
